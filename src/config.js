@@ -1,0 +1,68 @@
+// ============================================================================
+//  CONFIG — El "feel" del coche vive aquí.
+//
+//  Todos estos números están pensados para AJUSTARSE JUGANDO. Abre este
+//  archivo, cambia un valor, guarda (Fast Refresh recarga solo) y vuelve a
+//  probar. No hace falta tocar App.js para tunear la conducción.
+//
+//  Las unidades de velocidad/aceleración están en "unidades de mundo" por
+//  segundo. El mundo mide WORLD_WIDTH de ancho (ver abajo) y se escala para
+//  llenar la pantalla, así que estos números se sienten igual en cualquier
+//  móvil.
+// ============================================================================
+
+export const CONFIG = {
+  // --- Mundo --------------------------------------------------------------
+  // Ancho de referencia del circuito. No suele hacer falta tocarlo; cambia
+  // la "escala" a la que se juega todo. La altura se calcula según la
+  // proporción de la pantalla.
+  WORLD_WIDTH: 400,
+
+  // --- Aceleración y velocidad -------------------------------------------
+  // El coche acelera SOLO (no hay botón de gas). ACCEL = cuánta velocidad
+  // gana por segundo mientras no choca. MAX_SPEED = techo de velocidad.
+  ACCEL: 150, // u/s^2  (sube despacio: da tiempo a controlar)
+  MAX_SPEED: 250, // u/s  (techo alto: conducir limpio se vuelve rápido y exigente)
+
+  // --- Giro ---------------------------------------------------------------
+  // Grados por segundo que puede girar el coche a velocidad ~0 (giro máximo).
+  TURN_RATE_MAX_DEG: 220,
+  // A velocidad máxima el giro se reduce a este factor del máximo (0..1).
+  // Ej: 0.65 => a tope de velocidad todavía gira el 65% que gira lento.
+  // Esto es lo que hace que "a más velocidad, gire menos" (pero sin pasarse).
+  TURN_RATE_AT_MAX_SPEED: 0.65,
+
+  // Ease del volante (no es giro instantáneo):
+  // segundos que tarda el volante en ir de 0 a full al PULSAR (in) y de full
+  // a 0 al SOLTAR (out). Más bajo = giro más inmediato/sensible.
+  STEER_EASE_IN: 0.1, // s
+  STEER_EASE_OUT: 0.09, // s
+
+  // --- Colisión con muros -------------------------------------------------
+  // Fracción de velocidad que se PIERDE en el IMPACTO (0.6 = pierde el 60%).
+  // Solo se aplica en el primer frame del choque, no mientras rozas la pared.
+  // Alto = chocar castiga fuerte (el reto es no chocar para mantener velocidad).
+  CRASH_SPEED_LOSS: 0.6,
+  // Aturdimiento: milisegundos tras el IMPACTO en los que el volante NO
+  // responde. Corto para poder corregir rápido tras un roce.
+  CRASH_STUN_MS: 150,
+  // Cómo rebota contra la pared (restitución de la velocidad reflejada):
+  //   0 = se desliza pegado a la pared (sin rebote)
+  //   1 = rebote de espejo completo (sale como bola de billar)
+  // Valores medios: redirige hacia dentro perdiendo algo de energía.
+  CRASH_BOUNCE: 0.4,
+
+  // --- Coche (tamaño de la caja de colisión, en unidades de mundo) --------
+  CAR_LENGTH: 32,
+  CAR_WIDTH: 17,
+
+  // --- Circuito -----------------------------------------------------------
+  TRACK_WIDTH: 104, // ancho del carril
+
+  // --- Debug / ayudas visuales -------------------------------------------
+  // true => dibuja una flecha sutil en cada zona táctil (para comparar el
+  // "feel" con y sin pista visual de dónde tocar).
+  SHOW_TOUCH_HINTS: false,
+  // true => dibuja los bordes del carril y el eje (para depurar la colisión).
+  SHOW_DEBUG: false,
+};
