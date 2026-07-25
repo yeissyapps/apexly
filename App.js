@@ -241,6 +241,13 @@ function Groups({ onBack, onChanged }) {
     } finally { setBusy(false); }
   }
 
+  async function shareInvite(g) {
+    const msg =
+      `Únete a mi grupo "${g.name}" en Circuito Diario 🏁\n\n` +
+      `Abre la app → Grupos → "Unirse con código" e introduce:\n${g.join_code}`;
+    try { await Share.share({ message: msg }); } catch (_) {}
+  }
+
   async function doJoin() {
     if (!code.trim() || busy) return;
     setBusy(true); setMsg(null);
@@ -306,8 +313,13 @@ function Groups({ onBack, onChanged }) {
       ) : (
         groups.map((g) => (
           <View key={g.id} style={styles.groupRow}>
-            <Text style={styles.groupName}>{g.name}</Text>
-            <Text style={styles.groupCode}>{g.join_code}</Text>
+            <View style={styles.groupInfo}>
+              <Text style={styles.groupName} numberOfLines={1}>{g.name}</Text>
+              <Text style={styles.groupCode}>Código: {g.join_code}</Text>
+            </View>
+            <Pressable style={styles.inviteBtn} onPress={() => shareInvite(g)} hitSlop={8}>
+              <Text style={styles.inviteBtnText}>Invitar</Text>
+            </Pressable>
           </View>
         ))
       )}
@@ -409,7 +421,7 @@ function Results({ result, label, weather, nickname, refreshKey, onRetry, onHome
           </Text>
         )}
         <Text style={styles.resultTime}>{fmt(result.ms)}</Text>
-        <Text style={styles.resultTrack}>{label}</Text>
+        <Text style={styles.resultTrack}>{wx.icon} {label}</Text>
       </View>
 
       {/* Stats */}
@@ -419,40 +431,18 @@ function Results({ result, label, weather, nickname, refreshKey, onRetry, onHome
         <Stat k="Al líder" v={standing ? fmtSecs(standing.gapToLeaderMs) : '—'} />
       </View>
 
-      {/* Tarjeta para compartir */}
-      <View style={styles.shareCard}>
-        <View style={styles.shareTop}>
-          <Text style={styles.shareName}>Circuito Diario</Text>
-          <Text style={styles.shareDay}>{wx.icon} {dayShort()}</Text>
-        </View>
-        <Text style={styles.shareTime}>{fmt(result.ms)}</Text>
-        <View style={styles.shareRow}>
-          <Text style={styles.shareMeta}>
-            {standing ? `${standing.rank}.º de ${standing.total} · +${fmtSecs(standing.gapToLeaderMs)} al líder` : label}
-          </Text>
-          {result.isBest && <Text style={styles.sharePill}>Récord</Text>}
-        </View>
-      </View>
-
-      <Pressable style={styles.primaryBtn} onPress={shareResult}>
-        <Text style={styles.primaryBtnText}>Compartir vuelta</Text>
+      <Pressable style={styles.primaryBtn} onPress={onRetry}>
+        <Text style={styles.primaryBtnText}>Reintentar</Text>
       </Pressable>
 
       <View style={styles.resultBtns}>
-        <Pressable style={[styles.secondaryBtn, styles.flex1]} onPress={onRetry}>
-          <Text style={styles.secondaryBtnText}>Reintentar</Text>
+        <Pressable style={[styles.secondaryBtn, styles.flex1]} onPress={shareResult}>
+          <Text style={styles.secondaryBtnText}>Compartir</Text>
         </Pressable>
         <Pressable style={[styles.secondaryBtn, styles.flex1]} onPress={onHome}>
           <Text style={styles.secondaryBtnText}>Inicio</Text>
         </Pressable>
       </View>
-
-      {result.streak?.current >= 1 && (
-        <Text style={styles.resultStreak}>
-          Racha de {result.streak.current} {result.streak.current === 1 ? 'día' : 'días'}
-          {result.streak.isNewLongest && result.streak.current >= 3 ? ' · ¡tu mejor racha!' : ''}
-        </Text>
-      )}
 
       <View style={{ height: 22 }} />
       <Leaderboard refreshKey={refreshKey} />
@@ -519,8 +509,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16, marginTop: 8,
   },
-  groupName: { color: C.ink, fontSize: 17, fontWeight: '700', flex: 1, marginRight: 10 },
-  groupCode: { color: C.gold, fontSize: 15, fontWeight: '800', letterSpacing: 1, fontFamily: MONO, fontVariant: ['tabular-nums'] },
+  groupInfo: { flex: 1, marginRight: 12 },
+  groupName: { color: C.ink, fontSize: 17, fontWeight: '700' },
+  groupCode: { color: C.gold, fontSize: 13, fontWeight: '800', letterSpacing: 1, fontFamily: MONO, fontVariant: ['tabular-nums'], marginTop: 2 },
+  inviteBtn: { backgroundColor: C.hot, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
+  inviteBtnText: { color: C.hotInk, fontSize: 14, fontWeight: '800' },
 
   primaryBtn: { backgroundColor: C.hot, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   primaryBtnDisabled: { opacity: 0.4 },

@@ -14,6 +14,7 @@ import Svg, { G, Line, Polygon, Polyline, Rect, Circle } from 'react-native-svg'
 import { CONFIG } from './config';
 import { fmt } from './format';
 import { NEUTRAL } from './weather';
+import RainOverlay from './RainOverlay';
 
 const now = () => Date.now();
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -168,7 +169,7 @@ export default function Game({ track, ghost, weather, onFinish, onExit }) {
       <View style={[styles.playArea, { top: HUD_H, width: playW, height: playH }]}>
         <Svg width={playW} height={playH} viewBox={`0 0 ${playW} ${playH}`}>
           <G transform={camTransform}>
-            <TrackLayer track={track} showDebug={CONFIG.SHOW_DEBUG} />
+            <TrackLayer track={track} showDebug={CONFIG.SHOW_DEBUG} wet={wx.id === 'rain'} />
             {/* Coche fantasma (tu mejor vuelta), translúcido, por debajo */}
             {view.ghost && (
               <Rect
@@ -220,6 +221,9 @@ export default function Game({ track, ghost, weather, onFinish, onExit }) {
         >
           {CONFIG.SHOW_TOUCH_HINTS && <Text style={styles.hint}>›</Text>}
         </Pressable>
+
+        {/* Efecto de lluvia (solo días de lluvia) */}
+        {wx.id === 'rain' && <RainOverlay w={playW} h={playH} />}
 
         {/* Parte meteorológico (siempre visible) */}
         <View pointerEvents="none" style={styles.wxPill}>
@@ -292,14 +296,15 @@ function checkeredQuads(finish) {
   return quads;
 }
 
-const TrackLayer = ({ track, showDebug }) => {
+const TrackLayer = ({ track, showDebug, wet }) => {
   const road = track.roadPolygon.map((p) => `${p.x},${p.y}`).join(' ');
   const lane = track.center.map((p) => `${p.x},${p.y}`).join(' ');
   const checks = checkeredQuads(track.finish);
+  const asphalt = wet ? '#181f29' : ROAD.asphalt; // asfalto más oscuro/frío mojado
   return (
     <G>
       {/* Asfalto */}
-      <Polygon points={road} fill={ROAD.asphalt} />
+      <Polygon points={road} fill={asphalt} />
       {/* Piano rojo/blanco continuo: base blanca + rayas rojas, sobre el borde */}
       <Polygon points={road} fill="none" stroke={ROAD.kerbWhite} strokeWidth={KERB_W} strokeLinejoin="round" />
       <Polygon points={road} fill="none" stroke={ROAD.kerbRed} strokeWidth={KERB_W} strokeLinejoin="round" strokeDasharray="11,11" />
