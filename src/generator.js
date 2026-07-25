@@ -58,13 +58,17 @@ const secLen = (sec) => sec.reduce((a, id) => a + pieceLen[id], 0);
 //     y reintenta con otra semilla si hace falta. -----------------------------
 const pick = (r, a) => a[Math.floor(r() * a.length)];
 const SECTIONS = {
-  // Rápida: recta muy larga, o recta con un par de kinks (bend suave a tope).
+  // Rápida: recta de buen ritmo pero SIEMPRE rota por kinks (nunca un dragstrip
+  //   plano). El tramo de entrada tira a medio, con alguna larga puntual.
   fast: (r) => {
-    if (chance(r, 0.4)) {
-      const d = flip(r);
-      return [pick(r, ['straight_m', 'straight_l']), d ? 'kink_L' : 'kink_R', 'straight_s', d ? 'kink_R' : 'kink_L', 'straight_s'];
-    }
-    return [pick(r, ['straight_l', 'straight_xl', 'straight_l'])];
+    const d = flip(r);
+    return [
+      pick(r, ['straight_s', 'straight_m', 'straight_m', 'straight_l']),
+      d ? 'kink_L' : 'kink_R',
+      pick(r, ['straight_s', 'straight_m']),
+      d ? 'kink_R' : 'kink_L',
+      'straight_s',
+    ];
   },
   // Fluida: par de curvas amplias (sweeper / wide / bend), radio grande.
   flow: (r) => {
@@ -147,7 +151,8 @@ function generateSpec(dateKey) {
     let last = null, run = 0, guard = 0;
     while (len < TARGET && guard++ < 40) {
       let t = weightedType(rng);
-      if (t === last && run >= 2) { while (t === last) t = weightedType(rng); }
+      // No repetir 3 veces seguidas; y nunca dos 'fast' seguidas (evita encadenar rectas).
+      if (t === last && (run >= 2 || t === 'fast')) { while (t === last) t = weightedType(rng); }
       const sec = SECTIONS[t](rng);
       const sl = secLen(sec);
       if (len + sl > MAXLEN) break;
