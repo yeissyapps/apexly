@@ -11,6 +11,8 @@
 //  un stub para no romper el flujo.
 // ============================================================================
 
+import { REWARDED_UNIT } from './adsConfig';
+
 let admob = null;
 try {
   admob = require('react-native-google-mobile-ads');
@@ -20,11 +22,20 @@ try {
 
 let initialized = false;
 
-export function initAds() {
+// Inicializa AdMob tras recabar el consentimiento UMP/GDPR (obligatorio en la
+// UE). Si el formulario no aplica o falla, se sigue igualmente (no bloquea).
+export async function initAds() {
   if (!admob || initialized) return;
   initialized = true;
   try {
-    admob.default().initialize();
+    const { AdsConsent } = admob;
+    if (AdsConsent) {
+      try {
+        await AdsConsent.requestInfoUpdate();
+        await AdsConsent.loadAndShowConsentFormIfRequired();
+      } catch (_) {}
+    }
+    await admob.default().initialize();
   } catch (_) {}
 }
 
@@ -36,7 +47,7 @@ export function showRewarded() {
       return;
     }
 
-    const { RewardedAd, RewardedAdEventType, AdEventType, TestIds } = admob;
+    const { RewardedAd, RewardedAdEventType, AdEventType } = admob;
     let done = false;
     let earned = false;
     let unsubs = [];
@@ -49,7 +60,7 @@ export function showRewarded() {
     };
 
     try {
-      const ad = RewardedAd.createForAdRequest(TestIds.REWARDED, {
+      const ad = RewardedAd.createForAdRequest(REWARDED_UNIT, {
         requestNonPersonalizedAdsOnly: true,
       });
       unsubs.push(ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
