@@ -34,7 +34,7 @@ import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
 import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
 import { PUSH_ENABLED, intentosTxt } from './src/features';
-import { initAds, showRewarded } from './src/ads';
+import { initAds, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions } from './src/ads';
 import ShareCard from './src/ShareCard';
 import { shareCardImage } from './src/share';
 
@@ -58,6 +58,7 @@ export default function App() {
   const [forceWx, setForceWx] = useState(null); // id de clima forzado (modo prueba)
   const [att, setAtt] = useState({ used: 0, bonus: 0 }); // intentos del día
   const [unlocking, setUnlocking] = useState(false);     // viendo el anuncio
+  const [privacyOptional, setPrivacyOptional] = useState(false); // ¿mostrar "Privacidad de anuncios"?
   const left = calcLeft(att);
   const total = FREE_ATTEMPTS + (att?.bonus || 0);
   const daily = useMemo(() => dailyCircuit(todayKey()), []);
@@ -71,10 +72,11 @@ export default function App() {
     loadGhost(todayKey()).then(setGhost).catch(() => {});
   }, []);
 
-  // Cargar los intentos del día + inicializar anuncios.
+  // Cargar los intentos del día + inicializar anuncios (y, tras el consentimiento,
+  // saber si hay que ofrecer un punto para revisarlo/revocarlo más adelante).
   useEffect(() => {
     loadAttempts(todayKey()).then(setAtt).catch(() => {});
-    initAds();
+    initAds().then(() => isPrivacyOptionsRequired()).then(setPrivacyOptional).catch(() => {});
   }, []);
 
   // Consume un intento al empezar una vuelta.
@@ -297,6 +299,12 @@ export default function App() {
 
       <View style={{ height: 24 }} />
       <Leaderboard refreshKey={refreshKey} onManageGroups={() => setScreen('groups')} />
+
+      {privacyOptional && (
+        <Pressable style={styles.privacyLink} onPress={() => showPrivacyOptions()} hitSlop={8}>
+          <Text style={styles.privacyLinkText}>Privacidad de anuncios</Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }
@@ -769,6 +777,9 @@ const styles = StyleSheet.create({
   devChipTextOn: { color: C.ink },
   devReset: { marginTop: 10, alignItems: 'center', paddingVertical: 8, borderRadius: 10, backgroundColor: C.card2, borderWidth: 1, borderColor: C.line },
   devResetText: { color: C.dim, fontSize: 13, fontWeight: '700' },
+
+  privacyLink: { alignItems: 'center', marginTop: 20, paddingVertical: 6 },
+  privacyLinkText: { color: C.faint, fontSize: 12, fontWeight: '600', textDecorationLine: 'underline' },
 
   errTitle: { color: C.ink, fontSize: 22, fontWeight: '800', marginBottom: 6 },
   errSub: { color: C.dim, fontSize: 14, textAlign: 'center', marginBottom: 20 },

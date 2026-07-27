@@ -39,6 +39,30 @@ export async function initAds() {
   } catch (_) {}
 }
 
+// ¿Debe ofrecerse un punto para revisar/revocar el consentimiento? (solo
+// aplica a usuarios EEE/UK/Suiza a quienes se les mostró el formulario UMP).
+export async function isPrivacyOptionsRequired() {
+  if (!admob) return false;
+  try {
+    const { AdsConsent, AdsConsentPrivacyOptionsRequirementStatus } = admob;
+    if (!AdsConsent) return false;
+    const info = await AdsConsent.getConsentInfo();
+    return info?.privacyOptionsRequirementStatus === AdsConsentPrivacyOptionsRequirementStatus.REQUIRED;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Reabre el formulario de privacidad (para que el usuario cambie o revoque
+// su consentimiento en cualquier momento, no solo la primera vez).
+export async function showPrivacyOptions() {
+  if (!admob) return;
+  try {
+    const { AdsConsent } = admob;
+    if (AdsConsent) await AdsConsent.showPrivacyOptionsForm();
+  } catch (_) {}
+}
+
 export function showRewarded() {
   return new Promise((resolve) => {
     // Fallback: sin módulo nativo → simula el anuncio (no bloquea el desarrollo).
