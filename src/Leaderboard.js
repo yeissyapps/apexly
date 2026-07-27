@@ -14,7 +14,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import Avatar from './Avatar';
 import { getLeaderboard, listMyGroups } from './api';
-import { fmt, fmtSecs } from './format';
+import { fmtTime, fmtSecs } from './format';
 import { C, MONO } from './theme';
 
 const PODIUM_RING = [C.gold, C.silver, C.bronze];
@@ -93,7 +93,7 @@ export default function Leaderboard({ refreshKey = 0, onManageGroups }) {
                     {r.streak >= 2 && <Text style={styles.sub}>racha {r.streak}</Text>}
                   </View>
                   <View style={styles.rt}>
-                    <Text style={styles.time}>{fmt(r.bestMs)}</Text>
+                    <Text style={styles.time}>{fmtTime(r.bestMs)}</Text>
                     {r.rank === 1 ? (
                       <Text style={[styles.delta, styles.deltaLead]}>líder</Text>
                     ) : (
@@ -137,7 +137,7 @@ function Podium({ rows }) {
               </View>
             </View>
             <Text style={styles.podName} numberOfLines={1}>{r.isMe ? 'Tú' : r.nickname}</Text>
-            <Text style={styles.podTime}>{fmt(r.bestMs)}</Text>
+            <Text style={styles.podTime}>{fmtTime(r.bestMs)}</Text>
           </View>
         );
       })}
@@ -153,16 +153,8 @@ function Banner({ me, rows }) {
       </View>
     );
   }
-  if (me.rank === 1) {
-    return (
-      <View style={styles.banner}>
-        <Text style={styles.bannerBig}>Vas primero</Text>
-        {rows.length > 1 && (
-          <Text style={styles.bannerSub}>Ventaja de {fmtSecs(rows[1].bestMs - me.bestMs)}s sobre el 2.º</Text>
-        )}
-      </View>
-    );
-  }
+  // Si vas primero, no hace falta banner: ya se ve en el podio y la lista.
+  if (me.rank === 1) return null;
   const gapUp = me.bestMs - rows[me.rank - 2].bestMs;
   return (
     <View style={styles.banner}>

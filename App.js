@@ -23,7 +23,7 @@ import { dailyWeather, weatherById, WEATHER_IDS } from './src/weather';
 // Modo de prueba: muestra un selector de clima en Inicio para ver los 4 efectos
 // sin esperar a la fecha. Poner en false (o borrar) antes de publicar.
 const DEV_WEATHER = true;
-import { fmt, fmtSecs } from './src/format';
+import { fmtTime, fmtSecs } from './src/format';
 import { C, MONO } from './src/theme';
 import {
   ensureSession, ensureDailyTrack, getLocalNickname, saveNickname, submitTime,
@@ -32,7 +32,7 @@ import {
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
-import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft as calcLeft, AD_BATCH } from './src/attempts';
+import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
 import { initAds, showRewarded } from './src/ads';
 
 const PAD = 50; // hueco superior (barra de estado oculta)
@@ -56,6 +56,7 @@ export default function App() {
   const [att, setAtt] = useState({ used: 0, bonus: 0 }); // intentos del día
   const [unlocking, setUnlocking] = useState(false);     // viendo el anuncio
   const left = calcLeft(att);
+  const total = FREE_ATTEMPTS + (att?.bonus || 0);
   const daily = useMemo(() => dailyCircuit(todayKey()), []);
   const weather = useMemo(
     () => (forceWx ? weatherById(forceWx) : dailyWeather(todayKey())),
@@ -226,6 +227,7 @@ export default function App() {
         weather={weather}
         nickname={nickname}
         attemptsLeft={left}
+        total={total}
         refreshKey={refreshKey}
         onRetry={tryPlay}
         onHome={() => setScreen('home')}
@@ -248,6 +250,11 @@ export default function App() {
       </View>
 
       <View style={styles.trackCard}>
+        <View style={[styles.attBadge, left <= 0 && styles.attBadgeEmpty]}>
+          <Text style={[styles.attBadgeText, left <= 0 && styles.attBadgeTextEmpty]}>
+            Intentos {Math.max(0, left)}/{total}
+          </Text>
+        </View>
         <Text style={styles.trackLabel}>Circuito de hoy</Text>
         <Text style={styles.trackName}>{daily.label}</Text>
         <Text style={styles.trackDesc}>Generado para hoy · ~{Math.round(daily.timeEstimate)}s limpio</Text>
@@ -260,17 +267,14 @@ export default function App() {
         {ghost && (
           <View style={styles.trackBest}>
             <Text style={styles.trackBestK}>Tu mejor hoy</Text>
-            <Text style={styles.trackBestV}>{fmt(ghost.ms)}</Text>
+            <Text style={styles.trackBestV}>{fmtTime(ghost.ms)}</Text>
           </View>
         )}
       </View>
 
       <Pressable style={styles.primaryBtn} onPress={tryPlay}>
-        <Text style={styles.primaryBtnText}>{left > 0 ? 'Jugar' : 'Ver anuncio para +3 intentos'}</Text>
+        <Text style={styles.primaryBtnText}>{left > 0 ? 'Jugar' : `Ver anuncio · +${AD_BATCH} intentos`}</Text>
       </Pressable>
-      <Text style={styles.attemptsHint}>
-        {left > 0 ? `Intentos hoy: ${left}` : 'Sin intentos hoy · mira un anuncio para seguir'}
-      </Text>
 
       {DEV_WEATHER && (
         <View style={styles.devRow}>
@@ -474,15 +478,24 @@ function Onboarding({ onDone }) {
 // ---------------------------------------------------------------------------
 //  Resultado: tiempo + stats + tarjeta para compartir. Micro-recompensa si récord.
 // ---------------------------------------------------------------------------
-function Results({ result, label, weather, nickname, attemptsLeft = Infinity, refreshKey, onRetry, onHome }) {
+function Results({ result, label, weather, nickname, attemptsLeft = Infinity, total = 0, refreshKey, onRetry, onHome }) {
   const wx = weather || { icon: '', label: '' };
   const outOfAttempts = attemptsLeft <= 0;
   const scale = useRef(new Animated.Value(0.6)).current;
   const opacity = useRef(new Animated.Value(0)).current;
-  const [standing, setStanding] = useState(null); // { rank, total, gapToLeaderMs }
+  const [standing, setStanding] = useState(null);      // global { rank, total, gapToLeaderMs }
+  const [groupRank, setGroupRank] = useState(null);     // puesto en tu grupo principal
+
+  // Logro conseguido (prioridad: 1º global > 1º de grupo > mejora personal > sin mejora).
+  const isGlobalTop = standing?.rank === 1;
+  const isGroupTop = !isGlobalTop && groupRank === 1;
+  const improved = !isGlobalTop && !isGroupTop && result.isBest;
+  const vibe = isGlobalTop ? 'global' : isGroupTop ? 'group' : improved ? 'best' : 'flat';
+  const timeColor = vibe === 'global' ? C.gold : vibe === 'group' ? C.purple : vibe === 'best' ? C.green : C.gold;
+  const celebrate = vibe !== 'flat';
 
   useEffect(() => {
-    if (!result.submitting && result.isBest) {
+    if (!result.submitting && celebrate) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       scale.setValue(0.6);
       opacity.setValue(0);
@@ -491,9 +504,9 @@ function Results({ result, label, weather, nickname, attemptsLeft = Infinity, re
         Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
       ]).start();
     }
-  }, [result.submitting, result.isBest]);
+  }, [result.submitting, vibe]);
 
-  // Posición global para stats + tarjeta de compartir.
+  // Posición global (para color del tiempo + compartir).
   useEffect(() => {
     if (result.submitting) return;
     let alive = true;
@@ -507,40 +520,67 @@ function Results({ result, label, weather, nickname, attemptsLeft = Infinity, re
     return () => { alive = false; };
   }, [result.submitting, refreshKey]);
 
+  // Puesto en tu grupo principal (para el color morado si eres 1.º del grupo).
+  useEffect(() => {
+    if (result.submitting) return;
+    let alive = true;
+    listMyGroups()
+      .then((gs) => {
+        if (!gs || gs.length === 0) return null;
+        return getLeaderboard(gs[0].id).then((rows) => {
+          if (!alive) return;
+          const me = rows.find((r) => r.isMe);
+          if (me) setGroupRank(me.rank);
+        });
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [result.submitting, refreshKey]);
+
   async function shareResult() {
-    const parts = [`Circuito Diario · ${dayShort()} ${wx.icon}`.trim(), fmt(result.ms)];
+    const parts = [`Circuito Diario · ${dayShort()} ${wx.icon}`.trim(), fmtTime(result.ms)];
     if (standing) parts.push(`${standing.rank}.º de ${standing.total} · +${fmtSecs(standing.gapToLeaderMs)}s al líder`);
     parts.push('¿Me superas?');
     try { await Share.share({ message: parts.join('\n') }); } catch (_) {}
   }
+
+  const banner =
+    vibe === 'global' ? { text: '◆  MEJOR TIEMPO MUNDIAL  ◆', style: styles.badgeGlobal, txt: styles.badgeGlobalTxt } :
+    vibe === 'group' ? { text: '★ 1.º DE TU GRUPO', style: styles.badgeGroup, txt: styles.badgeGroupTxt } :
+    vibe === 'best' ? { text: '★ NUEVO RÉCORD', style: styles.badgeBest, txt: styles.badgeBestTxt } :
+    null;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.screenContent}>
       <StatusBar hidden />
 
       <View style={styles.resultTop}>
-        {result.isBest ? (
-          <Animated.View style={[styles.recordBadge, { opacity, transform: [{ scale }] }]}>
-            <Text style={styles.recordText}>★ NUEVO RÉCORD</Text>
-          </Animated.View>
+        {banner ? (
+          vibe === 'global' ? (
+            <Animated.View style={{ opacity, transform: [{ scale }] }}>
+              <ShineBadge style={banner.style}><Text style={banner.txt}>{banner.text}</Text></ShineBadge>
+            </Animated.View>
+          ) : (
+            <Animated.View style={[banner.style, { opacity, transform: [{ scale }] }]}>
+              <Text style={banner.txt}>{banner.text}</Text>
+            </Animated.View>
+          )
         ) : (
-          <Text style={styles.resultNeutral}>
-            {result.submitting ? 'Guardando…' : 'Buen intento'}
+          <Text style={styles.resultNeutral}>{result.submitting ? 'Guardando…' : 'Buen intento'}</Text>
+        )}
+        <Text style={[styles.resultTime, { color: timeColor }]}>{fmtTime(result.ms)}</Text>
+        <Text style={styles.resultTrack}>{wx.icon} {label}</Text>
+        {standing && (
+          <Text style={styles.resultRank}>
+            {standing.rank}.º de {standing.total} en el mundo
           </Text>
         )}
-        <Text style={styles.resultTime}>{fmt(result.ms)}</Text>
-        <Text style={styles.resultTrack}>{wx.icon} {label}</Text>
-      </View>
-
-      {/* Stats */}
-      <View style={styles.rstats}>
-        <Stat k="Posición" v={standing ? `${standing.rank}.º` : '—'} accent={C.hot} />
-        <Stat k="Racha" v={result.streak?.current >= 1 ? String(result.streak.current) : '—'} />
-        <Stat k="Al líder" v={standing ? fmtSecs(standing.gapToLeaderMs) : '—'} />
       </View>
 
       <Pressable style={styles.primaryBtn} onPress={onRetry}>
-        <Text style={styles.primaryBtnText}>{outOfAttempts ? 'Ver anuncio para reintentar' : 'Reintentar'}</Text>
+        <Text style={styles.primaryBtnText}>
+          {outOfAttempts ? `Ver anuncio · +${AD_BATCH} intentos` : `Reintentar (${attemptsLeft}/${total})`}
+        </Text>
       </Pressable>
 
       <View style={styles.resultBtns}>
@@ -558,12 +598,29 @@ function Results({ result, label, weather, nickname, attemptsLeft = Infinity, re
   );
 }
 
-const Stat = ({ k, v, accent }) => (
-  <View style={styles.rstat}>
-    <Text style={styles.rstatK}>{k}</Text>
-    <Text style={[styles.rstatV, accent && { color: accent }]}>{v}</Text>
-  </View>
-);
+// Badge con "brillo" (barra de luz que barre) para el mejor tiempo mundial.
+function ShineBadge({ children, style }) {
+  const x = useRef(new Animated.Value(-1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(x, { toValue: 1, duration: 1200, useNativeDriver: true }),
+      Animated.timing(x, { toValue: -1, duration: 0, useNativeDriver: true }),
+      Animated.delay(700),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  const translateX = x.interpolate({ inputRange: [-1, 1], outputRange: [-150, 150] });
+  return (
+    <View style={[style, styles.shineWrap]}>
+      {children}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.shineBar, { transform: [{ translateX }, { rotate: '20deg' }] }]}
+      />
+    </View>
+  );
+}
 
 const DevChip = ({ label, active, onPress }) => (
   <Pressable onPress={onPress} style={[styles.devChip, active && styles.devChipOn]}>
@@ -590,7 +647,15 @@ const styles = StyleSheet.create({
 
   trackCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 20, padding: 18, marginBottom: 16 },
   trackLabel: { color: C.dim, fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
-  trackName: { color: C.ink, fontSize: 24, fontWeight: '800', marginTop: 6, letterSpacing: -0.5 },
+  trackName: { color: C.gold, fontSize: 24, fontWeight: '800', marginTop: 6, letterSpacing: -0.5 },
+  attBadge: {
+    position: 'absolute', top: 14, right: 14, zIndex: 2,
+    backgroundColor: 'rgba(255,184,77,0.14)', borderWidth: 1, borderColor: 'rgba(255,184,77,0.34)',
+    borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5,
+  },
+  attBadgeText: { color: C.gold, fontSize: 12, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  attBadgeEmpty: { backgroundColor: 'rgba(255,106,61,0.14)', borderColor: 'rgba(255,106,61,0.34)' },
+  attBadgeTextEmpty: { color: C.hot },
   trackDesc: { color: C.dim, fontSize: 14, marginTop: 4 },
   wxRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   wxIcon: { fontSize: 18 },
@@ -629,32 +694,30 @@ const styles = StyleSheet.create({
   inviteBtn: { backgroundColor: C.hot, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
   inviteBtnText: { color: C.hotInk, fontSize: 14, fontWeight: '800' },
 
-  attemptsHint: { color: C.dim, fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: 10 },
-
-  primaryBtn: { backgroundColor: C.hot, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
+  primaryBtn: { backgroundColor: C.green, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   primaryBtnDisabled: { opacity: 0.4 },
-  primaryBtnText: { color: C.hotInk, fontSize: 17, fontWeight: '800' },
+  primaryBtnText: { color: '#04160b', fontSize: 17, fontWeight: '800' },
   secondaryBtn: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line2, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   secondaryBtnText: { color: C.ink, fontSize: 16, fontWeight: '700' },
   flex1: { flex: 1 },
 
   resultTop: { alignItems: 'center', paddingTop: 10, paddingBottom: 18 },
-  recordBadge: {
-    backgroundColor: 'rgba(184,132,255,0.16)', borderWidth: 1, borderColor: 'rgba(184,132,255,0.38)',
-    borderRadius: 999, paddingHorizontal: 16, paddingVertical: 7, marginBottom: 12,
-  },
-  recordText: { color: C.purple, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
   resultNeutral: { color: C.dim, fontSize: 16, fontWeight: '700', marginBottom: 12 },
   resultTime: {
-    color: C.ink, fontSize: 60, fontWeight: '800', fontFamily: MONO, fontVariant: ['tabular-nums'],
-    textShadowColor: 'rgba(184,132,255,0.35)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 24,
+    fontSize: 56, fontWeight: '800', fontFamily: MONO, fontVariant: ['tabular-nums'],
+    textShadowColor: 'rgba(0,0,0,0.45)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 14,
   },
   resultTrack: { color: C.dim, fontSize: 15, marginTop: 6 },
+  resultRank: { color: C.dim, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'], marginTop: 6 },
 
-  rstats: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  rstat: { flex: 1, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 8, alignItems: 'center', gap: 4 },
-  rstatK: { color: C.dim, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
-  rstatV: { color: C.ink, fontSize: 22, fontWeight: '800', fontFamily: MONO, fontVariant: ['tabular-nums'] },
+  badgeBest: { backgroundColor: 'rgba(67,224,138,0.16)', borderWidth: 1, borderColor: 'rgba(67,224,138,0.40)', borderRadius: 999, paddingHorizontal: 16, paddingVertical: 7, marginBottom: 12 },
+  badgeBestTxt: { color: C.green, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
+  badgeGroup: { backgroundColor: 'rgba(184,132,255,0.16)', borderWidth: 1, borderColor: 'rgba(184,132,255,0.40)', borderRadius: 999, paddingHorizontal: 16, paddingVertical: 7, marginBottom: 12 },
+  badgeGroupTxt: { color: C.purple, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
+  badgeGlobal: { backgroundColor: 'rgba(255,184,77,0.18)', borderWidth: 1, borderColor: 'rgba(255,184,77,0.55)', borderRadius: 999, paddingHorizontal: 18, paddingVertical: 8, marginBottom: 12 },
+  badgeGlobalTxt: { color: C.gold, fontSize: 14, fontWeight: '900', letterSpacing: 1 },
+  shineWrap: { overflow: 'hidden' },
+  shineBar: { position: 'absolute', top: -10, bottom: -10, width: 26, backgroundColor: 'rgba(255,255,255,0.55)' },
 
   shareCard: {
     backgroundColor: C.card2, borderWidth: 1, borderColor: C.line2, borderRadius: 18,

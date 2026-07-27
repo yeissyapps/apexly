@@ -7,7 +7,7 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Svg, { G, Line, Polygon, Polyline, Rect, Circle } from 'react-native-svg';
 
@@ -61,6 +61,8 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
   const pressRight = useRef(false);
   const onFinishRef = useRef(onFinish);
   onFinishRef.current = onFinish;
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
   const ghostRef = useRef(ghost);
   ghostRef.current = ghost;
   const weatherRef = useRef(wx);
@@ -75,14 +77,6 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
     traceRef.current = [];
     lastSampleRef.current = -999;
     ghostIdxRef.current = 0;
-  }
-
-  function resetGame() {
-    resetRun();
-    g.current = initialState(track);
-    pressLeft.current = false;
-    pressRight.current = false;
-    setView(toView(g.current, false, ghostPoseAt(ghostRef.current, 0, ghostIdxRef)));
   }
 
   function startRun() {
@@ -151,12 +145,23 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
     };
   }, [track]);
 
+  // Anti-trampa: si sales de la app EN MITAD de una carrera, se anula.
+  //  El intento ya se gastó al arrancar; no se contabiliza tiempo (solo se
+  //  envía al cruzar meta). Así no se puede pausar para planear la vuelta.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'background' && g.current && g.current.phase === 'running') {
+        g.current.phase = 'ready'; // detiene la simulación en curso
+        if (onExitRef.current) onExitRef.current();
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   if (!view) return <View style={styles.root}><StatusBar hidden /></View>;
 
   const carDeg = (view.heading * 180) / Math.PI;
   const carColor = view.flash ? '#ff5a3c' : '#ffd23f';
-  const noseX = view.x + Math.cos(view.heading) * CONFIG.CAR_LENGTH * 0.32;
-  const noseY = view.y + Math.sin(view.heading) * CONFIG.CAR_LENGTH * 0.32;
 
   const camZoom = playW / CAM_VIEW_W;
   const camRot = -((view.camAngle * 180) / Math.PI + 90);
@@ -172,29 +177,20 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
         <Svg width={playW} height={playH} viewBox={`0 0 ${playW} ${playH}`}>
           <G transform={camTransform}>
             <TrackLayer track={track} showDebug={CONFIG.SHOW_DEBUG} wet={wx.id === 'rain'} />
-            {/* Coche fantasma (tu mejor vuelta), translúcido, por debajo */}
+            {/* Coche fantasma (tu mejor vuelta), muy tenue, por debajo */}
             {view.ghost && (
               <Rect
                 x={view.ghost.x - CONFIG.CAR_LENGTH / 2}
                 y={view.ghost.y - CONFIG.CAR_WIDTH / 2}
                 width={CONFIG.CAR_LENGTH}
                 height={CONFIG.CAR_WIDTH}
-                rx={3}
-                fill="#9fb3d0"
-                opacity={0.35}
+                rx={4}
+                fill="#d5deeb"
+                opacity={0.2}
                 transform={`rotate(${(view.ghost.h * 180) / Math.PI} ${view.ghost.x} ${view.ghost.y})`}
               />
             )}
-            <Rect
-              x={view.x - CONFIG.CAR_LENGTH / 2}
-              y={view.y - CONFIG.CAR_WIDTH / 2}
-              width={CONFIG.CAR_LENGTH}
-              height={CONFIG.CAR_WIDTH}
-              rx={3}
-              fill={carColor}
-              transform={`rotate(${carDeg} ${view.x} ${view.y})`}
-            />
-            <Circle cx={noseX} cy={noseY} r={3.5} fill="#20242e" />
+            <CarSprite x={view.x} y={view.y} deg={carDeg} color={carColor} />
             {CONFIG.SHOW_DEBUG && (
               <Line
                 x1={view.x}
@@ -233,31 +229,37 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
         </View>
 
         {view.phase === 'ready' && (
-          <View pointerEvents="none" style={styles.overlay}>
-            <Text style={styles.overlayBig}>TOCA PARA ARRANCAR</Text>
-            <Text style={styles.overlaySmall}>
-              Mitad izquierda gira ‹  ·  mitad derecha gira ›
-            </Text>
-            {Number.isFinite(attemptsLeft) && (
-              <Text style={styles.overlayAttempts}>
-                {attemptsLeft > 0 ? `Te quedan ${attemptsLeft} ${attemptsLeft === 1 ? 'intento' : 'intentos'} hoy` : 'Sin intentos — mira un anuncio para +3'}
-              </Text>
-            )}
-            {wx.id !== 'clear' && (
-              <Text style={styles.overlayWx}>{wx.icon} {wx.label} · {wx.hint}</Text>
-            )}
+          <View pointerEvents="none" style={styles.startPanel}>
+            <Text style={styles.startTitle}>Toca para arrancar</Text>
+            <Text style={styles.startSub}>Izquierda gira ‹    ·    derecha gira ›</Text>
+            <View style={styles.startMeta}>
+              {Number.isFinite(attemptsLeft) && (
+                <View style={styles.startTag}>
+                  <Text style={styles.startTagText}>
+                    {attemptsLeft > 0 ? `${attemptsLeft} ${attemptsLeft === 1 ? 'intento' : 'intentos'}` : 'Sin intentos'}
+                  </Text>
+                </View>
+              )}
+              {wx.id !== 'clear' && (
+                <View style={[styles.startTag, styles.startTagWx]}>
+                  <Text style={styles.startTagWxText}>{wx.icon} {wx.hint}</Text>
+                </View>
+              )}
+            </View>
           </View>
         )}
       </View>
 
       <View style={[styles.hud, { height: HUD_H, paddingTop: STATUS_PAD }]}>
-        <Pressable style={styles.hudBtn} onPress={onExit} hitSlop={10}>
-          <Text style={styles.hudBtnText}>‹ Salir</Text>
-        </Pressable>
+        <View style={styles.hudSide}>
+          {view.phase === 'ready' && (
+            <Pressable style={styles.hudBtn} onPress={onExit} hitSlop={10}>
+              <Text style={styles.hudBtnText}>‹ Salir</Text>
+            </Pressable>
+          )}
+        </View>
         <Text style={styles.timer}>{fmt(view.elapsed)}</Text>
-        <Pressable style={styles.hudBtn} onPress={resetGame} hitSlop={10}>
-          <Text style={styles.hudBtnText}>↻</Text>
-        </Pressable>
+        <View style={styles.hudSide} />
       </View>
     </View>
   );
@@ -337,6 +339,30 @@ const TrackLayer = ({ track, showDebug, wet }) => {
     </G>
   );
 };
+
+// Coche cenital vectorial: carrocería + cabina + alerones + faros. El eje local
+// +x apunta al morro; se rota y traslada al punto/rumbo del coche.
+function CarSprite({ x, y, deg, color }) {
+  const hl = CONFIG.CAR_LENGTH / 2; // 16
+  const hw = CONFIG.CAR_WIDTH / 2;  // 8.5
+  return (
+    <G transform={`rotate(${deg} ${x} ${y}) translate(${x} ${y})`}>
+      {/* alerón trasero (sobresale por detrás y algo más ancho) */}
+      <Rect x={-hl - 1.5} y={-hw - 2} width={4.5} height={hw * 2 + 4} rx={1.5} fill="#14171d" />
+      {/* carrocería */}
+      <Rect x={-hl} y={-hw} width={hl * 2} height={hw * 2} rx={5.5} ry={6} fill={color} />
+      {/* canal central oscuro (da forma a los pontones) */}
+      <Rect x={-hl + 4} y={-2.2} width={hl * 2 - 8} height={4.4} rx={2.2} fill="rgba(0,0,0,0.16)" />
+      {/* cabina / cristal */}
+      <Rect x={-4} y={-5} width={11} height={10} rx={3.2} fill="#1b2733" />
+      {/* splitter delantero */}
+      <Rect x={hl - 3} y={-hw - 1} width={3} height={hw * 2 + 2} rx={1.2} fill="#14171d" />
+      {/* faros */}
+      <Circle cx={hl - 1.6} cy={-hw + 3.5} r={1.5} fill="#fff6cf" />
+      <Circle cx={hl - 1.6} cy={hw - 3.5} r={1.5} fill="#fff6cf" />
+    </G>
+  );
+}
 
 function initialState(track) {
   return {
@@ -452,11 +478,18 @@ const styles = StyleSheet.create({
   playArea: { position: 'absolute', left: 0, backgroundColor: '#0d0f13' },
   touchZone: { position: 'absolute', top: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' },
   hint: { fontSize: 64, color: 'rgba(255,255,255,0.10)', fontWeight: '800' },
-  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' },
-  overlayBig: { color: '#ffffff', fontSize: 24, fontWeight: '800', letterSpacing: 1 },
-  overlaySmall: { color: 'rgba(255,255,255,0.6)', fontSize: 13, marginTop: 10 },
-  overlayWx: { color: '#ffb84d', fontSize: 14, fontWeight: '700', marginTop: 16 },
-  overlayAttempts: { color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '700', marginTop: 14 },
+  startPanel: {
+    position: 'absolute', left: 24, right: 24, bottom: 46, alignItems: 'center',
+    backgroundColor: 'rgba(13,15,19,0.82)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 18, paddingVertical: 16, paddingHorizontal: 18,
+  },
+  startTitle: { color: '#ffffff', fontSize: 20, fontWeight: '800', letterSpacing: 0.3 },
+  startSub: { color: 'rgba(255,255,255,0.62)', fontSize: 13, marginTop: 6 },
+  startMeta: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap', justifyContent: 'center' },
+  startTag: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
+  startTagText: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '700' },
+  startTagWx: { backgroundColor: 'rgba(255,184,77,0.16)' },
+  startTagWxText: { color: '#ffb84d', fontSize: 12, fontWeight: '700' },
   wxPill: {
     position: 'absolute', top: 12, right: 12,
     backgroundColor: 'rgba(13,15,19,0.72)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
@@ -465,8 +498,9 @@ const styles = StyleSheet.create({
   wxPillText: { color: '#ecebe5', fontSize: 13, fontWeight: '700' },
   hud: {
     position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 18,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#151a26',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#151a26',
   },
+  hudSide: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   timer: { color: '#ffffff', fontSize: 30, fontWeight: '800', fontVariant: ['tabular-nums'] },
   hudBtn: { backgroundColor: '#2a3242', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
   hudBtnText: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
