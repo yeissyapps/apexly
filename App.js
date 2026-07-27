@@ -21,8 +21,8 @@ import { dailyCircuit } from './src/generator';
 import { dailyWeather, weatherById, WEATHER_IDS } from './src/weather';
 
 // Modo de prueba: muestra un selector de clima en Inicio para ver los 4 efectos
-// sin esperar a la fecha. Poner en false (o borrar) antes de publicar.
-const DEV_WEATHER = true;
+// sin esperar a la fecha. false = build de producción (capturas de tienda).
+const DEV_WEATHER = false;
 import { fmtTime, fmtSecs } from './src/format';
 import { C, MONO } from './src/theme';
 import {
