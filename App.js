@@ -34,6 +34,8 @@ import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
 import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
 import { initAds, showRewarded } from './src/ads';
+import ShareCard from './src/ShareCard';
+import { shareCardImage } from './src/share';
 
 const PAD = 50; // hueco superior (barra de estado oculta)
 
@@ -224,6 +226,7 @@ export default function App() {
       <Results
         result={result}
         label={daily.label}
+        track={daily.track}
         weather={weather}
         nickname={nickname}
         attemptsLeft={left}
@@ -478,19 +481,24 @@ function Onboarding({ onDone }) {
 // ---------------------------------------------------------------------------
 //  Resultado: tiempo + stats + tarjeta para compartir. Micro-recompensa si récord.
 // ---------------------------------------------------------------------------
-function Results({ result, label, weather, nickname, attemptsLeft = Infinity, total = 0, refreshKey, onRetry, onHome }) {
+function Results({ result, label, track, weather, nickname, attemptsLeft = Infinity, total = 0, refreshKey, onRetry, onHome }) {
   const wx = weather || { icon: '', label: '' };
   const outOfAttempts = attemptsLeft <= 0;
+  const cardRef = useRef(null);
   const scale = useRef(new Animated.Value(0.6)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const [standing, setStanding] = useState(null);      // global { rank, total, gapToLeaderMs }
   const [groupRank, setGroupRank] = useState(null);     // puesto en tu grupo principal
 
-  // Logro conseguido (prioridad: 1º global > 1º de grupo > mejora personal > sin mejora).
-  const isGlobalTop = standing?.rank === 1;
-  const isGroupTop = !isGlobalTop && groupRank === 1;
-  const improved = !isGlobalTop && !isGroupTop && result.isBest;
-  const vibe = isGlobalTop ? 'global' : isGroupTop ? 'group' : improved ? 'best' : 'flat';
+  // Logro conseguido. La celebración exige HABER MEJORADO en esta vuelta
+  // (result.isBest): si corres más lento sigues 1.º del ranking, pero no es
+  // un logro nuevo → tiempo dorado "sin mejora", sin badge.
+  // Prioridad cuando mejoras: 1.º mundial > 1.º de tu grupo > récord personal.
+  const improved = result.isBest;
+  const isGlobalTop = improved && standing?.rank === 1;
+  const isGroupTop = improved && !isGlobalTop && groupRank === 1;
+  const isPersonalBest = improved && !isGlobalTop && !isGroupTop;
+  const vibe = isGlobalTop ? 'global' : isGroupTop ? 'group' : isPersonalBest ? 'best' : 'flat';
   const timeColor = vibe === 'global' ? C.gold : vibe === 'group' ? C.purple : vibe === 'best' ? C.green : C.gold;
   const celebrate = vibe !== 'flat';
 
@@ -537,11 +545,14 @@ function Results({ result, label, weather, nickname, attemptsLeft = Infinity, to
     return () => { alive = false; };
   }, [result.submitting, refreshKey]);
 
+  const rankText = standing ? `${standing.rank}.º de ${standing.total} en el mundo` : null;
+
   async function shareResult() {
     const parts = [`Circuito Diario · ${dayShort()} ${wx.icon}`.trim(), fmtTime(result.ms)];
     if (standing) parts.push(`${standing.rank}.º de ${standing.total} · +${fmtSecs(standing.gapToLeaderMs)}s al líder`);
     parts.push('¿Me superas?');
-    try { await Share.share({ message: parts.join('\n') }); } catch (_) {}
+    // Genera la imagen y la comparte (con vista previa); si no puede, texto.
+    await shareCardImage(cardRef, parts.join('\n'));
   }
 
   const banner =
@@ -594,6 +605,20 @@ function Results({ result, label, weather, nickname, attemptsLeft = Infinity, to
 
       <View style={{ height: 22 }} />
       <Leaderboard refreshKey={refreshKey} />
+
+      {/* Tarjeta para compartir: renderizada fuera de pantalla y capturada a PNG. */}
+      <View style={styles.offscreen} pointerEvents="none">
+        <ShareCard
+          ref={cardRef}
+          track={track}
+          time={fmtTime(result.ms)}
+          rankText={rankText}
+          weather={wx}
+          nickname={nickname}
+          day={dayShort()}
+          accent={timeColor}
+        />
+      </View>
     </ScrollView>
   );
 }
@@ -718,6 +743,7 @@ const styles = StyleSheet.create({
   badgeGlobalTxt: { color: C.gold, fontSize: 14, fontWeight: '900', letterSpacing: 1 },
   shineWrap: { overflow: 'hidden' },
   shineBar: { position: 'absolute', top: -10, bottom: -10, width: 26, backgroundColor: 'rgba(255,255,255,0.55)' },
+  offscreen: { position: 'absolute', left: -5000, top: 0 },
 
   shareCard: {
     backgroundColor: C.card2, borderWidth: 1, borderColor: C.line2, borderRadius: 18,

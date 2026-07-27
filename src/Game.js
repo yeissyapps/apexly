@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import Svg, { G, Line, Polygon, Polyline, Rect, Circle } from 'react-native-svg';
+import Svg, { G, Line, Path, Polygon, Polyline, Rect, Circle } from 'react-native-svg';
 
 import { CONFIG } from './config';
 import { fmt } from './format';
@@ -340,26 +340,35 @@ const TrackLayer = ({ track, showDebug, wet }) => {
   );
 };
 
-// Coche cenital vectorial: carrocería + cabina + alerones + faros. El eje local
-// +x apunta al morro; se rota y traslada al punto/rumbo del coche.
+// Coche cenital estilo Porsche 911 GT3 RS: morro afilado, aletas traseras
+// anchas, gran alerón "cuello de cisne", splitter y faros redondos. El eje
+// local +x apunta al morro. La carrocería usa `color` (personalizable en el
+// futuro); los detalles son fijos.
+const CAR_BODY =
+  'M16,0 C15,-4 13,-6.5 10,-7.2 C6,-7.8 2,-7.2 -2,-7.6 ' +
+  'C-6,-8 -9,-8.6 -12,-8.2 C-14,-7.9 -15.5,-6 -16,0 ' +
+  'C-15.5,6 -14,7.9 -12,8.2 C-9,8.6 -6,8 -2,7.6 ' +
+  'C2,7.2 6,7.8 10,7.2 C13,6.5 15,4 16,0 Z';
+
 function CarSprite({ x, y, deg, color }) {
-  const hl = CONFIG.CAR_LENGTH / 2; // 16
-  const hw = CONFIG.CAR_WIDTH / 2;  // 8.5
   return (
     <G transform={`rotate(${deg} ${x} ${y}) translate(${x} ${y})`}>
-      {/* alerón trasero (sobresale por detrás y algo más ancho) */}
-      <Rect x={-hl - 1.5} y={-hw - 2} width={4.5} height={hw * 2 + 4} rx={1.5} fill="#14171d" />
-      {/* carrocería */}
-      <Rect x={-hl} y={-hw} width={hl * 2} height={hw * 2} rx={5.5} ry={6} fill={color} />
-      {/* canal central oscuro (da forma a los pontones) */}
-      <Rect x={-hl + 4} y={-2.2} width={hl * 2 - 8} height={4.4} rx={2.2} fill="rgba(0,0,0,0.16)" />
-      {/* cabina / cristal */}
-      <Rect x={-4} y={-5} width={11} height={10} rx={3.2} fill="#1b2733" />
-      {/* splitter delantero */}
-      <Rect x={hl - 3} y={-hw - 1} width={3} height={hw * 2 + 2} rx={1.2} fill="#14171d" />
-      {/* faros */}
-      <Circle cx={hl - 1.6} cy={-hw + 3.5} r={1.5} fill="#fff6cf" />
-      <Circle cx={hl - 1.6} cy={hw - 3.5} r={1.5} fill="#fff6cf" />
+      {/* Alerón trasero "cuello de cisne": montante + plano ancho + derivas */}
+      <Rect x={-16.5} y={-4} width={3.6} height={8} rx={1} fill="#0f1218" />
+      <Rect x={-18.6} y={-10.8} width={3.6} height={21.6} rx={1.6} fill="#0f1218" />
+      <Rect x={-18.9} y={-11.2} width={5.2} height={2.4} rx={1} fill="#0f1218" />
+      <Rect x={-18.9} y={8.8} width={5.2} height={2.4} rx={1} fill="#0f1218" />
+      {/* Carrocería */}
+      <Path d={CAR_BODY} fill={color} />
+      {/* Rejilla del motor (trasera) */}
+      <Rect x={-12} y={-4.6} width={8} height={9.2} rx={2} fill="rgba(0,0,0,0.18)" />
+      {/* Cabina / cristales */}
+      <Rect x={-1} y={-4.8} width={9} height={9.6} rx={3.4} fill="#1b2733" />
+      {/* Splitter delantero (sobresale del morro) */}
+      <Rect x={13.6} y={-6.6} width={2.6} height={13.2} rx={1} fill="#0f1218" />
+      {/* Faros */}
+      <Circle cx={11.4} cy={-5} r={1.7} fill="#fff6cf" />
+      <Circle cx={11.4} cy={5} r={1.7} fill="#fff6cf" />
     </G>
   );
 }
