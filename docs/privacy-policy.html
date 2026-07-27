@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de Privacidad — Circuito Diario</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d24; --muted: #5d646e; --line: #e6e8ec;
+    --accent: #1f7a4d; --card: #f6f7f9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1013; --fg: #e7e9ee; --muted: #9aa1ab; --line: #242a32;
+      --accent: #43e08a; --card: #161a1f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.65; font-size: 17px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 48px 22px 80px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 28px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .updated { color: var(--muted); font-size: 14px; margin: 0; }
+  h2 { font-size: 20px; margin: 36px 0 10px; letter-spacing: -0.01em; }
+  p, li { color: var(--fg); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+  .muted { color: var(--muted); }
+  .note {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; font-size: 15px; color: var(--muted); margin: 24px 0;
+  }
+  strong { font-weight: 650; }
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+  code { background: var(--card); padding: 1px 6px; border-radius: 6px; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Política de Privacidad</h1>
+    <p class="updated">Circuito Diario · Última actualización: 27 de julio de 2026</p>
+  </header>
+
+  <p>
+    Esta Política de Privacidad describe cómo <strong>Circuito Diario</strong> (en adelante,
+    «la App»), desarrollada por <strong>[NOMBRE DEL DESARROLLADOR]</strong>, trata la información
+    cuando usas la App. Al usar la App aceptas las prácticas descritas aquí.
+  </p>
+
+  <div class="note">
+    En resumen: la App funciona con una <strong>cuenta anónima</strong> (no pedimos correo,
+    teléfono ni nombre real). Guardamos tu apodo y tus tiempos para las clasificaciones,
+    y mostramos anuncios a través de Google AdMob. No vendemos tus datos.
+  </div>
+
+  <h2>1. Responsable del tratamiento</h2>
+  <p>
+    El responsable del tratamiento de tus datos es <strong>[NOMBRE DEL DESARROLLADOR]</strong>.
+    Para cualquier cuestión sobre privacidad puedes escribirnos a
+    <a href="mailto:[CORREO DE CONTACTO]">[CORREO DE CONTACTO]</a>.
+  </p>
+
+  <h2>2. Qué datos tratamos</h2>
+  <ul>
+    <li><strong>Identificador de cuenta anónimo:</strong> al abrir la App se crea automáticamente
+      una cuenta anónima con un identificador aleatorio. No está vinculada a tu correo, teléfono
+      ni a tu identidad real.</li>
+    <li><strong>Apodo:</strong> el nombre que eliges para aparecer en las clasificaciones.</li>
+    <li><strong>Datos de juego:</strong> tu mejor tiempo de cada día, tu racha y los grupos a los
+      que perteneces (y sus códigos de invitación).</li>
+    <li><strong>Datos de publicidad:</strong> los proveedores de anuncios (Google AdMob) pueden
+      tratar identificadores del dispositivo (como el identificador de publicidad), la dirección IP
+      aproximada y datos técnicos del dispositivo para mostrar anuncios. Consulta el apartado 5.</li>
+    <li><strong>Compras:</strong> si adquieres la opción de intentos ilimitados, la compra la
+      procesa <strong>Google Play</strong>. No recibimos ni almacenamos los datos de tu método de pago;
+      solo sabemos si la compra se ha realizado.</li>
+    <li><strong>Datos guardados solo en tu dispositivo:</strong> tu apodo, tu mejor vuelta del día
+      y el recuento de intentos se guardan localmente en tu dispositivo.</li>
+  </ul>
+
+  <h2>3. Para qué usamos los datos y base legal</h2>
+  <ul>
+    <li><strong>Hacer funcionar el juego y las clasificaciones</strong> (apodo, tiempos, grupos):
+      necesario para prestarte el servicio.</li>
+    <li><strong>Mostrar anuncios</strong> que permiten ofrecer la App de forma gratuita: sobre la base
+      de tu <strong>consentimiento</strong> (ver apartado 5).</li>
+    <li><strong>Procesar compras</strong> dentro de la App: para ejecutar la compra que solicitas.</li>
+  </ul>
+
+  <h2>4. Con quién compartimos los datos</h2>
+  <p>No vendemos tus datos. Los compartimos únicamente con proveedores que nos ayudan a operar la App:</p>
+  <ul>
+    <li><strong>Supabase</strong> (alojamiento y base de datos), donde se guardan tu cuenta anónima,
+      apodo, tiempos y grupos. Más información en
+      <a href="https://supabase.com/privacy" target="_blank" rel="noopener">supabase.com/privacy</a>.</li>
+    <li><strong>Google AdMob</strong> (publicidad). Más información en
+      <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">policies.google.com/privacy</a>
+      y en <a href="https://support.google.com/admob/answer/6128543" target="_blank" rel="noopener">cómo usa Google los datos</a>.</li>
+    <li><strong>Google Play</strong> (procesamiento de compras). Más información en
+      <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">policies.google.com/privacy</a>.</li>
+  </ul>
+
+  <h2>5. Publicidad y consentimiento</h2>
+  <p>
+    La App muestra anuncios a través de <strong>Google AdMob</strong>. Antes de mostrarte anuncios,
+    y cuando la normativa lo exige (por ejemplo, en el Espacio Económico Europeo), te pediremos tu
+    consentimiento mediante un formulario. Puedes revisar o cambiar tu elección en cualquier momento
+    desde los ajustes de la App o desde los ajustes de tu dispositivo (por ejemplo, restableciendo o
+    limitando el identificador de publicidad).
+  </p>
+
+  <h2>6. Transferencias internacionales</h2>
+  <p>
+    Nuestros proveedores (Supabase y Google) pueden tratar datos en servidores situados fuera de tu país,
+    incluidos Estados Unidos. Estos proveedores aplican mecanismos de protección reconocidos para dichas
+    transferencias.
+  </p>
+
+  <h2>7. Conservación de los datos</h2>
+  <p>
+    Conservamos tu cuenta anónima y tus datos de juego mientras usas la App. Los tiempos de cada día se
+    asocian a la clasificación de esa jornada. Si solicitas la eliminación de tus datos, los borraremos
+    de nuestros sistemas salvo que debamos conservarlos por obligación legal.
+  </p>
+
+  <h2>8. Tus derechos</h2>
+  <p>
+    Puedes solicitar el acceso, la rectificación o la eliminación de tus datos escribiendo a
+    <a href="mailto:[CORREO DE CONTACTO]">[CORREO DE CONTACTO]</a>. Como las cuentas son anónimas, es
+    posible que necesitemos información adicional para localizar tus datos. Además, si desinstalas la App
+    se eliminan los datos guardados en tu dispositivo y dejamos de recopilar información nueva.
+  </p>
+
+  <h2>9. Menores</h2>
+  <p>
+    La App no está dirigida a menores de 13 años (o de la edad mínima que exija tu país) y no recopilamos
+    conscientemente datos de menores de esa edad. Si crees que un menor nos ha facilitado datos, contáctanos
+    y los eliminaremos.
+  </p>
+
+  <h2>10. Seguridad</h2>
+  <p>
+    Aplicamos medidas razonables para proteger tu información. Ningún sistema es completamente seguro, pero
+    trabajamos para reducir los riesgos de acceso o uso no autorizado.
+  </p>
+
+  <h2>11. Cambios en esta política</h2>
+  <p>
+    Podemos actualizar esta Política de Privacidad. Publicaremos la versión actualizada en esta misma
+    página y cambiaremos la fecha de «Última actualización». Te recomendamos revisarla periódicamente.
+  </p>
+
+  <h2>12. Contacto</h2>
+  <p>
+    Si tienes cualquier duda sobre esta política o sobre el tratamiento de tus datos, escríbenos a
+    <a href="mailto:[CORREO DE CONTACTO]">[CORREO DE CONTACTO]</a>.
+  </p>
+
+  <footer>
+    Circuito Diario — Política de Privacidad. Última actualización: 27 de julio de 2026.
+  </footer>
+</div>
+</body>
+</html>
