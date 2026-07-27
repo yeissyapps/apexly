@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import Avatar from './Avatar';
-import { getLeaderboard, listMyGroups } from './api';
+import { getLeaderboard, getGlobalBoard, listMyGroups } from './api';
 import { fmtTime, fmtSecs } from './format';
 import { C, MONO } from './theme';
 
@@ -22,9 +22,11 @@ const PODIUM_RING = [C.gold, C.silver, C.bronze];
 export default function Leaderboard({ refreshKey = 0, onManageGroups }) {
   const [groups, setGroups] = useState([]);
   const [scope, setScope] = useState('global'); // 'global' o id de grupo
-  const [rows, setRows] = useState(null);
+  const [rows, setRows] = useState(null);        // datos de un GRUPO (array)
+  const [board, setBoard] = useState(null);      // datos GLOBALES (top+ventana)
   const [error, setError] = useState(false);
   const picked = useRef(false);
+  const isGlobal = scope === 'global';
 
   // Cargar mis grupos (y al refrescar, por si me acabo de unir a uno).
   useEffect(() => {
@@ -39,20 +41,24 @@ export default function Leaderboard({ refreshKey = 0, onManageGroups }) {
     return () => { alive = false; };
   }, [refreshKey]);
 
-  // Cargar el ranking del ámbito seleccionado.
+  // Cargar el ranking del ámbito seleccionado. Global usa la vía escalable.
   useEffect(() => {
     let alive = true;
     setError(false);
     setRows(null);
-    getLeaderboard(scope)
-      .then((r) => { if (alive) setRows(r); })
+    setBoard(null);
+    const load = isGlobal ? getGlobalBoard() : getLeaderboard(scope);
+    load
+      .then((res) => { if (!alive) return; if (isGlobal) setBoard(res); else setRows(res); })
       .catch(() => { if (alive) setError(true); });
     return () => { alive = false; };
   }, [scope, refreshKey]);
 
   function selectScope(s) { picked.current = true; setScope(s); }
 
-  const leaderMs = rows && rows.length ? rows[0].bestMs : 0;
+  const groupLeaderMs = rows && rows.length ? rows[0].bestMs : 0;
+  const loading = isGlobal ? !board : !rows;
+  const empty = isGlobal ? board && board.total === 0 : rows && rows.length === 0;
 
   return (
     <View style={styles.wrap}>
@@ -60,7 +66,7 @@ export default function Leaderboard({ refreshKey = 0, onManageGroups }) {
 
       {/* Selector de ámbito: Global + cada grupo + gestionar */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips} contentContainerStyle={styles.chipsRow}>
-        <Chip label="Global" active={scope === 'global'} onPress={() => selectScope('global')} />
+        <Chip label="Global" active={isGlobal} onPress={() => selectScope('global')} />
         {groups.map((g) => (
           <Chip key={g.id} label={g.name} active={scope === g.id} onPress={() => selectScope(g.id)} />
         ))}
@@ -69,44 +75,90 @@ export default function Leaderboard({ refreshKey = 0, onManageGroups }) {
 
       {error ? (
         <Text style={styles.muted}>No se pudo cargar el ranking.</Text>
-      ) : !rows ? (
+      ) : loading ? (
         <View style={styles.center}><ActivityIndicator color={C.hot} /></View>
-      ) : rows.length === 0 ? (
+      ) : empty ? (
         <Text style={styles.muted}>
-          {scope === 'global' ? 'Aún no hay tiempos. ¡Sé el primero!' : 'Nadie de este grupo ha jugado hoy.'}
+          {isGlobal ? 'Aún no hay tiempos. ¡Sé el primero!' : 'Nadie de este grupo ha jugado hoy.'}
         </Text>
+      ) : isGlobal ? (
+        <GlobalBoard board={board} />
       ) : (
         <>
           {rows.length >= 3 && <Podium rows={rows} />}
           <Banner me={rows.find((r) => r.isMe) || null} rows={rows} />
           <View style={styles.list}>
-            {rows.map((r) => {
-              const gap = r.bestMs - leaderMs;
-              return (
-                <View key={r.userId} style={[styles.row, r.isMe && styles.rowMe]}>
-                  <Text style={[styles.pos, r.isMe && styles.posMe]}>{r.rank}</Text>
-                  <Avatar name={r.nickname} colorKey={r.userId} size={34} ring={r.isMe ? C.purple : undefined} />
-                  <View style={styles.who}>
-                    <Text style={[styles.name, r.isMe && styles.nameMe]} numberOfLines={1}>
-                      {r.nickname}{r.isMe ? ' (tú)' : ''}
-                    </Text>
-                    {r.streak >= 2 && <Text style={styles.sub}>racha {r.streak}</Text>}
-                  </View>
-                  <View style={styles.rt}>
-                    <Text style={styles.time}>{fmtTime(r.bestMs)}</Text>
-                    {r.rank === 1 ? (
-                      <Text style={[styles.delta, styles.deltaLead]}>líder</Text>
-                    ) : (
-                      <Text style={[styles.delta, styles.deltaGap]}>+{fmtSecs(gap)}</Text>
-                    )}
-                  </View>
-                </View>
-              );
-            })}
+            {rows.map((r) => (
+              <Row key={r.userId} r={r} leaderMs={groupLeaderMs} />
+            ))}
           </View>
         </>
       )}
     </View>
+  );
+}
+
+// Fila de ranking reutilizable (lista de grupo y ventana global).
+function Row({ r, leaderMs }) {
+  const gap = r.bestMs - leaderMs;
+  return (
+    <View style={[styles.row, r.isMe && styles.rowMe]}>
+      <Text style={[styles.pos, r.isMe && styles.posMe]}>{r.rank}</Text>
+      <Avatar name={r.nickname} colorKey={r.userId} size={34} ring={r.isMe ? C.purple : undefined} />
+      <View style={styles.who}>
+        <Text style={[styles.name, r.isMe && styles.nameMe]} numberOfLines={1}>
+          {r.nickname}{r.isMe ? ' (tú)' : ''}
+        </Text>
+        {r.streak >= 2 && <Text style={styles.sub}>racha {r.streak}</Text>}
+      </View>
+      <View style={styles.rt}>
+        <Text style={styles.time}>{fmtTime(r.bestMs)}</Text>
+        {r.rank === 1 ? (
+          <Text style={[styles.delta, styles.deltaLead]}>líder</Text>
+        ) : (
+          <Text style={[styles.delta, styles.deltaGap]}>+{fmtSecs(gap)}</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// Ranking GLOBAL: podio (top 3) + separador + tu ventana (tú ±1). No lista
+// miles de filas; solo lo relevante para ti.
+function GlobalBoard({ board }) {
+  const { top, me, above, below, total, leaderMs } = board;
+  // La ventana solo muestra filas que NO están ya en el podio (rank > 3).
+  const windowRows = [];
+  if (me && me.rank > 3) {
+    if (above && above.rank > 3) windowRows.push(above);
+    windowRows.push(me);
+    if (below) windowRows.push(below);
+  }
+  const gapBetweenPodiumAndWindow = me && me.rank > 3 && (above ? above.rank > 4 : me.rank > 4);
+  const remaining = me && below ? total - below.rank : 0;
+
+  return (
+    <>
+      {top.length >= 3 ? <Podium rows={top} /> : (
+        <View style={styles.list}>
+          {top.map((r) => <Row key={r.userId} r={r} leaderMs={leaderMs} />)}
+        </View>
+      )}
+
+      {me && me.rank > 3 ? (
+        <>
+          {gapBetweenPodiumAndWindow && <Text style={styles.sep}>· · ·</Text>}
+          <View style={styles.list}>
+            {windowRows.map((r) => <Row key={r.userId} r={r} leaderMs={leaderMs} />)}
+          </View>
+          {remaining > 0 && <Text style={styles.moreNote}>y {remaining} más por debajo</Text>}
+        </>
+      ) : !me ? (
+        <View style={[styles.banner, { marginTop: 4 }]}>
+          <Text style={styles.bannerBig}>Juega para entrar en el ranking</Text>
+        </View>
+      ) : null}
+    </>
   );
 }
 
@@ -204,6 +256,8 @@ const styles = StyleSheet.create({
   bannerSub: { color: C.dim, fontSize: 13, marginTop: 4 },
 
   list: { alignSelf: 'stretch' },
+  sep: { color: C.faint, fontSize: 18, fontWeight: '900', textAlign: 'center', letterSpacing: 2, marginBottom: 8 },
+  moreNote: { color: C.faint, fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: 2, marginBottom: 4 },
   row: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: C.card,
     borderWidth: 1, borderColor: C.line, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12,

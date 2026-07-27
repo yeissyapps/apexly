@@ -28,7 +28,7 @@ import { C, MONO } from './src/theme';
 import {
   ensureSession, ensureDailyTrack, getLocalNickname, saveNickname, submitTime,
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
-  getLeaderboard,
+  getLeaderboard, getGlobalBoard,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -518,11 +518,10 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   useEffect(() => {
     if (result.submitting) return;
     let alive = true;
-    getLeaderboard('global')
-      .then((rows) => {
+    getGlobalBoard()
+      .then((b) => {
         if (!alive) return;
-        const me = rows.find((r) => r.isMe);
-        if (me) setStanding({ rank: me.rank, total: rows.length, gapToLeaderMs: me.gapToLeaderMs });
+        if (b.me) setStanding({ rank: b.me.rank, total: b.total, gapToLeaderMs: b.me.gapToLeaderMs });
       })
       .catch(() => {});
     return () => { alive = false; };
