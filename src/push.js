@@ -27,7 +27,7 @@ export async function registerPushToken() {
   try {
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
-        name: 'Circuito Diario',
+        name: 'Apexly',
         importance: Notifications.AndroidImportance.DEFAULT,
       });
     }

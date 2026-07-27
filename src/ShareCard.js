@@ -50,7 +50,7 @@ const ShareCard = forwardRef(function ShareCard(
   return (
     <View ref={ref} collapsable={false} style={styles.card}>
       <View style={styles.head}>
-        <Text style={styles.brand}>CIRCUITO DIARIO</Text>
+        <Text style={styles.brand}>APEXLY</Text>
         <Text style={styles.day}>{day}{wx.icon ? `  ·  ${wx.icon} ${wx.label}` : ''}</Text>
       </View>
 

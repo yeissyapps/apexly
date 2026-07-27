@@ -1,5 +1,5 @@
 // ============================================================================
-//  Circuito Diario — App.  Dirección de arte "A refinada" (oscuro moderno).
+//  Apexly — App.  Dirección de arte "A refinada" (oscuro moderno).
 //
 //  Router de pantallas: carga sesión anónima -> onboarding (nickname la 1.ª vez)
 //  -> Inicio (circuito del día + ranking del grupo) -> Juego -> Resultado.
@@ -331,7 +331,7 @@ function Groups({ onBack, onChanged }) {
 
   async function shareInvite(g) {
     const msg =
-      `Únete a mi grupo "${g.name}" en Circuito Diario 🏁\n\n` +
+      `Únete a mi grupo "${g.name}" en Apexly 🏁\n\n` +
       `Abre la app → Grupos → "Unirse con código" e introduce:\n${g.join_code}`;
     try { await Share.share({ message: msg }); } catch (_) {}
   }
@@ -453,7 +453,7 @@ function Onboarding({ onDone }) {
     <View style={styles.screen}>
       <StatusBar hidden />
       <View style={styles.onboardInner}>
-        <Text style={styles.brand}>Circuito Diario</Text>
+        <Text style={styles.brand}>Apexly</Text>
         <Text style={styles.subtitle}>¿Cómo te llamamos?</Text>
         <TextInput
           style={styles.input}
@@ -548,7 +548,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   const rankText = standing ? `${standing.rank}.º de ${standing.total} en el mundo` : null;
 
   async function shareResult() {
-    const parts = [`Circuito Diario · ${dayShort()} ${wx.icon}`.trim(), fmtTime(result.ms)];
+    const parts = [`Apexly · ${dayShort()} ${wx.icon}`.trim(), fmtTime(result.ms)];
     if (standing) parts.push(`${standing.rank}.º de ${standing.total} · +${fmtSecs(standing.gapToLeaderMs)}s al líder`);
     parts.push('¿Me superas?');
     // Genera la imagen y la comparte (con vista previa); si no puede, texto.

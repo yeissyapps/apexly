@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
     const { data: toks, error: etok } = await admin.from('push_tokens').select('token').in('user_id', passedIds);
     const messages = (toks ?? [])
       .filter((t) => t.token)
-      .map((t) => ({ to: t.token, title: 'Circuito Diario', body: `${myName} te ha superado`, sound: 'default' }));
+      .map((t) => ({ to: t.token, title: 'Apexly', body: `${myName} te ha superado`, sound: 'default' }));
     if (messages.length === 0) {
       return json({ sent: 0, debug: { members: memberIds.length, passed: passedIds.length, tokens: 0, hasService: service.length > 0, etok: etok?.message ?? null } });
     }
