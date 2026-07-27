@@ -18,7 +18,11 @@ import Game from './src/Game';
 import Leaderboard from './src/Leaderboard';
 import { todayKey } from './src/daily';
 import { dailyCircuit } from './src/generator';
-import { dailyWeather } from './src/weather';
+import { dailyWeather, weatherById, WEATHER_IDS } from './src/weather';
+
+// Modo de prueba: muestra un selector de clima en Inicio para ver los 4 efectos
+// sin esperar a la fecha. Poner en false (o borrar) antes de publicar.
+const DEV_WEATHER = true;
 import { fmt, fmtSecs } from './src/format';
 import { C, MONO } from './src/theme';
 import {
@@ -46,8 +50,12 @@ export default function App() {
   const [myStreak, setMyStreak] = useState(null);
   const [ghost, setGhost] = useState(null); // { ms, trace } de tu mejor vuelta de hoy
 
+  const [forceWx, setForceWx] = useState(null); // id de clima forzado (modo prueba)
   const daily = useMemo(() => dailyCircuit(todayKey()), []);
-  const weather = useMemo(() => dailyWeather(todayKey()), []);
+  const weather = useMemo(
+    () => (forceWx ? weatherById(forceWx) : dailyWeather(todayKey())),
+    [forceWx],
+  );
 
   // Cargar el fantasma (tu mejor vuelta) del día.
   useEffect(() => {
@@ -206,6 +214,18 @@ export default function App() {
       <Pressable style={styles.primaryBtn} onPress={() => setScreen('playing')}>
         <Text style={styles.primaryBtnText}>Jugar</Text>
       </Pressable>
+
+      {DEV_WEATHER && (
+        <View style={styles.devRow}>
+          <Text style={styles.devLabel}>🧪 Clima (prueba)</Text>
+          <View style={styles.devChips}>
+            <DevChip label="Real" active={!forceWx} onPress={() => setForceWx(null)} />
+            {WEATHER_IDS.map((id) => (
+              <DevChip key={id} label={weatherById(id).icon} active={forceWx === id} onPress={() => setForceWx(id)} />
+            ))}
+          </View>
+        </View>
+      )}
 
       <View style={{ height: 24 }} />
       <Leaderboard refreshKey={refreshKey} onManageGroups={() => setScreen('groups')} />
@@ -457,6 +477,12 @@ const Stat = ({ k, v, accent }) => (
   </View>
 );
 
+const DevChip = ({ label, active, onPress }) => (
+  <Pressable onPress={onPress} style={[styles.devChip, active && styles.devChipOn]}>
+    <Text style={[styles.devChipText, active && styles.devChipTextOn]}>{label}</Text>
+  </Pressable>
+);
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   screenContent: { paddingHorizontal: 22, paddingTop: PAD, paddingBottom: 40 },
@@ -554,6 +580,14 @@ const styles = StyleSheet.create({
 
   resultBtns: { flexDirection: 'row', gap: 12, marginTop: 12 },
   resultStreak: { color: C.gold, fontSize: 14, fontWeight: '700', marginTop: 14, textAlign: 'center' },
+
+  devRow: { marginTop: 16, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.line, borderStyle: 'dashed' },
+  devLabel: { color: C.faint, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 },
+  devChips: { flexDirection: 'row', gap: 8 },
+  devChip: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: C.card2, borderWidth: 1, borderColor: C.line },
+  devChipOn: { backgroundColor: C.card, borderColor: C.hot },
+  devChipText: { color: C.dim, fontSize: 15, fontWeight: '700' },
+  devChipTextOn: { color: C.ink },
 
   errTitle: { color: C.ink, fontSize: 22, fontWeight: '800', marginBottom: 6 },
   errSub: { color: C.dim, fontSize: 14, textAlign: 'center', marginBottom: 20 },
