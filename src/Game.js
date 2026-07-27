@@ -51,7 +51,7 @@ const CAM_TURN_LERP = 3.5; // suavizado del giro de cámara (menor = más suave)
 
 const SCREEN = Dimensions.get('window');
 
-export default function Game({ track, ghost, weather, onFinish, onExit }) {
+export default function Game({ track, ghost, weather, attemptsLeft = Infinity, onAttemptStart, onNeedMore, onFinish, onExit }) {
   const playW = SCREEN.width;
   const playH = SCREEN.height - HUD_H;
   const wx = weather || NEUTRAL;
@@ -88,9 +88,11 @@ export default function Game({ track, ghost, weather, onFinish, onExit }) {
   function startRun() {
     const s = g.current;
     if (s && s.phase === 'ready') {
+      if (attemptsLeft <= 0) { if (onNeedMore) onNeedMore(); return; } // sin intentos → anuncio
       s.phase = 'running';
       s.startTime = now();
       s.lastTime = now();
+      if (onAttemptStart) onAttemptStart();
     }
   }
 
@@ -236,6 +238,11 @@ export default function Game({ track, ghost, weather, onFinish, onExit }) {
             <Text style={styles.overlaySmall}>
               Mitad izquierda gira ‹  ·  mitad derecha gira ›
             </Text>
+            {Number.isFinite(attemptsLeft) && (
+              <Text style={styles.overlayAttempts}>
+                {attemptsLeft > 0 ? `Te quedan ${attemptsLeft} ${attemptsLeft === 1 ? 'intento' : 'intentos'} hoy` : 'Sin intentos — mira un anuncio para +3'}
+              </Text>
+            )}
             {wx.id !== 'clear' && (
               <Text style={styles.overlayWx}>{wx.icon} {wx.label} · {wx.hint}</Text>
             )}
@@ -449,6 +456,7 @@ const styles = StyleSheet.create({
   overlayBig: { color: '#ffffff', fontSize: 24, fontWeight: '800', letterSpacing: 1 },
   overlaySmall: { color: 'rgba(255,255,255,0.6)', fontSize: 13, marginTop: 10 },
   overlayWx: { color: '#ffb84d', fontSize: 14, fontWeight: '700', marginTop: 16 },
+  overlayAttempts: { color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '700', marginTop: 14 },
   wxPill: {
     position: 'absolute', top: 12, right: 12,
     backgroundColor: 'rgba(13,15,19,0.72)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',

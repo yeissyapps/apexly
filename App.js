@@ -32,6 +32,13 @@ import {
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
+import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft as calcLeft, AD_BATCH } from './src/attempts';
+
+// Anuncio recompensado — STUB de Fase 1a (simula ver un vídeo). En Fase 1b se
+// sustituye por AdMob real (react-native-google-mobile-ads).
+function showRewardedAdStub() {
+  return new Promise((resolve) => setTimeout(() => resolve(true), 600));
+}
 
 const PAD = 50; // hueco superior (barra de estado oculta)
 
@@ -51,6 +58,9 @@ export default function App() {
   const [ghost, setGhost] = useState(null); // { ms, trace } de tu mejor vuelta de hoy
 
   const [forceWx, setForceWx] = useState(null); // id de clima forzado (modo prueba)
+  const [att, setAtt] = useState({ used: 0, bonus: 0 }); // intentos del día
+  const [unlocking, setUnlocking] = useState(false);     // viendo el anuncio
+  const left = calcLeft(att);
   const daily = useMemo(() => dailyCircuit(todayKey()), []);
   const weather = useMemo(
     () => (forceWx ? weatherById(forceWx) : dailyWeather(todayKey())),
@@ -61,6 +71,39 @@ export default function App() {
   useEffect(() => {
     loadGhost(todayKey()).then(setGhost).catch(() => {});
   }, []);
+
+  // Cargar los intentos del día.
+  useEffect(() => {
+    loadAttempts(todayKey()).then(setAtt).catch(() => {});
+  }, []);
+
+  // Consume un intento al empezar una vuelta.
+  function startAttempt() {
+    consumeAttempt(todayKey()).then(setAtt).catch(() => {});
+  }
+
+  // Ver anuncio (stub) → concede un lote de +3 intentos. Devuelve si fue OK.
+  async function watchAdForMore() {
+    if (unlocking) return false;
+    setUnlocking(true);
+    try {
+      const ok = await showRewardedAdStub();
+      if (!ok) return false;
+      const a = await grantBatch(todayKey());
+      setAtt(a);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
+  // Intentar jugar: si hay intentos, a jugar; si no, ofrecer el anuncio.
+  function tryPlay() {
+    if (left > 0) setScreen('playing');
+    else setScreen('nomore');
+  }
 
   // Racha propia (para Inicio): al tener nickname y tras cada partida.
   useEffect(() => {
@@ -159,8 +202,22 @@ export default function App() {
         track={daily.track}
         ghost={ghost?.trace}
         weather={weather}
+        attemptsLeft={left}
+        onAttemptStart={startAttempt}
+        onNeedMore={() => setScreen('nomore')}
         onFinish={handleFinish}
         onExit={() => setScreen('home')}
+      />
+    );
+  }
+
+  if (screen === 'nomore') {
+    return (
+      <NoMoreAttempts
+        left={left}
+        unlocking={unlocking}
+        onWatchAd={async () => { const ok = await watchAdForMore(); if (ok) setScreen('playing'); }}
+        onBack={() => setScreen('home')}
       />
     );
   }
@@ -172,8 +229,9 @@ export default function App() {
         label={daily.label}
         weather={weather}
         nickname={nickname}
+        attemptsLeft={left}
         refreshKey={refreshKey}
-        onRetry={() => setScreen('playing')}
+        onRetry={tryPlay}
         onHome={() => setScreen('home')}
       />
     );
@@ -211,9 +269,12 @@ export default function App() {
         )}
       </View>
 
-      <Pressable style={styles.primaryBtn} onPress={() => setScreen('playing')}>
-        <Text style={styles.primaryBtnText}>Jugar</Text>
+      <Pressable style={styles.primaryBtn} onPress={tryPlay}>
+        <Text style={styles.primaryBtnText}>{left > 0 ? 'Jugar' : 'Ver anuncio para +3 intentos'}</Text>
       </Pressable>
+      <Text style={styles.attemptsHint}>
+        {left > 0 ? `Intentos hoy: ${left}` : 'Sin intentos hoy · mira un anuncio para seguir'}
+      </Text>
 
       {DEV_WEATHER && (
         <View style={styles.devRow}>
@@ -224,6 +285,9 @@ export default function App() {
               <DevChip key={id} label={weatherById(id).icon} active={forceWx === id} onPress={() => setForceWx(id)} />
             ))}
           </View>
+          <Pressable style={styles.devReset} onPress={() => resetAttempts(todayKey()).then(setAtt).catch(() => {})}>
+            <Text style={styles.devResetText}>↺ Reiniciar intentos (ahora {left})</Text>
+          </Pressable>
         </View>
       )}
 
@@ -348,6 +412,33 @@ function Groups({ onBack, onChanged }) {
 }
 
 // ---------------------------------------------------------------------------
+//  Sin intentos: ofrecer ver un anuncio para +3 (rewarded).
+// ---------------------------------------------------------------------------
+function NoMoreAttempts({ left, unlocking, onWatchAd, onBack }) {
+  return (
+    <View style={styles.screen}>
+      <StatusBar hidden />
+      <View style={styles.onboardInner}>
+        <Text style={styles.brand}>Sin intentos por hoy</Text>
+        <Text style={styles.subtitle}>
+          Has usado tus intentos gratis. Mira un anuncio y sigue intentando bajar tu tiempo — te da {AD_BATCH} intentos más.
+        </Text>
+        <Pressable
+          style={[styles.primaryBtn, unlocking && styles.primaryBtnDisabled]}
+          disabled={unlocking}
+          onPress={onWatchAd}
+        >
+          <Text style={styles.primaryBtnText}>{unlocking ? 'Cargando anuncio…' : `Ver anuncio · +${AD_BATCH} intentos`}</Text>
+        </Pressable>
+        <Pressable style={[styles.secondaryBtn, { marginTop: 12 }]} onPress={onBack}>
+          <Text style={styles.secondaryBtnText}>Ahora no</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 //  Onboarding: pedir nickname (sin login).
 // ---------------------------------------------------------------------------
 function Onboarding({ onDone }) {
@@ -387,8 +478,9 @@ function Onboarding({ onDone }) {
 // ---------------------------------------------------------------------------
 //  Resultado: tiempo + stats + tarjeta para compartir. Micro-recompensa si récord.
 // ---------------------------------------------------------------------------
-function Results({ result, label, weather, nickname, refreshKey, onRetry, onHome }) {
+function Results({ result, label, weather, nickname, attemptsLeft = Infinity, refreshKey, onRetry, onHome }) {
   const wx = weather || { icon: '', label: '' };
+  const outOfAttempts = attemptsLeft <= 0;
   const scale = useRef(new Animated.Value(0.6)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const [standing, setStanding] = useState(null); // { rank, total, gapToLeaderMs }
@@ -452,7 +544,7 @@ function Results({ result, label, weather, nickname, refreshKey, onRetry, onHome
       </View>
 
       <Pressable style={styles.primaryBtn} onPress={onRetry}>
-        <Text style={styles.primaryBtnText}>Reintentar</Text>
+        <Text style={styles.primaryBtnText}>{outOfAttempts ? 'Ver anuncio para reintentar' : 'Reintentar'}</Text>
       </Pressable>
 
       <View style={styles.resultBtns}>
@@ -541,6 +633,8 @@ const styles = StyleSheet.create({
   inviteBtn: { backgroundColor: C.hot, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
   inviteBtnText: { color: C.hotInk, fontSize: 14, fontWeight: '800' },
 
+  attemptsHint: { color: C.dim, fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: 10 },
+
   primaryBtn: { backgroundColor: C.hot, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   primaryBtnDisabled: { opacity: 0.4 },
   primaryBtnText: { color: C.hotInk, fontSize: 17, fontWeight: '800' },
@@ -588,6 +682,8 @@ const styles = StyleSheet.create({
   devChipOn: { backgroundColor: C.card, borderColor: C.hot },
   devChipText: { color: C.dim, fontSize: 15, fontWeight: '700' },
   devChipTextOn: { color: C.ink },
+  devReset: { marginTop: 10, alignItems: 'center', paddingVertical: 8, borderRadius: 10, backgroundColor: C.card2, borderWidth: 1, borderColor: C.line },
+  devResetText: { color: C.dim, fontSize: 13, fontWeight: '700' },
 
   errTitle: { color: C.ink, fontSize: 22, fontWeight: '800', marginBottom: 6 },
   errSub: { color: C.dim, fontSize: 14, textAlign: 'center', marginBottom: 20 },
