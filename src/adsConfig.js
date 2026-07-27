@@ -13,15 +13,17 @@
 
 import { Platform } from 'react-native';
 
-export const USE_TEST_ADS = true; // ⚠️ PONER false PARA PRODUCCIÓN
+export const USE_TEST_ADS = false; // ⚠️ PONER false PARA PRODUCCIÓN
 
 // Rewarded de TEST de Google (id público y estable).
 const TEST_REWARDED = 'ca-app-pub-3940256099942544/5224354917';
 
-// TODO(JC): pega aquí tus unidades REALES de AdMob.
+// Unidades REALES de AdMob (app "Apexly").
 const REAL_REWARDED = Platform.select({
-  android: 'ca-app-pub-0000000000000000/0000000000',
-  ios: 'ca-app-pub-0000000000000000/0000000000',
+  android: 'ca-app-pub-4375333671603622/2609862756',
+  // TODO(JC): pega aquí la unidad rewarded real de iOS cuando crees la app
+  // iOS en AdMob. Hasta entonces usa la de TEST para no romper iOS.
+  ios: TEST_REWARDED,
 });
 
 export const REWARDED_UNIT = USE_TEST_ADS ? TEST_REWARDED : REAL_REWARDED;
