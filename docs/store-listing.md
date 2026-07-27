@@ -10,39 +10,39 @@ Un circuito nuevo cada día. Traza la línea ideal y bate a tus amigos.
 
 ## Descripción larga (máx. 4000 caracteres)
 
-🏁 UN CIRCUITO NUEVO CADA DÍA
+UN CIRCUITO NUEVO CADA DÍA
 
 Apexly es la contrarreloj diaria de conducción: cada día, un circuito distinto,
 generado igual para todo el mundo. Tú decides cuándo frenar, cuándo girar y
 dónde apurar la trazada. El mismo reto, para todos, cada 24 horas.
 
-🎮 FÁCIL DE JUGAR, DIFÍCIL DE DOMINAR
+FÁCIL DE JUGAR, DIFÍCIL DE DOMINAR
 
 El coche acelera solo — tu única misión es controlar el volante. Toca la
 mitad izquierda o derecha de la pantalla para girar. A más velocidad, menos
 margen para el error: encontrar la línea ideal es la diferencia entre un buen
 tiempo y uno espectacular.
 
-🌦️ EL CLIMA CAMBIA LAS REGLAS
+EL CLIMA CAMBIA LAS REGLAS
 
 Cada día trae condiciones distintas: asfalto seco y rápido, lluvia que reduce
 el agarre, o viento que te empuja de lado. El mismo circuito se conduce
 distinto según el día.
 
-👻 PERSIGUE A TU PROPIO FANTASMA
+PERSIGUE A TU PROPIO FANTASMA
 
 Tu mejor vuelta del día queda grabada como un coche fantasma translúcido:
 persíguelo, mejora tu marca, y compite contra ti mismo tanto como contra los
 demás.
 
-🏆 CLASIFICACIONES Y GRUPOS
+CLASIFICACIONES Y GRUPOS
 
 - Ranking global: compite contra todo el mundo.
 - Grupos privados: crea o únete a un grupo con código de invitación y compite
   solo contra tus amigos.
 - Racha diaria: juega cada día y mantén tu racha viva.
 
-📤 COMPARTE TU TIEMPO
+COMPARTE TU TIEMPO
 
 Comparte una tarjeta con tu tiempo, tu puesto y el circuito del día — reta a
 tus amigos a superarte.
