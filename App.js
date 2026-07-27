@@ -33,6 +33,7 @@ import {
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
 import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
+import { PUSH_ENABLED, intentosTxt } from './src/features';
 import { initAds, showRewarded } from './src/ads';
 import ShareCard from './src/ShareCard';
 import { shareCardImage } from './src/share';
@@ -112,7 +113,7 @@ export default function App() {
 
   // Registrar token de notificaciones una vez que hay nickname.
   useEffect(() => {
-    if (nickname) registerPushToken().catch(() => {});
+    if (PUSH_ENABLED && nickname) registerPushToken().catch(() => {});
   }, [nickname]);
 
   // Init: sesión anónima + ¿tenemos nickname?
@@ -155,7 +156,7 @@ export default function App() {
       let streak = null;
       try { streak = await bumpStreak(); } catch (_) {}
       setResult({ ms, isBest, submitting: false, streak });
-      if (isBest) notifyOvertakes(ms, prevMs); // fire-and-forget: avisa a quien adelantaste
+      if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs); // fire-and-forget: avisa a quien adelantaste
     } catch (e) {
       setResult({ ms, isBest: false, submitting: false, error: true });
     }
@@ -276,7 +277,7 @@ export default function App() {
       </View>
 
       <Pressable style={styles.primaryBtn} onPress={tryPlay}>
-        <Text style={styles.primaryBtnText}>{left > 0 ? 'Jugar' : `Ver anuncio · +${AD_BATCH} intentos`}</Text>
+        <Text style={styles.primaryBtnText}>{left > 0 ? 'Jugar' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
       </Pressable>
 
       {DEV_WEATHER && (
@@ -424,14 +425,14 @@ function NoMoreAttempts({ left, unlocking, onWatchAd, onBack }) {
       <View style={styles.onboardInner}>
         <Text style={styles.brand}>Sin intentos por hoy</Text>
         <Text style={styles.subtitle}>
-          Has usado tus intentos gratis. Mira un anuncio y sigue intentando bajar tu tiempo — te da {AD_BATCH} intentos más.
+          Has usado tus intentos gratis. Mira un anuncio y sigue intentando bajar tu tiempo — te da {intentosTxt(AD_BATCH)} más.
         </Text>
         <Pressable
           style={[styles.primaryBtn, unlocking && styles.primaryBtnDisabled]}
           disabled={unlocking}
           onPress={onWatchAd}
         >
-          <Text style={styles.primaryBtnText}>{unlocking ? 'Cargando anuncio…' : `Ver anuncio · +${AD_BATCH} intentos`}</Text>
+          <Text style={styles.primaryBtnText}>{unlocking ? 'Cargando anuncio…' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
         </Pressable>
         <Pressable style={[styles.secondaryBtn, { marginTop: 12 }]} onPress={onBack}>
           <Text style={styles.secondaryBtnText}>Ahora no</Text>
@@ -589,7 +590,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
 
       <Pressable style={styles.primaryBtn} onPress={onRetry}>
         <Text style={styles.primaryBtnText}>
-          {outOfAttempts ? `Ver anuncio · +${AD_BATCH} intentos` : `Reintentar (${attemptsLeft}/${total})`}
+          {outOfAttempts ? `Ver anuncio · +${intentosTxt(AD_BATCH)}` : `Reintentar (${attemptsLeft}/${total})`}
         </Text>
       </Pressable>
 

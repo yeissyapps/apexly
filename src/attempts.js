@@ -12,7 +12,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const FREE_ATTEMPTS = 3; // gratis al día
-export const AD_BATCH = 3;       // intentos que concede cada anuncio
+export const AD_BATCH = 1;       // intentos que concede cada anuncio
 
 const key = (day) => `attempts_${day}`;
 
