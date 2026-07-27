@@ -14,7 +14,7 @@ import Svg, { G, Line, Polygon, Polyline, Rect, Circle } from 'react-native-svg'
 import { CONFIG } from './config';
 import { fmt } from './format';
 import { NEUTRAL } from './weather';
-import RainOverlay from './RainOverlay';
+import WeatherFX from './WeatherFX';
 
 const now = () => Date.now();
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -222,8 +222,8 @@ export default function Game({ track, ghost, weather, onFinish, onExit }) {
           {CONFIG.SHOW_TOUCH_HINTS && <Text style={styles.hint}>›</Text>}
         </Pressable>
 
-        {/* Efecto de lluvia (solo días de lluvia) */}
-        {wx.id === 'rain' && <RainOverlay w={playW} h={playH} />}
+        {/* Efecto visual del clima del día (lluvia / viento / seco) */}
+        <WeatherFX weather={wx} w={playW} h={playH} />
 
         {/* Parte meteorológico (siempre visible) */}
         <View pointerEvents="none" style={styles.wxPill}>
