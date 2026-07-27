@@ -33,12 +33,7 @@ import {
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
 import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft as calcLeft, AD_BATCH } from './src/attempts';
-
-// Anuncio recompensado — STUB de Fase 1a (simula ver un vídeo). En Fase 1b se
-// sustituye por AdMob real (react-native-google-mobile-ads).
-function showRewardedAdStub() {
-  return new Promise((resolve) => setTimeout(() => resolve(true), 600));
-}
+import { initAds, showRewarded } from './src/ads';
 
 const PAD = 50; // hueco superior (barra de estado oculta)
 
@@ -72,9 +67,10 @@ export default function App() {
     loadGhost(todayKey()).then(setGhost).catch(() => {});
   }, []);
 
-  // Cargar los intentos del día.
+  // Cargar los intentos del día + inicializar anuncios.
   useEffect(() => {
     loadAttempts(todayKey()).then(setAtt).catch(() => {});
+    initAds();
   }, []);
 
   // Consume un intento al empezar una vuelta.
@@ -87,7 +83,7 @@ export default function App() {
     if (unlocking) return false;
     setUnlocking(true);
     try {
-      const ok = await showRewardedAdStub();
+      const ok = await showRewarded();
       if (!ok) return false;
       const a = await grantBatch(todayKey());
       setAtt(a);

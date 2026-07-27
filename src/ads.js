@@ -1,0 +1,68 @@
+// ============================================================================
+//  Ads — anuncios recompensados (AdMob vía react-native-google-mobile-ads).
+//
+//  Fase 1b: usa los IDs de TEST de Google (TestIds.REWARDED) → anuncios reales
+//  de prueba, sin necesidad de cuenta AdMob. En Fase 2 se cambian por los IDs
+//  reales (y se añade consentimiento UMP/ATT).
+//
+//  `showRewarded()` resuelve true SOLO si el usuario se ganó la recompensa
+//  (vio el vídeo entero). Si falla la carga o lo cierra antes, resuelve false.
+//  Todo va envuelto en try/catch: si el módulo nativo no está disponible, cae a
+//  un stub para no romper el flujo.
+// ============================================================================
+
+let admob = null;
+try {
+  admob = require('react-native-google-mobile-ads');
+} catch (_) {
+  admob = null;
+}
+
+let initialized = false;
+
+export function initAds() {
+  if (!admob || initialized) return;
+  initialized = true;
+  try {
+    admob.default().initialize();
+  } catch (_) {}
+}
+
+export function showRewarded() {
+  return new Promise((resolve) => {
+    // Fallback: sin módulo nativo → simula el anuncio (no bloquea el desarrollo).
+    if (!admob) {
+      setTimeout(() => resolve(true), 500);
+      return;
+    }
+
+    const { RewardedAd, RewardedAdEventType, AdEventType, TestIds } = admob;
+    let done = false;
+    let earned = false;
+    let unsubs = [];
+
+    const finish = (result) => {
+      if (done) return;
+      done = true;
+      unsubs.forEach((u) => { try { u(); } catch (_) {} });
+      resolve(result);
+    };
+
+    try {
+      const ad = RewardedAd.createForAdRequest(TestIds.REWARDED, {
+        requestNonPersonalizedAdsOnly: true,
+      });
+      unsubs.push(ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
+        try { ad.show(); } catch (_) { finish(false); }
+      }));
+      unsubs.push(ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => { earned = true; }));
+      unsubs.push(ad.addAdEventListener(AdEventType.CLOSED, () => finish(earned)));
+      unsubs.push(ad.addAdEventListener(AdEventType.ERROR, () => finish(false)));
+      ad.load();
+      // Salvavidas: si en 12s no cargó/mostró, no dejamos el flujo colgado.
+      setTimeout(() => finish(earned), 12000);
+    } catch (_) {
+      finish(false);
+    }
+  });
+}

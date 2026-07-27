@@ -12,6 +12,7 @@
     "matter-js": "^0.20.0",
     "react": "19.2.3",
     "react-native": "0.86.0",
+    "react-native-google-mobile-ads": "15.8.0",
     "react-native-svg": "15.15.4",
     "react-native-url-polyfill": "^4.0.0"
   },
