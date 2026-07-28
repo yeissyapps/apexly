@@ -129,7 +129,13 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
       const t = now();
       let dt = (t - s.lastTime) / 1000;
       s.lastTime = t;
-      dt = clamp(dt, 0, 1 / 30);
+      // Tope de tiempo simulado por frame. Por debajo de este ritmo el juego
+      // entra en cámara lenta MIENTRAS el cronómetro sigue en tiempo real (usa
+      // Date.now()), así que recorres menos pista por segundo y encima te
+      // penaliza el tiempo. Antes estaba en 1/30, que en un móvil con tirones
+      // se notaba mucho; ahora los sub-pasos de FIXED_DT evitan que un dt
+      // grande atraviese muros, así que se puede subir a 1/15.
+      dt = clamp(dt, 0, 1 / 15);
 
       if (s.phase === 'running') {
         // Física a PASO FIJO, desacoplada de los FPS de pantalla. Antes se
@@ -139,7 +145,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
         // de ranking es además injusto.
         s.acc += dt;
         let guard = 0;
-        while (s.acc >= FIXED_DT && guard < 8) {
+        while (s.acc >= FIXED_DT && guard < 10) {
           stepSimulation(s, FIXED_DT, t, track, pressLeft, pressRight, weatherRef.current);
           s.acc -= FIXED_DT;
           guard++;
