@@ -63,6 +63,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
   const g = useRef(null);
   const pressLeft = useRef(false);
   const pressRight = useRef(false);
+  const touchMap = useRef(new Map()); // identifier del dedo -> pageX
   const onFinishRef = useRef(onFinish);
   onFinishRef.current = onFinish;
   const onExitRef = useRef(onExit);
@@ -95,22 +96,48 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
     }
   }
 
-  // Deriva izquierda/derecha de TODOS los toques activos en cada evento, en vez
-  // de fiarse de press-in/press-out por zona: en iOS, Pressable.onPressOut no
-  // siempre se dispara si el gesto se cancela/interrumpe, dejando el volante
-  // "pegado" girando. Recalcular desde `touches` en cada evento se autocorrige
-  // siempre (también al soltar: el toque soltado ya no aparece en la lista).
-  function handleTouch(evt) {
-    const touches = evt.nativeEvent.touches || [];
+  // Volante: se lleva la cuenta de CADA dedo por su identifier y se borra
+  // explícitamente al levantarlo (`changedTouches`), en vez de recalcular desde
+  // `nativeEvent.touches`. Motivo: en iOS ese array puede seguir incluyendo el
+  // dedo que se acaba de soltar, así que el volante no se soltaba hasta el
+  // siguiente evento — y si no llegaba ninguno (dedo quieto, típico al mantener
+  // pulsado en una horquilla), el coche seguía girando de más.
+  function applyTouches() {
     let left = false;
     let right = false;
-    for (let i = 0; i < touches.length; i++) {
-      if (touches[i].pageX < playW / 2) left = true;
+    touchMap.current.forEach((x) => {
+      if (x < playW / 2) left = true;
       else right = true;
-    }
+    });
     pressLeft.current = left;
     pressRight.current = right;
-    if (left || right) startRun();
+    return left || right;
+  }
+
+  function onTouchDown(evt) {
+    const ch = evt.nativeEvent.changedTouches || [];
+    for (let i = 0; i < ch.length; i++) touchMap.current.set(ch[i].identifier, ch[i].pageX);
+    if (applyTouches()) startRun();
+  }
+
+  function onTouchMove(evt) {
+    const ch = evt.nativeEvent.changedTouches || [];
+    for (let i = 0; i < ch.length; i++) touchMap.current.set(ch[i].identifier, ch[i].pageX);
+    applyTouches();
+  }
+
+  function onTouchUp(evt) {
+    const ch = evt.nativeEvent.changedTouches || [];
+    for (let i = 0; i < ch.length; i++) touchMap.current.delete(ch[i].identifier);
+    // Red de seguridad: si el sistema dice que ya no queda ningún dedo, se
+    // suelta todo aunque `changedTouches` viniera incompleto.
+    if ((evt.nativeEvent.touches || []).length === 0) touchMap.current.clear();
+    applyTouches();
+  }
+
+  function onTouchCancel() {
+    touchMap.current.clear();
+    applyTouches();
   }
 
   useEffect(() => {
@@ -118,6 +145,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
     g.current = initialState(track);
     pressLeft.current = false;
     pressRight.current = false;
+    touchMap.current.clear();
     setView(toView(g.current, false, ghostPoseAt(ghostRef.current, 0, ghostIdxRef)));
 
     let raf;
@@ -253,12 +281,12 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
           onStartShouldSetResponder={() => true}
           onMoveShouldSetResponder={() => true}
           onResponderTerminationRequest={() => false}
-          onResponderGrant={handleTouch}
-          onResponderStart={handleTouch}
-          onResponderMove={handleTouch}
-          onResponderEnd={handleTouch}
-          onResponderRelease={handleTouch}
-          onResponderTerminate={handleTouch}
+          onResponderGrant={onTouchDown}
+          onResponderStart={onTouchDown}
+          onResponderMove={onTouchMove}
+          onResponderEnd={onTouchUp}
+          onResponderRelease={onTouchUp}
+          onResponderTerminate={onTouchCancel}
         >
           {CONFIG.SHOW_TOUCH_HINTS && (
             <>
@@ -622,8 +650,10 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather) {
         // va siempre en la dirección del rumbo, reescribirlo mientras rozas
         // significaba que en una curva larga el muro te llevaba a ti y las
         // pulsaciones no hacían nada. Ahora conservas el control y puedes
-        // salir girando; solo raspas velocidad, según lo de frente que vayas.
-        s.speed *= Math.max(0, 1 - C.WALL_SCRUB * head * dt);
+        // salir girando; el castigo es de velocidad, no de dirección.
+        //   WALL_DRAG  = arrastre, siempre que toques (aunque vayas paralelo)
+        //   WALL_SCRUB = extra según lo de frente que llegues
+        s.speed *= Math.max(0, 1 - (C.WALL_DRAG + C.WALL_SCRUB * head) * dt);
       }
     }
   } else if (near.dist < radius - C.WALL_RELEASE) {

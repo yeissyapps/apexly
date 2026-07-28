@@ -68,9 +68,14 @@ export const CONFIG = {
   // Bajarlo = más castigo (casi todo cuenta como choque).
   CRASH_MIN_IMPACT: 0.35,
   // Fricción al raspar el muro: fracción de velocidad que pierdes por segundo
-  // cuando vas totalmente de frente. Escala con lo de frente que vayas, así
-  // que rozar en paralelo casi no cuesta. Subirlo = rozar penaliza más.
+  // cuando vas totalmente de frente. Escala con lo de frente que vayas.
   WALL_SCRUB: 1.8,
+  // Rozamiento de ARRASTRE: se aplica siempre que estés tocando el muro, vayas
+  // como vayas. Sin esto, ir pegado en paralelo (head~0) salía GRATIS y podías
+  // arrastrarte por la pared sin coste, que es lo que JC no quería.
+  // A 2.2/s, un segundo pegado te deja al 11% de velocidad: apoyarte castiga,
+  // pero conservas el control (a diferencia de encadenar choques).
+  WALL_DRAG: 2.2,
 
   // --- Coche (tamaño de la caja de colisión, en unidades de mundo) --------
   CAR_LENGTH: 32,
