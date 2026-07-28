@@ -58,6 +58,7 @@ export default function App() {
   const [forceWx, setForceWx] = useState(null); // id de clima forzado (modo prueba)
   const [att, setAtt] = useState({ used: 0, bonus: 0 }); // intentos del día
   const [unlocking, setUnlocking] = useState(false);     // viendo el anuncio
+  const [adMsg, setAdMsg] = useState('');                // aviso si el anuncio no sale
   const [privacyOptional, setPrivacyOptional] = useState(false); // ¿mostrar "Privacidad de anuncios"?
   const left = calcLeft(att);
   const total = FREE_ATTEMPTS + (att?.bonus || 0);
@@ -88,13 +89,21 @@ export default function App() {
   async function watchAdForMore() {
     if (unlocking) return false;
     setUnlocking(true);
+    setAdMsg('');
     try {
       const ok = await showRewarded();
-      if (!ok) return false;
+      if (!ok) {
+        // Sin relleno de AdMob, sin red, o el usuario cerró el vídeo antes de
+        // ganarse la recompensa. Sin aviso, el botón volvía a su sitio sin
+        // explicar nada y parecía que la app se había quedado colgada.
+        setAdMsg('Ahora mismo no hay ningún anuncio disponible. Prueba de nuevo en unos minutos.');
+        return false;
+      }
       const a = await grantBatch(todayKey());
       setAtt(a);
       return true;
     } catch (_) {
+      setAdMsg('No se ha podido cargar el anuncio. Prueba de nuevo en unos minutos.');
       return false;
     } finally {
       setUnlocking(false);
@@ -218,8 +227,9 @@ export default function App() {
       <NoMoreAttempts
         left={left}
         unlocking={unlocking}
+        adMsg={adMsg}
         onWatchAd={async () => { const ok = await watchAdForMore(); if (ok) setScreen('playing'); }}
-        onBack={() => setScreen('home')}
+        onBack={() => { setAdMsg(''); setScreen('home'); }}
       />
     );
   }
@@ -426,7 +436,7 @@ function Groups({ onBack, onChanged }) {
 // ---------------------------------------------------------------------------
 //  Sin intentos: ofrecer ver un anuncio para +3 (rewarded).
 // ---------------------------------------------------------------------------
-function NoMoreAttempts({ left, unlocking, onWatchAd, onBack }) {
+function NoMoreAttempts({ left, unlocking, adMsg, onWatchAd, onBack }) {
   return (
     <View style={styles.screen}>
       <StatusBar hidden />
@@ -442,6 +452,7 @@ function NoMoreAttempts({ left, unlocking, onWatchAd, onBack }) {
         >
           <Text style={styles.primaryBtnText}>{unlocking ? 'Cargando anuncio…' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
         </Pressable>
+        {!!adMsg && !unlocking && <Text style={styles.adMsg}>{adMsg}</Text>}
         <Pressable style={[styles.secondaryBtn, { marginTop: 12 }]} onPress={onBack}>
           <Text style={styles.secondaryBtnText}>Ahora no</Text>
         </Pressable>
@@ -729,6 +740,7 @@ const styles = StyleSheet.create({
 
   primaryBtn: { backgroundColor: C.green, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   primaryBtnDisabled: { opacity: 0.4 },
+  adMsg: { color: C.dim, fontSize: 13, textAlign: 'center', marginTop: 12, lineHeight: 18 },
   primaryBtnText: { color: '#04160b', fontSize: 17, fontWeight: '800' },
   secondaryBtn: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line2, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   secondaryBtnText: { color: C.ink, fontSize: 16, fontWeight: '700' },

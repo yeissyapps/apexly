@@ -74,11 +74,14 @@ export function showRewarded() {
     const { RewardedAd, RewardedAdEventType, AdEventType } = admob;
     let done = false;
     let earned = false;
-    let unsubs = [];
+    let shown = false;
+    let loadTimer = null;
+    const unsubs = [];
 
     const finish = (result) => {
       if (done) return;
       done = true;
+      if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
       unsubs.forEach((u) => { try { u(); } catch (_) {} });
       resolve(result);
     };
@@ -88,14 +91,20 @@ export function showRewarded() {
         requestNonPersonalizedAdsOnly: true,
       });
       unsubs.push(ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
+        // A partir de aquí manda el ciclo del anuncio (CLOSED), NO un
+        // temporizador: un rewarded dura ~30s, y cortarlo a media reproducción
+        // anulaba la recompensa aunque el usuario lo viese entero.
+        shown = true;
+        if (loadTimer) { clearTimeout(loadTimer); loadTimer = null; }
         try { ad.show(); } catch (_) { finish(false); }
       }));
       unsubs.push(ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => { earned = true; }));
       unsubs.push(ad.addAdEventListener(AdEventType.CLOSED, () => finish(earned)));
       unsubs.push(ad.addAdEventListener(AdEventType.ERROR, () => finish(false)));
       ad.load();
-      // Salvavidas: si en 12s no cargó/mostró, no dejamos el flujo colgado.
-      setTimeout(() => finish(earned), 12000);
+      // Salvavidas SOLO para la carga (sin relleno / sin red). Una vez el
+      // anuncio está en pantalla deja de aplicar.
+      loadTimer = setTimeout(() => { if (!shown) finish(false); }, 12000);
     } catch (_) {
       finish(false);
     }
