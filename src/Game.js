@@ -6,7 +6,7 @@
 //  backend ni de resultados: eso lo maneja App.js.
 // ============================================================================
 
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Svg, { G, Line, Path, Polygon, Polyline, Rect, Circle } from 'react-native-svg';
@@ -88,6 +88,24 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
       s.lastTime = now();
       if (onAttemptStart) onAttemptStart();
     }
+  }
+
+  // Deriva izquierda/derecha de TODOS los toques activos en cada evento, en vez
+  // de fiarse de press-in/press-out por zona: en iOS, Pressable.onPressOut no
+  // siempre se dispara si el gesto se cancela/interrumpe, dejando el volante
+  // "pegado" girando. Recalcular desde `touches` en cada evento se autocorrige
+  // siempre (también al soltar: el toque soltado ya no aparece en la lista).
+  function handleTouch(evt) {
+    const touches = evt.nativeEvent.touches || [];
+    let left = false;
+    let right = false;
+    for (let i = 0; i < touches.length; i++) {
+      if (touches[i].pageX < playW / 2) left = true;
+      else right = true;
+    }
+    pressLeft.current = left;
+    pressRight.current = right;
+    if (left || right) startRun();
   }
 
   useEffect(() => {
@@ -204,21 +222,26 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
           </G>
         </Svg>
 
-        {/* Zonas táctiles invisibles (mitad izq / der) */}
-        <Pressable
-          style={[styles.touchZone, { left: 0, width: playW / 2 }]}
-          onPressIn={() => { startRun(); pressLeft.current = true; }}
-          onPressOut={() => { pressLeft.current = false; }}
+        {/* Zona táctil única: se recalcula izq/der desde TODOS los toques activos
+            en cada evento (ver handleTouch), más fiable en iOS que dos Pressable
+            independientes con press-in/press-out. */}
+        <View
+          style={styles.touchZone}
+          onStartShouldSetResponder={() => true}
+          onMoveShouldSetResponder={() => true}
+          onResponderTerminationRequest={() => false}
+          onResponderGrant={handleTouch}
+          onResponderMove={handleTouch}
+          onResponderRelease={handleTouch}
+          onResponderTerminate={handleTouch}
         >
-          {CONFIG.SHOW_TOUCH_HINTS && <Text style={styles.hint}>‹</Text>}
-        </Pressable>
-        <Pressable
-          style={[styles.touchZone, { right: 0, width: playW / 2 }]}
-          onPressIn={() => { startRun(); pressRight.current = true; }}
-          onPressOut={() => { pressRight.current = false; }}
-        >
-          {CONFIG.SHOW_TOUCH_HINTS && <Text style={styles.hint}>›</Text>}
-        </Pressable>
+          {CONFIG.SHOW_TOUCH_HINTS && (
+            <>
+              <Text style={[styles.hint, styles.hintLeft, { width: playW / 2 }]}>‹</Text>
+              <Text style={[styles.hint, styles.hintRight, { width: playW / 2 }]}>›</Text>
+            </>
+          )}
+        </View>
 
         {/* Efecto visual del clima del día (lluvia / viento / seco) */}
         <WeatherFX weather={wx} w={playW} h={playH} />
@@ -275,8 +298,84 @@ const ROAD = {
   checkLight: '#f2f2f2',
   checkDark:  '#15171c',
 };
-const KERB_W = 9;   // ancho del piano (centrado en el borde)
+const KERB_W = 9;    // ancho del piano (centrado en el borde)
+const KERB_BLOCK = 11; // largo objetivo de cada tramo rojo/blanco del piano
 const CHECK_SQ = 11; // lado de cada cuadro de la meta
+
+// Tramos ROJOS del piano como geometría explícita, recorriendo el borde por
+// longitud de arco. Devuelve UN solo path (`d`) con un subtrazado por bloque.
+//
+// Antes esto se hacía con `strokeDasharray` sobre el contorno de la pista, pero
+// el patrón discontinuo se rasteriza de forma distinta en iOS (bloques de
+// anchos desiguales, sobre todo en curva). Generando los bloques a mano el
+// resultado es idéntico en ambas plataformas, igual que ya se hace con el
+// damero de meta. Además encaja un nº ENTERO de bloques para que el patrón
+// cierre sin un trozo corto al final.
+//
+// OJO: son ~450 bloques por borde. Van todos en un único <Path> (no un nodo por
+// bloque) porque el <G> de cámara cambia de transform en CADA frame y arrastra
+// consigo el redibujado de todo lo que cuelgue de él.
+function kerbPath(pts, blockLen, halfW) {
+  const n = pts.length;
+  if (n < 2) return '';
+
+  // Longitud acumulada por vértice.
+  const cum = [0];
+  for (let i = 1; i < n; i++) {
+    cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  }
+  const total = cum[n - 1];
+  if (total <= 0) return '';
+
+  // Normal por vértice (perpendicular a la tangente promediada).
+  const nor = [];
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[Math.min(n - 1, i + 1)];
+    const tx = p1.x - p0.x;
+    const ty = p1.y - p0.y;
+    const L = Math.hypot(tx, ty) || 1;
+    nor.push({ x: -ty / L, y: tx / L });
+  }
+
+  const count = Math.max(2, Math.round(total / blockLen));
+  const len = total / count;
+
+  // Muestreo a longitud de arco `s`. `seg` solo avanza (s es monótona).
+  let seg = 0;
+  const at = (s) => {
+    while (seg < n - 2 && cum[seg + 1] < s) seg++;
+    const a = cum[seg];
+    const b = cum[seg + 1];
+    const f = b > a ? (s - a) / (b - a) : 0;
+    return {
+      x: pts[seg].x + (pts[seg + 1].x - pts[seg].x) * f,
+      y: pts[seg].y + (pts[seg + 1].y - pts[seg].y) * f,
+      nx: nor[seg].x + (nor[seg + 1].x - nor[seg].x) * f,
+      ny: nor[seg].y + (nor[seg + 1].y - nor[seg].y) * f,
+    };
+  };
+
+  const SUB = 3; // sub-muestras por bloque (para que siga la curva)
+  const out = [];
+  for (let k = 0; k < count; k += 2) {
+    const s0 = k * len;
+    const s1 = Math.min(total, (k + 1) * len);
+    const inner = [];
+    const outer = [];
+    for (let m = 0; m <= SUB; m++) {
+      const p = at(s0 + ((s1 - s0) * m) / SUB);
+      const nl = Math.hypot(p.nx, p.ny) || 1;
+      const ux = (p.nx / nl) * halfW;
+      const uy = (p.ny / nl) * halfW;
+      inner.push(`${p.x - ux},${p.y - uy}`);
+      outer.push(`${p.x + ux},${p.y + uy}`);
+    }
+    const ring = inner.concat(outer.reverse());
+    out.push(`M${ring[0]}L${ring.slice(1).join('L')}Z`);
+  }
+  return out.join('');
+}
 
 // Cuadros del damero de meta, alineados a la línea a→b y al sentido de marcha.
 function checkeredQuads(finish) {
@@ -305,20 +404,34 @@ function checkeredQuads(finish) {
   return quads;
 }
 
-const TrackLayer = ({ track, showDebug, wet }) => {
-  const road = track.roadPolygon.map((p) => `${p.x},${p.y}`).join(' ');
-  const lane = track.center.map((p) => `${p.x},${p.y}`).join(' ');
-  const checks = checkeredQuads(track.finish);
+// memo + useMemo: la geometría de la pista es fija durante toda la vuelta, pero
+// el componente se re-renderizaba en CADA frame (al moverse el coche) y volvía
+// a construir todas las cadenas de puntos. Ahora se calcula una sola vez.
+const TrackLayer = memo(function TrackLayer({ track, showDebug, wet }) {
   const asphalt = wet ? '#181f29' : ROAD.asphalt; // asfalto más oscuro/frío mojado
+
+  const geom = useMemo(() => ({
+    road: track.roadPolygon.map((p) => `${p.x},${p.y}`).join(' '),
+    lane: track.center.map((p) => `${p.x},${p.y}`).join(' '),
+    edgeL: track.left.map((p) => `${p.x},${p.y}`).join(' '),
+    edgeR: track.right.map((p) => `${p.x},${p.y}`).join(' '),
+    kerbL: kerbPath(track.left, KERB_BLOCK, KERB_W / 2),
+    kerbR: kerbPath(track.right, KERB_BLOCK, KERB_W / 2),
+    checks: checkeredQuads(track.finish),
+  }), [track]);
+
   return (
     <G>
       {/* Asfalto */}
-      <Polygon points={road} fill={asphalt} />
-      {/* Piano rojo/blanco continuo: base blanca + rayas rojas, sobre el borde */}
-      <Polygon points={road} fill="none" stroke={ROAD.kerbWhite} strokeWidth={KERB_W} strokeLinejoin="round" />
-      <Polygon points={road} fill="none" stroke={ROAD.kerbRed} strokeWidth={KERB_W} strokeLinejoin="round" strokeDasharray="11,11" />
+      <Polygon points={geom.road} fill={asphalt} />
+      {/* Piano rojo/blanco: base blanca por BORDE (no por el contorno cerrado,
+          que cruzaba la pista por salida y meta) + tramos rojos explícitos. */}
+      <Polyline points={geom.edgeL} fill="none" stroke={ROAD.kerbWhite} strokeWidth={KERB_W} strokeLinejoin="round" />
+      <Polyline points={geom.edgeR} fill="none" stroke={ROAD.kerbWhite} strokeWidth={KERB_W} strokeLinejoin="round" />
+      <Path d={geom.kerbL} fill={ROAD.kerbRed} />
+      <Path d={geom.kerbR} fill={ROAD.kerbRed} />
       {/* Línea de carril discontinua */}
-      <Polyline points={lane} fill="none" stroke={ROAD.lane} strokeWidth={2} strokeDasharray="10,16" opacity={0.7} />
+      <Polyline points={geom.lane} fill="none" stroke={ROAD.lane} strokeWidth={2} strokeDasharray="10,16" opacity={0.7} />
       {/* Salida (sutil, dorada) */}
       <Line
         x1={track.startLine.a.x} y1={track.startLine.a.y}
@@ -326,19 +439,19 @@ const TrackLayer = ({ track, showDebug, wet }) => {
         stroke={ROAD.start} strokeWidth={3} opacity={0.85}
       />
       {/* Meta a cuadros */}
-      {checks.map((q, i) => (
+      {geom.checks.map((q, i) => (
         <Polygon key={i} points={q.p} fill={q.color} />
       ))}
       {showDebug && (
         <G>
-          <Polyline points={track.left.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#ff5a3c" strokeWidth={1} />
-          <Polyline points={track.right.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#ff5a3c" strokeWidth={1} />
-          <Polyline points={track.center.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#4ad6ff" strokeWidth={1} />
+          <Polyline points={geom.edgeL} fill="none" stroke="#ff5a3c" strokeWidth={1} />
+          <Polyline points={geom.edgeR} fill="none" stroke="#ff5a3c" strokeWidth={1} />
+          <Polyline points={geom.lane} fill="none" stroke="#4ad6ff" strokeWidth={1} />
         </G>
       )}
     </G>
   );
-};
+});
 
 // Coche cenital estilo Porsche 911 GT3 RS: morro afilado, aletas traseras
 // anchas, gran alerón "cuello de cisne", splitter y faros redondos. El eje
@@ -485,8 +598,10 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0d0f13' },
   playArea: { position: 'absolute', left: 0, backgroundColor: '#0d0f13' },
-  touchZone: { position: 'absolute', top: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' },
-  hint: { fontSize: 64, color: 'rgba(255,255,255,0.10)', fontWeight: '800' },
+  touchZone: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 },
+  hint: { position: 'absolute', top: 0, bottom: 0, textAlign: 'center', textAlignVertical: 'center', fontSize: 64, color: 'rgba(255,255,255,0.10)', fontWeight: '800' },
+  hintLeft: { left: 0 },
+  hintRight: { right: 0 },
   startPanel: {
     position: 'absolute', left: 24, right: 24, bottom: 46, alignItems: 'center',
     backgroundColor: 'rgba(13,15,19,0.82)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
