@@ -35,8 +35,16 @@ export const CONFIG = {
   // Ease del volante (no es giro instantáneo):
   // segundos que tarda el volante en ir de 0 a full al PULSAR (in) y de full
   // a 0 al SOLTAR (out). Más bajo = giro más inmediato/sensible.
+  //
+  // OJO con el OUT: mientras el volante se centra, el coche SIGUE GIRANDO, así
+  // que sueltas apuntando a un sitio y acabas apuntando a otro — se siente como
+  // que "el coche se va solo contra el muro". Medido a 250 u/s:
+  //   0.09 -> sigue girando 5,8° tras soltar = 25u de desvío lateral en 1 s
+  //   0.03 -> sigue girando 1,6°             =  7u   (medio carril = 44u)
+  // Se deja el IN alto (el volante tiene peso al meterlo, que es lo que gusta)
+  // y el OUT bajo: enderezar es inmediato. La asimetría es intencionada.
   STEER_EASE_IN: 0.1, // s
-  STEER_EASE_OUT: 0.09, // s
+  STEER_EASE_OUT: 0.03, // s
 
   // --- Colisión con muros -------------------------------------------------
   // Fracción de velocidad que se PIERDE en el IMPACTO (0.6 = pierde el 60%).
