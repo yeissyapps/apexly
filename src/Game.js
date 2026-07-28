@@ -78,7 +78,10 @@ const TRACK_WINDOW = 25;
 // ve CÓMO se llegó al fallo: aquí queda la secuencia de entradas y estado.
 // Se usa un Float64Array preasignado en vez de ir creando objetos por frame,
 // para no meter presión de basura justo en el bucle que estamos midiendo.
-const REC_N = 300;       // ~2,5 s a 120 fps
+// 6 s a 120 fps. Tiene que cubrir el episodio ENTERO: el disparo (soltar el
+// dedo), los ~2 s de golpes que describe JC, y su tiempo de reacción hasta
+// pulsar el botón. Con 2,5 s se perdía justo el disparo, que es lo que importa.
+const REC_N = 720;
 const REC_FIELDS = 7;    // t, entrada, volante, velocidad, rumbo, muro, dt
 
 const SCREEN = Dimensions.get('window');
@@ -199,35 +202,68 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
     });
   }
 
-  // Vuelca la grabación en texto plano para poder mandarla. En una captura de
-  // pantalla no cabrían 300 filas, y lo interesante es justo la SECUENCIA:
+  // Vuelca la grabación en texto plano para poder mandarla. En una captura no
+  // caben 700 filas, y lo interesante es justo la SECUENCIA previa al fallo:
   // qué se pulsó, qué hizo el volante y cómo respondió el coche.
+  //
+  // Se antepone un ÍNDICE DE EVENTOS (cambios de pulsación, entradas/salidas de
+  // muro y volantazos) para poder ir directo a los momentos interesantes sin
+  // leer la tabla entera.
   function compartirGrabacion() {
     const b = rec.current;
     const total = recAt.current;
     const n = Math.min(total, REC_N);
     const desde = total - n;
     const filas = [];
+    const eventos = [];
+    let prevIn = null;
+    let prevMuro = null;
+    let prevRumbo = null;
+    const nombreIn = (v) => (v === -1 ? 'IZQ' : v === 1 ? 'DER' : 'suelta');
+
     for (let k = 0; k < n; k++) {
       const o = ((desde + k) % REC_N) * REC_FIELDS;
+      const t = b[o] / 1000;
+      const inp = b[o + 1];
+      const muro = b[o + 5] ? 1 : 0;
+      const rumbo = b[o + 4];
+
+      if (prevIn !== null && inp !== prevIn) {
+        eventos.push(`${t.toFixed(2)}s  ${nombreIn(prevIn)} -> ${nombreIn(inp)}`);
+      }
+      if (prevMuro !== null && muro !== prevMuro) {
+        eventos.push(`${t.toFixed(2)}s  ${muro ? 'TOCA muro' : 'sale del muro'}`);
+      }
+      if (prevRumbo !== null) {
+        let d = rumbo - prevRumbo;
+        while (d > 180) d -= 360;
+        while (d < -180) d += 360;
+        if (Math.abs(d) > 20) eventos.push(`${t.toFixed(2)}s  VOLANTAZO ${d.toFixed(0)}°`);
+      }
+      prevIn = inp; prevMuro = muro; prevRumbo = rumbo;
+
       filas.push(
         [
-          (b[o] / 1000).toFixed(2),        // t (s)
-          b[o + 1] === -1 ? 'IZQ' : b[o + 1] === 1 ? 'DER' : '-', // qué se pulsa
+          t.toFixed(2),                    // t (s)
+          inp === -1 ? 'IZQ' : inp === 1 ? 'DER' : '-', // qué se pulsa
           b[o + 2].toFixed(2),             // volante
           Math.round(b[o + 3]),            // velocidad
-          Math.round(b[o + 4]),            // rumbo
-          b[o + 5] ? 'MURO' : '-',         // contacto
+          Math.round(rumbo),               // rumbo
+          muro ? 'MURO' : '-',             // contacto
           b[o + 6].toFixed(1),             // dt del frame (ms)
         ].join('\t'),
       );
     }
     const s = g.current || {};
+    const marcadoEn = n > 0 ? (b[((total - 1) % REC_N) * REC_FIELDS] / 1000).toFixed(2) : '?';
     const cab = [
-      `Apexly · grabación de ${n} frames`,
+      `Apexly · grabación de ${n} frames · marcado en ${marcadoEn}s`,
       `fps ${s.fps} (mín ${s.fpsMin}) · frame máx ${Math.round((s.dtMax || 0) * 1000)}ms`,
       `sub-pasos máx ${s.stepsMax} · frames al límite ${s.stepsCapped}`,
       `golpes ${s.impacts} · pegado ${Math.round(s.contactMs || 0)}ms`,
+      '',
+      `EVENTOS (${eventos.length}):`,
+      eventos.length ? eventos.join('\n') : '  (ninguno)',
       '',
       't\tpulsa\tvolante\tvel\trumbo\tmuro\tdt',
     ].join('\n');
