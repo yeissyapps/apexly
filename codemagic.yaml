@@ -6,9 +6,6 @@ workflows:
     integrations:
       app_store_connect: apexly_asc # integración creada en Codemagic > Team settings > Integrations
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.yeissyapps.circuitodiario
       vars:
         BUNDLE_ID: "com.yeissyapps.circuitodiario"
       node: 20.18.0
@@ -28,11 +25,19 @@ workflows:
         script: |
           cd ios && pod install
 
+      - name: Inicializar keychain
+        script: |
+          keychain initialize
+
       - name: Crear perfil de aprovisionamiento (el certificado ya existe)
         script: |
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create
+
+      - name: Añadir certificado al keychain
+        script: |
+          keychain add-certificates
 
       - name: Aplicar firma al proyecto Xcode
         script: |
