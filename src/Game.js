@@ -20,9 +20,23 @@ const now = () => Date.now();
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
 // Punto más cercano de la línea central a (px,py) + medio-ancho (w) interpolado.
-function nearestOnPolyline(pts, px, py) {
-  let best = { dist: Infinity, x: px, y: py, w: pts[0].w };
-  for (let i = 0; i < pts.length - 1; i++) {
+//
+// `hint` = índice del tramo donde estaba el coche en el paso anterior. Se busca
+// SOLO en una ventana a su alrededor. Importa por rendimiento: con el paso fijo,
+// cuantos menos FPS va el móvil MÁS sub-pasos se ejecutan por frame, y recorrer
+// los ~250 puntos en cada uno realimentaba la caída (menos FPS -> más CPU ->
+// menos FPS). De paso evita que en un tramo donde la pista se dobla sobre sí
+// misma el punto más cercano salte a la otra rama.
+function nearestOnPolyline(pts, px, py, hint, window) {
+  const n = pts.length;
+  let lo = 0;
+  let hi = n - 2;
+  if (hint != null && window != null) {
+    lo = Math.max(0, hint - window);
+    hi = Math.min(n - 2, hint + window);
+  }
+  let best = { dist: Infinity, x: px, y: py, w: pts[0].w, idx: lo };
+  for (let i = lo; i <= hi; i++) {
     const ax = pts[i].x;
     const ay = pts[i].y;
     const dx = pts[i + 1].x - ax;
@@ -35,7 +49,7 @@ function nearestOnPolyline(pts, px, py) {
     const d = Math.hypot(px - cx, py - cy);
     if (d < best.dist) {
       const w = pts[i].w + (pts[i + 1].w - pts[i].w) * tt;
-      best = { dist: d, x: cx, y: cy, w };
+      best = { dist: d, x: cx, y: cy, w, idx: i };
     }
   }
   return best;
@@ -52,6 +66,12 @@ const CAM_TURN_LERP = 3.5; // suavizado del giro de cámara (menor = más suave)
 // Paso fijo de la simulación (s). La física NO depende de los FPS de pantalla:
 // se acumula el tiempo real y se resuelven pasos de este tamaño.
 const FIXED_DT = 1 / 120;
+
+// Tramos de la línea central que se miran alrededor del último conocido para
+// localizar el coche. A tope de velocidad avanza ~2 unidades por sub-paso y los
+// puntos están a ~35 de media, así que el índice se mueve como mucho de 1 en 1:
+// 25 da muchísimo margen incluso tras un choque.
+const TRACK_WINDOW = 25;
 
 const SCREEN = Dimensions.get('window');
 
@@ -197,6 +217,15 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
         }
       }
 
+      // FPS reales, para diagnosticar en beta si el rendimiento se degrada
+      // entre intentos (JC: "cada intento va peor que el anterior").
+      s.fpsCount++;
+      if (t - s.fpsTime >= 500) {
+        s.fps = Math.round((s.fpsCount * 1000) / (t - s.fpsTime));
+        s.fpsCount = 0;
+        s.fpsTime = t;
+      }
+
       // Cámara: el rumbo persigue (con lag suave) el del coche.
       let da = s.heading - s.camAngle;
       while (da > Math.PI) da -= 2 * Math.PI;
@@ -302,6 +331,11 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
         {/* Parte meteorológico (siempre visible) */}
         <View pointerEvents="none" style={styles.wxPill}>
           <Text style={styles.wxPillText}>{wx.icon} {wx.label}</Text>
+        </View>
+
+        {/* FPS — solo para la beta, quitar cuando esté diagnosticado */}
+        <View pointerEvents="none" style={styles.fpsPill}>
+          <Text style={styles.fpsText}>{view.fps} fps</Text>
         </View>
 
         {view.phase === 'ready' && (
@@ -549,19 +583,21 @@ function initialState(track) {
     speed: 0,
     steer: 0,
     lastImpact: -9999,
+    trackIdx: 0,     // último tramo conocido de la línea central (búsqueda local)
     touching: false, // ¿pegado al muro ahora mismo? (para no recontar el choque)
     stunUntil: 0,
     flashUntil: 0,
     startTime: 0,
     lastTime: 0,
     acc: 0, // acumulador del paso fijo de física
+    fps: 0, fpsCount: 0, fpsTime: 0, // medición de FPS (diagnóstico de beta)
     elapsed: 0,
     reported: false, // ¿ya avisamos del final?
   };
 }
 
 function toView(s, flash, ghost) {
-  return { x: s.x, y: s.y, heading: s.heading, camAngle: s.camAngle, elapsed: s.elapsed, phase: s.phase, flash, ghost };
+  return { x: s.x, y: s.y, heading: s.heading, camAngle: s.camAngle, elapsed: s.elapsed, phase: s.phase, flash, ghost, fps: s.fps };
 }
 
 // Pose del fantasma (tu mejor vuelta) en el instante `e` (ms). Avanza un puntero
@@ -615,7 +651,8 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather) {
   s.x += (vx + W.windX) * dt;
   s.y += (vy + W.windY) * dt;
 
-  const near = nearestOnPolyline(track.center, s.x, s.y);
+  const near = nearestOnPolyline(track.center, s.x, s.y, s.trackIdx, TRACK_WINDOW);
+  s.trackIdx = near.idx;
   const radius = near.w - C.CAR_WIDTH / 2;
   if (near.dist > radius) {
     const inv = near.dist || 1;
@@ -697,6 +734,12 @@ const styles = StyleSheet.create({
     borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6,
   },
   wxPillText: { color: '#ecebe5', fontSize: 13, fontWeight: '700' },
+  fpsPill: {
+    position: 'absolute', top: 12, left: 12,
+    backgroundColor: 'rgba(13,15,19,0.72)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5,
+  },
+  fpsText: { color: 'rgba(255,255,255,0.55)', fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
   hud: {
     position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 18,
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#151a26',
