@@ -63,7 +63,31 @@ export async function showPrivacyOptions() {
   } catch (_) {}
 }
 
+// Último motivo por el que no salió el anuncio. Sin esto solo sabíamos "no
+// cargó", y en iOS no hay logcat donde mirarlo: en TestFlight es la única forma
+// de distinguir "AdMob no tiene relleno" (cosa suya, se arregla sola) de un
+// error de configuración nuestro.
+//   no-fill  -> AdMob no tiene anuncio que servir (típico en unidad nueva)
+//   network  -> sin conexión
+//   invalid  -> petición mal formada: ID de bloque incorrecto = BUG NUESTRO
+//   internal -> error interno del SDK
+let lastError = '';
+export function getLastAdError() {
+  return lastError;
+}
+
+function describeAdError(err) {
+  const code = err && (err.code || err.message || '');
+  const s = String(code).toLowerCase();
+  if (s.includes('no-fill') || s.includes('no fill')) return 'no-fill';
+  if (s.includes('network')) return 'network';
+  if (s.includes('invalid')) return 'invalid';
+  if (s.includes('internal')) return 'internal';
+  return String(code).slice(0, 40) || 'desconocido';
+}
+
 export function showRewarded() {
+  lastError = '';
   return new Promise((resolve) => {
     // Fallback: sin módulo nativo → simula el anuncio (no bloquea el desarrollo).
     if (!admob) {
@@ -100,12 +124,18 @@ export function showRewarded() {
       }));
       unsubs.push(ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => { earned = true; }));
       unsubs.push(ad.addAdEventListener(AdEventType.CLOSED, () => finish(earned)));
-      unsubs.push(ad.addAdEventListener(AdEventType.ERROR, () => finish(false)));
+      unsubs.push(ad.addAdEventListener(AdEventType.ERROR, (err) => {
+        lastError = describeAdError(err);
+        finish(false);
+      }));
       ad.load();
       // Salvavidas SOLO para la carga (sin relleno / sin red). Una vez el
       // anuncio está en pantalla deja de aplicar.
-      loadTimer = setTimeout(() => { if (!shown) finish(false); }, 12000);
-    } catch (_) {
+      loadTimer = setTimeout(() => {
+        if (!shown) { if (!lastError) lastError = 'sin respuesta (12s)'; finish(false); }
+      }, 12000);
+    } catch (e) {
+      lastError = describeAdError(e);
       finish(false);
     }
   });

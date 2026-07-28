@@ -34,7 +34,7 @@ import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
 import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
 import { PUSH_ENABLED, intentosTxt } from './src/features';
-import { initAds, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions } from './src/ads';
+import { initAds, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError } from './src/ads';
 import ShareCard from './src/ShareCard';
 import { shareCardImage } from './src/share';
 
@@ -96,7 +96,13 @@ export default function App() {
         // Sin relleno de AdMob, sin red, o el usuario cerró el vídeo antes de
         // ganarse la recompensa. Sin aviso, el botón volvía a su sitio sin
         // explicar nada y parecía que la app se había quedado colgada.
-        setAdMsg('Ahora mismo no hay ningún anuncio disponible. Prueba de nuevo en unos minutos.');
+        // El motivo se muestra en pequeño porque en iOS/TestFlight no hay
+        // ningún otro sitio donde verlo (quitar cuando esté diagnosticado).
+        const why = getLastAdError();
+        setAdMsg(
+          'Ahora mismo no hay ningún anuncio disponible. Prueba de nuevo en unos minutos.' +
+          (why ? `\n(${why})` : '')
+        );
         return false;
       }
       const a = await grantBatch(todayKey());
