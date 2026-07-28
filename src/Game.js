@@ -97,6 +97,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
   const ghostIdxRef = useRef(0);
 
   const [view, setView] = useState(null);
+  const [snap, setSnap] = useState(null); // foto de diagnóstico (solo beta)
 
   function resetRun() {
     traceRef.current = [];
@@ -160,6 +161,33 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
     applyTouches();
   }
 
+  // --- Marcar anomalía (solo beta) -----------------------------------------
+  // Congela una foto del estado en el instante en que el jugador ve el fallo.
+  // Incluye los PEORES valores de toda la vuelta porque, para cuando pulsa, la
+  // anomalía puede haber pasado ya. Lo más revelador es "volante" e "dedos":
+  // si el jugador NO está tocando y ahí sigue marcando izq/der, el problema es
+  // el táctil; si los FPS/sub-pasos están disparados, es rendimiento.
+  function marcar() {
+    const s = g.current;
+    if (!s) return;
+    setSnap({
+      t: (s.elapsed / 1000).toFixed(2),
+      fps: s.fps,
+      fpsMin: s.fpsMin,
+      dtMax: Math.round(s.dtMax * 1000),
+      steps: s.stepsMax,
+      capped: s.stepsCapped,
+      dedos: touchMap.current.size,
+      izq: pressLeft.current,
+      der: pressRight.current,
+      steer: s.steer.toFixed(2),
+      vel: Math.round(s.speed),
+      muro: s.touching,
+      golpes: s.impacts,
+      pegado: Math.round(s.contactMs),
+    });
+  }
+
   useEffect(() => {
     resetRun();
     g.current = initialState(track);
@@ -194,12 +222,17 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
         // de ranking es además injusto.
         s.acc += dt;
         let guard = 0;
+        const wasTouching = s.touching;
         while (s.acc >= FIXED_DT && guard < 10) {
           stepSimulation(s, FIXED_DT, t, track, pressLeft, pressRight, weatherRef.current);
           s.acc -= FIXED_DT;
           guard++;
           if (s.phase !== 'running') break;
         }
+        if (guard > s.stepsMax) s.stepsMax = guard;
+        if (guard >= 10) s.stepsCapped++; // se descartó tiempo: el móvil no da más
+        if (s.touching) s.contactMs += dt * 1000;
+        if (s.touching && !wasTouching) s.impacts++;
         s.elapsed = t - s.startTime;
 
         // Grabar la traza de la vuelta (para el fantasma), con throttle.
@@ -222,9 +255,13 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
       s.fpsCount++;
       if (t - s.fpsTime >= 500) {
         s.fps = Math.round((s.fpsCount * 1000) / (t - s.fpsTime));
+        if (s.fps > 0 && (s.fpsMin === 0 || s.fps < s.fpsMin)) s.fpsMin = s.fps;
         s.fpsCount = 0;
         s.fpsTime = t;
       }
+      // Peores valores de TODA la vuelta: cuando el jugador pulsa el botón de
+      // marcar, la anomalía puede haber pasado ya.
+      if (dt > s.dtMax) s.dtMax = dt;
 
       // Cámara: el rumbo persigue (con lag suave) el del coche.
       let da = s.heading - s.camAngle;
@@ -338,6 +375,25 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
           <Text style={styles.fpsText}>{view.fps} fps</Text>
         </View>
 
+        {/* Foto de diagnóstico al marcar una anomalía (solo beta) */}
+        {snap && (
+          <Pressable style={styles.snapPanel} onPress={() => setSnap(null)}>
+            <Text style={styles.snapTitle}>Marcado en {snap.t}s — toca para cerrar</Text>
+            <Text style={styles.snapRow}>
+              fps {snap.fps} (mín {snap.fpsMin}) · frame máx {snap.dtMax}ms
+            </Text>
+            <Text style={[styles.snapRow, (snap.steps >= 10 || snap.capped > 0) && styles.snapBad]}>
+              sub-pasos máx {snap.steps} · frames al límite {snap.capped}
+            </Text>
+            <Text style={[styles.snapRow, (snap.dedos === 0 && (snap.izq || snap.der)) && styles.snapBad]}>
+              dedos {snap.dedos} · izq {snap.izq ? 'SÍ' : 'no'} · der {snap.der ? 'SÍ' : 'no'} · volante {snap.steer}
+            </Text>
+            <Text style={styles.snapRow}>
+              vel {snap.vel} · muro {snap.muro ? 'SÍ' : 'no'} · golpes {snap.golpes} · pegado {snap.pegado}ms
+            </Text>
+          </Pressable>
+        )}
+
         {view.phase === 'ready' && (
           <View pointerEvents="none" style={styles.startPanel}>
             <Text style={styles.startTitle}>Toca para arrancar</Text>
@@ -369,7 +425,13 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
           )}
         </View>
         <Text style={styles.timer}>{fmt(view.elapsed)}</Text>
-        <View style={styles.hudSide} />
+        <View style={[styles.hudSide, { justifyContent: 'flex-end' }]}>
+          {/* Marcar anomalía — solo beta. Va en la barra superior, FUERA de la
+              zona táctil, para no robarle toques al volante. */}
+          <Pressable style={styles.flagBtn} onPress={marcar} hitSlop={12}>
+            <Text style={styles.flagBtnText}>⚑</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -590,7 +652,14 @@ function initialState(track) {
     startTime: 0,
     lastTime: 0,
     acc: 0, // acumulador del paso fijo de física
-    fps: 0, fpsCount: 0, fpsTime: 0, // medición de FPS (diagnóstico de beta)
+    // --- Diagnóstico de beta (quitar cuando esté cerrado) ---
+    fps: 0, fpsCount: 0, fpsTime: 0,
+    fpsMin: 0,      // peor FPS de la vuelta
+    dtMax: 0,       // frame más largo (s)
+    stepsMax: 0,    // máx. sub-pasos de física en un frame
+    stepsCapped: 0, // frames donde se agotó el presupuesto (se perdió tiempo)
+    impacts: 0,     // veces que se ha tocado muro
+    contactMs: 0,   // tiempo total pegado al muro
     elapsed: 0,
     reported: false, // ¿ya avisamos del final?
   };
@@ -740,6 +809,18 @@ const styles = StyleSheet.create({
     borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5,
   },
   fpsText: { color: 'rgba(255,255,255,0.55)', fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  flagBtn: {
+    backgroundColor: '#2a3242', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10,
+  },
+  flagBtnText: { color: '#ffb84d', fontSize: 16, fontWeight: '800' },
+  snapPanel: {
+    position: 'absolute', left: 12, right: 12, top: 54,
+    backgroundColor: 'rgba(8,10,14,0.94)', borderWidth: 1, borderColor: 'rgba(255,184,77,0.5)',
+    borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12,
+  },
+  snapTitle: { color: '#ffb84d', fontSize: 12, fontWeight: '800', marginBottom: 6 },
+  snapRow: { color: 'rgba(255,255,255,0.88)', fontSize: 12, lineHeight: 18, fontVariant: ['tabular-nums'] },
+  snapBad: { color: '#ff6a3d', fontWeight: '800' },
   hud: {
     position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 18,
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#151a26',
