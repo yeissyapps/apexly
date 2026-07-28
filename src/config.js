@@ -49,12 +49,28 @@ export const CONFIG = {
   // Cómo rebota contra la pared (restitución de la velocidad reflejada):
   //   0 = se desliza pegado a la pared (sin rebote)
   //   1 = rebote de espejo completo (sale como bola de billar)
-  // Valores medios: redirige hacia dentro perdiendo algo de energía.
-  CRASH_BOUNCE: 0.4,
+  // A 0.4 el choque te lanzaba CRUZANDO la pista y, con el aturdimiento, te
+  // estrellabas contra el lado contrario: pinball. Se nota sobre todo en las
+  // curvas cerradas, donde el contacto es inevitable porque no hay freno (a
+  // 250 u/s harían falta 151°/s para un radio 95 y el coche da 143°/s).
+  // Medido en una curva de radio 95: el volantazo máximo baja de 156° a 88°.
+  // Súbelo si quieres que chocar tenga más "patada".
+  CRASH_BOUNCE: 0,
   // Cuánto hay que separarse del muro (unidades de mundo) para que el
   // siguiente toque cuente como un choque NUEVO. Mientras sigues pegado,
   // deslizas sin castigo en vez de encadenar choques.
   WALL_RELEASE: 3,
+  // Frontera entre ROZAR y CHOCAR: cuán de frente tienes que llegar al muro
+  // (0 = paralelo, 1 = perpendicular). 0.35 ~ 20º de ángulo de ataque.
+  //   Por debajo -> roce: conservas el rumbo y el control, solo raspas
+  //                 velocidad (el muro NO te lleva a ti).
+  //   Por encima -> choque: rebote + pérdida de velocidad + aturdimiento.
+  // Bajarlo = más castigo (casi todo cuenta como choque).
+  CRASH_MIN_IMPACT: 0.35,
+  // Fricción al raspar el muro: fracción de velocidad que pierdes por segundo
+  // cuando vas totalmente de frente. Escala con lo de frente que vayas, así
+  // que rozar en paralelo casi no cuesta. Subirlo = rozar penaliza más.
+  WALL_SCRUB: 1.8,
 
   // --- Coche (tamaño de la caja de colisión, en unidades de mundo) --------
   CAR_LENGTH: 32,

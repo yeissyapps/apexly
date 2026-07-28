@@ -597,31 +597,34 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather) {
     s.y = near.y - ny * radius;
     const vn = vx * nx + vy * ny;
     if (vn < 0) {
-      // ¿Impacto NUEVO o seguimos rozando el mismo muro? Se decide por
-      // CONTACTO, no por tiempo: antes era `t - s.lastImpact > 230ms`, así que
-      // ir rozando la pared sin separarte contaba como un choque nuevo cada
-      // 230ms (rebote + 60% de velocidad perdida + aturdimiento, en bucle).
+      // ¿Impacto NUEVO o seguimos rozando el mismo muro? Se decide por CONTACTO
+      // (flag s.touching), no por tiempo: con un temporizador, ir rozando la
+      // pared contaba como choque nuevo cada 230 ms y encadenaba castigos.
       const fresh = !s.touching;
       s.touching = true;
-      // El rebote se aplica SOLO en el impacto (era la intención del diseño:
-      // "se refleja la velocidad una sola vez"). Mientras sigues rozando, e=0
-      // => la velocidad queda tangente al muro y el coche DESLIZA. Antes se
-      // rebotaba en cada frame y, como aquí la velocidad va siempre en la
-      // dirección del rumbo, eso reescribía el rumbo 60-120 veces por segundo:
-      // de ahí los latigazos en curva y que tras un choque se fuera todo.
-      const e = fresh ? C.CRASH_BOUNCE : 0;
-      const k = (1 + e) * vn;
-      const rvx = vx - k * nx;
-      const rvy = vy - k * ny;
-      let mag = Math.hypot(rvx, rvy) || 0;
-      if (fresh) {
-        mag *= 1 - C.CRASH_SPEED_LOSS;
+
+      // Cuán DE FRENTE llegas al muro: 0 = paralelo (roce), 1 = perpendicular.
+      const head = s.speed > 1 ? Math.min(1, -vn / s.speed) : 0;
+
+      if (fresh && head > C.CRASH_MIN_IMPACT) {
+        // CHOQUE de verdad: rebota, castiga y aturde.
+        const k = (1 + C.CRASH_BOUNCE) * vn;
+        const rvx = vx - k * nx;
+        const rvy = vy - k * ny;
+        s.speed = Math.hypot(rvx, rvy) * (1 - C.CRASH_SPEED_LOSS);
+        if (rvx !== 0 || rvy !== 0) s.heading = Math.atan2(rvy, rvx);
         s.stunUntil = t + C.CRASH_STUN_MS;
         s.flashUntil = t + 140;
         s.lastImpact = t;
+      } else {
+        // ROCE: el coche ya ha quedado recolocado sobre el borde (desliza), y
+        // aquí NO se toca el rumbo. Es la diferencia clave: como la velocidad
+        // va siempre en la dirección del rumbo, reescribirlo mientras rozas
+        // significaba que en una curva larga el muro te llevaba a ti y las
+        // pulsaciones no hacían nada. Ahora conservas el control y puedes
+        // salir girando; solo raspas velocidad, según lo de frente que vayas.
+        s.speed *= Math.max(0, 1 - C.WALL_SCRUB * head * dt);
       }
-      s.speed = mag;
-      if (rvx !== 0 || rvy !== 0) s.heading = Math.atan2(rvy, rvx);
     }
   } else if (near.dist < radius - C.WALL_RELEASE) {
     // Se ha separado del muro con margen: el próximo toque sí es un choque
