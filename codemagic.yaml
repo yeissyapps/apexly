@@ -25,7 +25,21 @@ workflows:
         script: |
           cd ios && pod install
 
-      - name: Configurar firma automática (perfiles + certificados vía App Store Connect API)
+      - name: Inicializar keychain
+        script: |
+          keychain initialize
+
+      - name: Buscar o crear perfil de aprovisionamiento (con Push Notifications)
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Añadir certificado al keychain
+        script: |
+          keychain add-certificates
+
+      - name: Aplicar firma al proyecto Xcode
         script: |
           xcode-project use-profiles
 
