@@ -49,6 +49,10 @@ const CAM_VIEW_W = 260; // unidades de mundo visibles a lo ancho (mayor = menos 
 const CAM_ANCHOR = 0.68; // posición vertical del coche (0=arriba, 1=abajo)
 const CAM_TURN_LERP = 3.5; // suavizado del giro de cámara (menor = más suave)
 
+// Paso fijo de la simulación (s). La física NO depende de los FPS de pantalla:
+// se acumula el tiempo real y se resuelven pasos de este tamaño.
+const FIXED_DT = 1 / 120;
+
 const SCREEN = Dimensions.get('window');
 
 export default function Game({ track, ghost, weather, attemptsLeft = Infinity, onAttemptStart, onNeedMore, onFinish, onExit }) {
@@ -128,7 +132,19 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
       dt = clamp(dt, 0, 1 / 30);
 
       if (s.phase === 'running') {
-        stepSimulation(s, dt, t, track, pressLeft, pressRight, weatherRef.current);
+        // Física a PASO FIJO, desacoplada de los FPS de pantalla. Antes se
+        // simulaba un paso por frame, así que un móvil de 120Hz (ProMotion)
+        // resolvía el doble de colisiones por segundo que uno de 60Hz: distinto
+        // tacto Y distintos tiempos con la misma conducción, lo que en un juego
+        // de ranking es además injusto.
+        s.acc += dt;
+        let guard = 0;
+        while (s.acc >= FIXED_DT && guard < 8) {
+          stepSimulation(s, FIXED_DT, t, track, pressLeft, pressRight, weatherRef.current);
+          s.acc -= FIXED_DT;
+          guard++;
+          if (s.phase !== 'running') break;
+        }
         s.elapsed = t - s.startTime;
 
         // Grabar la traza de la vuelta (para el fantasma), con throttle.
@@ -498,10 +514,12 @@ function initialState(track) {
     speed: 0,
     steer: 0,
     lastImpact: -9999,
+    touching: false, // ¿pegado al muro ahora mismo? (para no recontar el choque)
     stunUntil: 0,
     flashUntil: 0,
     startTime: 0,
     lastTime: 0,
+    acc: 0, // acumulador del paso fijo de física
     elapsed: 0,
     reported: false, // ¿ya avisamos del final?
   };
@@ -572,11 +590,24 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather) {
     s.y = near.y - ny * radius;
     const vn = vx * nx + vy * ny;
     if (vn < 0) {
-      const k = (1 + C.CRASH_BOUNCE) * vn;
-      let rvx = vx - k * nx;
-      let rvy = vy - k * ny;
+      // ¿Impacto NUEVO o seguimos rozando el mismo muro? Se decide por
+      // CONTACTO, no por tiempo: antes era `t - s.lastImpact > 230ms`, así que
+      // ir rozando la pared sin separarte contaba como un choque nuevo cada
+      // 230ms (rebote + 60% de velocidad perdida + aturdimiento, en bucle).
+      const fresh = !s.touching;
+      s.touching = true;
+      // El rebote se aplica SOLO en el impacto (era la intención del diseño:
+      // "se refleja la velocidad una sola vez"). Mientras sigues rozando, e=0
+      // => la velocidad queda tangente al muro y el coche DESLIZA. Antes se
+      // rebotaba en cada frame y, como aquí la velocidad va siempre en la
+      // dirección del rumbo, eso reescribía el rumbo 60-120 veces por segundo:
+      // de ahí los latigazos en curva y que tras un choque se fuera todo.
+      const e = fresh ? C.CRASH_BOUNCE : 0;
+      const k = (1 + e) * vn;
+      const rvx = vx - k * nx;
+      const rvy = vy - k * ny;
       let mag = Math.hypot(rvx, rvy) || 0;
-      if (t - s.lastImpact > C.CRASH_STUN_MS + 80) {
+      if (fresh) {
         mag *= 1 - C.CRASH_SPEED_LOSS;
         s.stunUntil = t + C.CRASH_STUN_MS;
         s.flashUntil = t + 140;
@@ -585,6 +616,10 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather) {
       s.speed = mag;
       if (rvx !== 0 || rvy !== 0) s.heading = Math.atan2(rvy, rvx);
     }
+  } else if (near.dist < radius - C.WALL_RELEASE) {
+    // Se ha separado del muro con margen: el próximo toque sí es un choque
+    // nuevo. El margen evita que el ruido numérico lo reactive mientras rozas.
+    s.touching = false;
   }
 
   const f = track.finish;

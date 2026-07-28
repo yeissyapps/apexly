@@ -51,6 +51,10 @@ export const CONFIG = {
   //   1 = rebote de espejo completo (sale como bola de billar)
   // Valores medios: redirige hacia dentro perdiendo algo de energía.
   CRASH_BOUNCE: 0.4,
+  // Cuánto hay que separarse del muro (unidades de mundo) para que el
+  // siguiente toque cuente como un choque NUEVO. Mientras sigues pegado,
+  // deslizas sin castigo en vez de encadenar choques.
+  WALL_RELEASE: 3,
 
   // --- Coche (tamaño de la caja de colisión, en unidades de mundo) --------
   CAR_LENGTH: 32,
