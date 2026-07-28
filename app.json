@@ -36,7 +36,8 @@
           "iosAppId": "ca-app-pub-3940256099942544~1458002511"
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "./plugins/withAndroidSigning.js"
     ],
     "owner": "yeissyapps",
     "extra": {
