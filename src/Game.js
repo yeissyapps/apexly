@@ -231,7 +231,9 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
           onMoveShouldSetResponder={() => true}
           onResponderTerminationRequest={() => false}
           onResponderGrant={handleTouch}
+          onResponderStart={handleTouch}
           onResponderMove={handleTouch}
+          onResponderEnd={handleTouch}
           onResponderRelease={handleTouch}
           onResponderTerminate={handleTouch}
         >
