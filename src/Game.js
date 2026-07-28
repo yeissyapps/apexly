@@ -7,7 +7,7 @@
 // ============================================================================
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, Dimensions, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Svg, { G, Line, Path, Polygon, Polyline, Rect, Circle } from 'react-native-svg';
 
@@ -73,6 +73,14 @@ const FIXED_DT = 1 / 120;
 // 25 da muchísimo margen incluso tras un choque.
 const TRACK_WINDOW = 25;
 
+// --- Grabadora de diagnóstico (solo beta; quitar al cerrar el caso) ---------
+// Búfer circular con los últimos frames. Con una sola foto del instante no se
+// ve CÓMO se llegó al fallo: aquí queda la secuencia de entradas y estado.
+// Se usa un Float64Array preasignado en vez de ir creando objetos por frame,
+// para no meter presión de basura justo en el bucle que estamos midiendo.
+const REC_N = 300;       // ~2,5 s a 120 fps
+const REC_FIELDS = 7;    // t, entrada, volante, velocidad, rumbo, muro, dt
+
 const SCREEN = Dimensions.get('window');
 
 export default function Game({ track, ghost, weather, attemptsLeft = Infinity, onAttemptStart, onNeedMore, onFinish, onExit }) {
@@ -84,6 +92,8 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
   const pressLeft = useRef(false);
   const pressRight = useRef(false);
   const touchMap = useRef(new Map()); // identifier del dedo -> pageX
+  const rec = useRef(new Float64Array(REC_N * REC_FIELDS)); // grabadora (beta)
+  const recAt = useRef(0); // nº total de frames escritos (el índice va en módulo)
   const onFinishRef = useRef(onFinish);
   onFinishRef.current = onFinish;
   const onExitRef = useRef(onExit);
@@ -103,6 +113,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
     traceRef.current = [];
     lastSampleRef.current = -999;
     ghostIdxRef.current = 0;
+    recAt.current = 0; // la grabación es por intento
   }
 
   function startRun() {
@@ -188,6 +199,41 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
     });
   }
 
+  // Vuelca la grabación en texto plano para poder mandarla. En una captura de
+  // pantalla no cabrían 300 filas, y lo interesante es justo la SECUENCIA:
+  // qué se pulsó, qué hizo el volante y cómo respondió el coche.
+  function compartirGrabacion() {
+    const b = rec.current;
+    const total = recAt.current;
+    const n = Math.min(total, REC_N);
+    const desde = total - n;
+    const filas = [];
+    for (let k = 0; k < n; k++) {
+      const o = ((desde + k) % REC_N) * REC_FIELDS;
+      filas.push(
+        [
+          (b[o] / 1000).toFixed(2),        // t (s)
+          b[o + 1] === -1 ? 'IZQ' : b[o + 1] === 1 ? 'DER' : '-', // qué se pulsa
+          b[o + 2].toFixed(2),             // volante
+          Math.round(b[o + 3]),            // velocidad
+          Math.round(b[o + 4]),            // rumbo
+          b[o + 5] ? 'MURO' : '-',         // contacto
+          b[o + 6].toFixed(1),             // dt del frame (ms)
+        ].join('\t'),
+      );
+    }
+    const s = g.current || {};
+    const cab = [
+      `Apexly · grabación de ${n} frames`,
+      `fps ${s.fps} (mín ${s.fpsMin}) · frame máx ${Math.round((s.dtMax || 0) * 1000)}ms`,
+      `sub-pasos máx ${s.stepsMax} · frames al límite ${s.stepsCapped}`,
+      `golpes ${s.impacts} · pegado ${Math.round(s.contactMs || 0)}ms`,
+      '',
+      't\tpulsa\tvolante\tvel\trumbo\tmuro\tdt',
+    ].join('\n');
+    Share.share({ message: `${cab}\n${filas.join('\n')}` }).catch(() => {});
+  }
+
   useEffect(() => {
     resetRun();
     g.current = initialState(track);
@@ -262,6 +308,20 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
       // Peores valores de TODA la vuelta: cuando el jugador pulsa el botón de
       // marcar, la anomalía puede haber pasado ya.
       if (dt > s.dtMax) s.dtMax = dt;
+
+      // Grabadora: una fila por frame en el búfer circular.
+      {
+        const o = (recAt.current % REC_N) * REC_FIELDS;
+        const b = rec.current;
+        b[o] = s.elapsed;
+        b[o + 1] = (pressRight.current ? 1 : 0) - (pressLeft.current ? 1 : 0);
+        b[o + 2] = s.steer;
+        b[o + 3] = s.speed;
+        b[o + 4] = (s.heading * 180) / Math.PI;
+        b[o + 5] = s.touching ? 1 : 0;
+        b[o + 6] = dt * 1000;
+        recAt.current++;
+      }
 
       // Cámara: el rumbo persigue (con lag suave) el del coche.
       let da = s.heading - s.camAngle;
@@ -377,8 +437,8 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
 
         {/* Foto de diagnóstico al marcar una anomalía (solo beta) */}
         {snap && (
-          <Pressable style={styles.snapPanel} onPress={() => setSnap(null)}>
-            <Text style={styles.snapTitle}>Marcado en {snap.t}s — toca para cerrar</Text>
+          <View style={styles.snapPanel}>
+            <Text style={styles.snapTitle}>Marcado en {snap.t}s</Text>
             <Text style={styles.snapRow}>
               fps {snap.fps} (mín {snap.fpsMin}) · frame máx {snap.dtMax}ms
             </Text>
@@ -391,7 +451,15 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
             <Text style={styles.snapRow}>
               vel {snap.vel} · muro {snap.muro ? 'SÍ' : 'no'} · golpes {snap.golpes} · pegado {snap.pegado}ms
             </Text>
-          </Pressable>
+            <View style={styles.snapBtns}>
+              <Pressable style={styles.snapBtn} onPress={compartirGrabacion} hitSlop={8}>
+                <Text style={styles.snapBtnText}>Enviar grabación</Text>
+              </Pressable>
+              <Pressable style={styles.snapBtn} onPress={() => setSnap(null)} hitSlop={8}>
+                <Text style={styles.snapBtnText}>Cerrar</Text>
+              </Pressable>
+            </View>
+          </View>
         )}
 
         {view.phase === 'ready' && (
@@ -821,6 +889,12 @@ const styles = StyleSheet.create({
   snapTitle: { color: '#ffb84d', fontSize: 12, fontWeight: '800', marginBottom: 6 },
   snapRow: { color: 'rgba(255,255,255,0.88)', fontSize: 12, lineHeight: 18, fontVariant: ['tabular-nums'] },
   snapBad: { color: '#ff6a3d', fontWeight: '800' },
+  snapBtns: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  snapBtn: {
+    flex: 1, backgroundColor: '#2a3242', borderRadius: 9,
+    paddingVertical: 8, alignItems: 'center',
+  },
+  snapBtnText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
   hud: {
     position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 18,
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#151a26',
