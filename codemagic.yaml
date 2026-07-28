@@ -28,6 +28,12 @@ workflows:
         script: |
           cd ios && pod install
 
+      - name: Crear perfil de aprovisionamiento (el certificado ya existe)
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
       - name: Aplicar firma al proyecto Xcode
         script: |
           xcode-project use-profiles
