@@ -33,7 +33,7 @@
         "react-native-google-mobile-ads",
         {
           "androidAppId": "ca-app-pub-4375333671603622~3950864589",
-          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
+          "iosAppId": "ca-app-pub-4375333671603622~1558036931"
         }
       ],
       "expo-sharing",

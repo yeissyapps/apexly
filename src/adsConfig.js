@@ -21,9 +21,7 @@ const TEST_REWARDED = 'ca-app-pub-3940256099942544/5224354917';
 // Unidades REALES de AdMob (app "Apexly").
 const REAL_REWARDED = Platform.select({
   android: 'ca-app-pub-4375333671603622/2609862756',
-  // TODO(JC): pega aquí la unidad rewarded real de iOS cuando crees la app
-  // iOS en AdMob. Hasta entonces usa la de TEST para no romper iOS.
-  ios: TEST_REWARDED,
+  ios: 'ca-app-pub-4375333671603622/2077600044',
 });
 
 export const REWARDED_UNIT = USE_TEST_ADS ? TEST_REWARDED : REAL_REWARDED;
