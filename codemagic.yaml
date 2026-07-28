@@ -1,0 +1,55 @@
+workflows:
+  ios-release:
+    name: Apexly iOS Release
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      vars:
+        BUNDLE_ID: "com.yeissyapps.circuitodiario"
+      node: 20.18.0
+      xcode: latest
+      cocoapods: default
+    integrations:
+      app_store_connect: apexly_asc # nombre que le pongas a la integración en Codemagic > Team settings > Integrations
+
+    scripts:
+      - name: Instalar dependencias
+        script: |
+          npm ci
+
+      - name: Expo prebuild (genera proyecto nativo ios/)
+        script: |
+          npx expo prebuild --platform ios --clean
+
+      - name: Instalar pods
+        script: |
+          cd ios && pod install
+
+      - name: Configurar firma automática (perfiles + certificados vía App Store Connect API)
+        script: |
+          xcode-project use-profiles
+
+      - name: Detectar workspace y scheme generados por Expo
+        script: |
+          WORKSPACE=$(find ios -maxdepth 1 -name "*.xcworkspace" | head -1)
+          SCHEME=$(find ios -name "*.xcscheme" | head -1 | xargs -n1 basename | sed 's/\.xcscheme$//')
+          echo "Workspace detectado: $WORKSPACE"
+          echo "Scheme detectado: $SCHEME"
+          echo "XCODE_WORKSPACE=$WORKSPACE" >> $CM_ENV
+          echo "XCODE_SCHEME=$SCHEME" >> $CM_ENV
+
+      - name: Build .ipa
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        # submit_to_app_store: false  # actívalo cuando quieras enviar directo a revisión de la App Store
