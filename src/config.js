@@ -49,13 +49,18 @@ export const CONFIG = {
   // Cómo rebota contra la pared (restitución de la velocidad reflejada):
   //   0 = se desliza pegado a la pared (sin rebote)
   //   1 = rebote de espejo completo (sale como bola de billar)
-  // A 0.4 el choque te lanzaba CRUZANDO la pista y, con el aturdimiento, te
-  // estrellabas contra el lado contrario: pinball. Se nota sobre todo en las
-  // curvas cerradas, donde el contacto es inevitable porque no hay freno (a
-  // 250 u/s harían falta 151°/s para un radio 95 y el coche da 143°/s).
-  // Medido en una curva de radio 95: el volantazo máximo baja de 156° a 88°.
-  // Súbelo si quieres que chocar tenga más "patada".
-  CRASH_BOUNCE: 0,
+  // OJO: este valor NO se puede bajar a 0. El rebote es lo ÚNICO que despega
+  // al coche del muro: como la velocidad va siempre en la dirección del rumbo,
+  // y al rozar no se toca el rumbo, un coche que queda paralelo a la pared se
+  // queda raspando ahí para siempre si no giras tú. Con 0 se midió que NO se
+  // despega nunca (5,5 s pegado y subiendo). Pero pasarse tampoco vale: a 0.4
+  // te lanza cruzando la pista y rebotas contra el muro de enfrente (pinball),
+  // con lo que el tiempo pegado vuelve a subir a 3,2 s.
+  // Medido (coche a 258 u/s contra el muro a 22°, sin tocar nada después):
+  //   0.00 -> 5542 ms pegado, NO se despega,
+  //   0.15 ->  408 ms pegado, se despega en 0,99 s, recupera los 250 u/s
+  //   0.40 -> 3208 ms pegado (pinball), se queda en 59 u/s
+  CRASH_BOUNCE: 0.15,
   // Cuánto hay que separarse del muro (unidades de mundo) para que el
   // siguiente toque cuente como un choque NUEVO. Mientras sigues pegado,
   // deslizas sin castigo en vez de encadenar choques.
