@@ -90,6 +90,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
       s.phase = 'running';
       s.startTime = now();
       s.lastTime = now();
+      s.acc = 0; // que un acumulador viejo no suelte un golpe de sub-pasos al arrancar
       if (onAttemptStart) onAttemptStart();
     }
   }
