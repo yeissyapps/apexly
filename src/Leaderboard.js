@@ -123,29 +123,48 @@ function Row({ r, leaderMs }) {
   );
 }
 
-// Ranking GLOBAL: podio (top 3) + separador + tu ventana (tú ±1). No lista
-// miles de filas; solo lo relevante para ti.
+// Ranking GLOBAL: podio (top 3) + separador + una ventana de SIEMPRE 3 filas.
+// No lista miles de filas; solo lo relevante para ti.
+//
+// La ventana se calcula con un único hueco que se desliza por el ranking sin
+// invadir nunca el podio (mínimo rank 4) ni salirse del total (máximo rank
+// total): normalmente son tus vecinos ±1 centrados en ti, pero en los bordes
+// deja de estar centrada — 4.º puesto (no hay "arriba" real: pasas a la
+// izquierda, ventana 4-5-6) y último del mundo (no hay "abajo": pasas a la
+// derecha, ventana total-2/total-1/total). Yendo top-3 (ya en el podio) la
+// ventana muestra a quien te persigue (4-5-6) sin repetirte.
 function GlobalBoard({ board }) {
-  const { top, me, above, below, total, leaderMs } = board;
-  // La ventana solo muestra filas que NO están ya en el podio (rank > 3).
-  const windowRows = [];
-  if (me && me.rank > 3) {
-    if (above && above.rank > 3) windowRows.push(above);
-    windowRows.push(me);
-    if (below) windowRows.push(below);
+  const { top, me, aboveRows, belowRows, total, leaderMs } = board;
+  const podium = top.slice(0, 3);
+  const chasers = top.slice(3, 6); // ranks 4-6, ya vienen en la consulta del top-6
+
+  let windowRows = [];
+  if (me) {
+    if (me.rank <= 3 || total <= 6) {
+      // Ya estás en el podio, o el ranking entero cabe en el top-6.
+      windowRows = chasers;
+    } else {
+      const windowStart = Math.max(4, Math.min(me.rank - 1, total - 2));
+      const delta = windowStart - me.rank; // -2 (último), -1 (centrado), 0 (4.º)
+      if (delta === -1) windowRows = [aboveRows[0], me, belowRows[0]].filter(Boolean);
+      else if (delta === 0) windowRows = [me, belowRows[0], belowRows[1]].filter(Boolean);
+      else windowRows = [aboveRows[1], aboveRows[0], me].filter(Boolean);
+    }
   }
-  const gapBetweenPodiumAndWindow = me && me.rank > 3 && (above ? above.rank > 4 : me.rank > 4);
-  const remaining = me && below ? total - below.rank : 0;
+
+  const gapBetweenPodiumAndWindow = windowRows.length > 0 && windowRows[0].rank > 4;
+  const lastShown = windowRows[windowRows.length - 1];
+  const remaining = lastShown ? total - lastShown.rank : 0;
 
   return (
     <>
-      {top.length >= 3 ? <Podium rows={top} /> : (
+      {podium.length >= 3 ? <Podium rows={podium} /> : (
         <View style={styles.list}>
-          {top.map((r) => <Row key={r.userId} r={r} leaderMs={leaderMs} />)}
+          {podium.map((r) => <Row key={r.userId} r={r} leaderMs={leaderMs} />)}
         </View>
       )}
 
-      {me && me.rank > 3 ? (
+      {windowRows.length > 0 ? (
         <>
           {gapBetweenPodiumAndWindow && <Text style={styles.sep}>· · ·</Text>}
           <View style={styles.list}>

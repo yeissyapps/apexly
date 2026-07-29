@@ -13,9 +13,10 @@
 
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
+import Svg, { Defs, RadialGradient, Stop, Rect, Circle } from 'react-native-svg';
 
 // ---------------------------------------------------------------- Lluvia -----
-const N_DROPS = 34;
+const N_DROPS = 52;
 
 function Drop({ d, h }) {
   const t = useRef(new Animated.Value(Math.random())).current; // arranque escalonado
@@ -38,7 +39,7 @@ function Drop({ d, h }) {
 function RainLayer({ w, h }) {
   const drops = useRef(
     Array.from({ length: N_DROPS }, () => ({
-      x: Math.random() * w, len: 9 + Math.random() * 15, dur: 480 + Math.random() * 460, op: 0.12 + Math.random() * 0.22,
+      x: Math.random() * w, len: 13 + Math.random() * 20, dur: 420 + Math.random() * 420, op: 0.28 + Math.random() * 0.34,
     })),
   ).current;
   return (
@@ -50,7 +51,7 @@ function RainLayer({ w, h }) {
 }
 
 // ---------------------------------------------------------------- Viento -----
-const N_GUSTS = 14;
+const N_GUSTS = 22;
 
 function Gust({ g, dx, dy, range, angleDeg }) {
   const p = useRef(new Animated.Value(Math.random())).current;
@@ -81,8 +82,8 @@ function WindLayer({ w, h, windX, windY }) {
   const angleDeg = (angle * 180) / Math.PI;
   const gusts = useRef(
     Array.from({ length: N_GUSTS }, () => ({
-      x: Math.random() * w, y: Math.random() * h, len: 70 + Math.random() * 90,
-      dur: 850 + Math.random() * 900, op: 0.16 + Math.random() * 0.22,
+      x: Math.random() * w, y: Math.random() * h, len: 95 + Math.random() * 130,
+      dur: 700 + Math.random() * 800, op: 0.26 + Math.random() * 0.34,
     })),
   ).current;
   return (
@@ -93,8 +94,25 @@ function WindLayer({ w, h, windX, windY }) {
 }
 
 // ------------------------------------------------------------------- Sol -----
-function SunLayer() {
-  return <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.sun]} />;
+// Antes era un tinte plano al 6% de opacidad — casi no se veía. Un destello
+// solar (glow radial + un par de reflejos, como un lens flare de cámara) se
+// lee como "sol" mucho más claro que un simple tinte de color.
+function SunLayer({ w, h }) {
+  const cx = w * 0.16, cy = h * 0.10;
+  return (
+    <Svg pointerEvents="none" style={StyleSheet.absoluteFill} width={w} height={h}>
+      <Defs>
+        <RadialGradient id="sunGlow" cx={cx} cy={cy} r={Math.max(w, h) * 0.5} gradientUnits="userSpaceOnUse">
+          <Stop offset="0" stopColor="#fff1c4" stopOpacity="0.6" />
+          <Stop offset="0.35" stopColor="#ffcf7a" stopOpacity="0.2" />
+          <Stop offset="1" stopColor="#ffcf7a" stopOpacity="0" />
+        </RadialGradient>
+      </Defs>
+      <Rect width={w} height={h} fill="url(#sunGlow)" />
+      <Circle cx={cx + w * 0.32} cy={cy + h * 0.24} r={12} fill="#fff1c4" opacity={0.28} />
+      <Circle cx={cx + w * 0.48} cy={cy + h * 0.37} r={6} fill="#fff1c4" opacity={0.2} />
+    </Svg>
+  );
 }
 
 // ------------------------------------------------------------- Despachador ---
@@ -102,14 +120,13 @@ export default function WeatherFX({ weather, w, h }) {
   const id = weather && weather.id;
   if (id === 'rain') return <RainLayer w={w} h={h} />;
   if (id === 'wind') return <WindLayer w={w} h={h} windX={weather.windX} windY={weather.windY} />;
-  if (id === 'dry') return <SunLayer />;
+  if (id === 'dry') return <SunLayer w={w} h={h} />;
   return null;
 }
 
 const styles = StyleSheet.create({
   clip: { overflow: 'hidden' },
-  gloom: { backgroundColor: 'rgba(24,34,54,0.20)' },
-  drop: { position: 'absolute', top: 0, width: 2, borderRadius: 1, backgroundColor: 'rgba(200,220,255,0.85)' },
-  gust: { position: 'absolute', height: 2, borderRadius: 2, backgroundColor: 'rgba(222,232,245,0.9)' },
-  sun: { backgroundColor: 'rgba(255,184,77,0.06)' },
+  gloom: { backgroundColor: 'rgba(20,28,46,0.30)' },
+  drop: { position: 'absolute', top: 0, width: 2.4, borderRadius: 1, backgroundColor: 'rgba(200,220,255,0.9)' },
+  gust: { position: 'absolute', height: 2.6, borderRadius: 2, backgroundColor: 'rgba(222,232,245,0.92)' },
 });

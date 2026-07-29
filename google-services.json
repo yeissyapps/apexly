@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1006411613220",
+    "project_id": "yeissyapps-bea59",
+    "storage_bucket": "yeissyapps-bea59.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1006411613220:android:ad4389c5bb78aa3f0ec4b1",
+        "android_client_info": {
+          "package_name": "com.yeissyapps.circuitodiario"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSqPUPCdUnf2Zaq0UuddGNcj2EO8y7UOI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -30,6 +30,13 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# Firebase — clave de cuenta de servicio (server-side, NUNCA va en el repo;
+# google-services.json SÍ va, ese es del cliente y no es secreto)
+*firebase-adminsdk*.json
+
+# Supabase CLI — caché/metadata local del `link` (project-ref, versiones...)
+supabase/.temp/
+
 # local env files
 .env*.local
 

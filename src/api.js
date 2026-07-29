@@ -69,6 +69,28 @@ export async function submitTime(ms) {
   return { isBest: true, bestMs: ms, prevMs: existing?.best_ms ?? null };
 }
 
+// Mejor tiempo de cada sector HOY, entre todos los jugadores (para el morado
+// estilo F1: el mejor de la sesión, no "más rápido que el líder"). Devuelve
+// { [sectorIndex]: ms }; sector sin ningún tiempo aún = no aparece en el objeto.
+export async function getSectorBests(day = todayKey()) {
+  const { data, error } = await supabase.from('sector_bests').select('sector, ms').eq('day', day);
+  if (error) return {};
+  const out = {};
+  (data || []).forEach((r) => { out[r.sector] = r.ms; });
+  return out;
+}
+
+// Envía tus splits de sector de esta vuelta (TODAS las vueltas, no solo tu
+// mejor tiempo global — un sector suelto puede ser tu mejor aunque la vuelta
+// entera no lo sea, igual que en la F1 real). El propio servidor decide si
+// mejora el mejor de hoy (función submit_sector_best); aquí solo se dispara.
+export async function submitSectorSplits(sectorMs, day = todayKey()) {
+  await ensureSession();
+  await Promise.all(sectorMs.map((ms, i) =>
+    supabase.rpc('submit_sector_best', { p_day: day, p_sector: i, p_ms: Math.round(ms) }).catch(() => {})
+  ));
+}
+
 // Avisa (push) a la gente de tus grupos que has adelantado. Fire-and-forget:
 // nunca bloquea ni rompe el flujo si falla.
 export async function notifyOvertakes(newMs, prevMs, day = todayKey()) {
@@ -152,8 +174,10 @@ export async function joinGroup(code) {
 }
 
 // Leaderboard GLOBAL escalable (miles de tiempos): NO baja todas las filas.
-// Devuelve el top 3, tu posición, tus vecinos (±1) y el total, con consultas
-// ligeras (limit/count/índice por best_ms). Para grupos, usa getLeaderboard.
+// Devuelve el top 6 (podio + "quién te persigue" cuando vas top-3), tu
+// posición, hasta 2 vecinos a cada lado (para poder centrar la ventana de 3
+// incluso en los bordes: 4.º puesto o último) y el total. Consultas ligeras
+// (limit/count por best_ms). Para grupos, usa getLeaderboard.
 export async function getGlobalBoard(day = todayKey()) {
   const { data: { session } } = await supabase.auth.getSession();
   const myId = session?.user?.id ?? null;
@@ -169,10 +193,10 @@ export async function getGlobalBoard(day = todayKey()) {
     gapToLeaderMs: leaderMs != null ? r.best_ms - leaderMs : 0,
   });
 
-  // Total del día + top 3 (una consulta de conteo + una limitada).
+  // Total del día + top 6 (una consulta de conteo + una limitada).
   const [totalRes, topRes] = await Promise.all([
     supabase.from('attempts').select('user_id', { count: 'exact', head: true }).eq('day', day),
-    supabase.from('attempts').select(SEL).eq('day', day).order('best_ms', { ascending: true }).limit(3),
+    supabase.from('attempts').select(SEL).eq('day', day).order('best_ms', { ascending: true }).limit(6),
   ]);
   const total = totalRes.count ?? 0;
   const topRows = topRes.data || [];
@@ -180,18 +204,21 @@ export async function getGlobalBoard(day = todayKey()) {
   const top = topRows.map((r, i) => mapRow(r, i + 1, leaderMs));
 
   // ¿He jugado hoy? Si no, solo top + total.
-  let me = null, above = null, below = null;
+  let me = null, aboveRows = [], belowRows = [];
   if (myId) {
     const { data: mine } = await supabase
       .from('attempts').select('best_ms, users(nickname, current_streak)')
       .eq('day', day).eq('user_id', myId).maybeSingle();
     if (mine) {
       const myBest = mine.best_ms;
-      // rank = cuántos van por delante (best_ms menor) + 1. Vecinos ±1.
+      // rank = cuántos van por delante (best_ms menor) + 1. Hasta 2 vecinos a
+      // cada lado: hacen falta para poder mostrar SIEMPRE una ventana de 3
+      // aunque vayas 4.º (no hay "arriba" real, solo "abajo") o último (no
+      // hay "abajo", solo "arriba") — ver GlobalBoard() en Leaderboard.js.
       const [fasterRes, aboveRes, belowRes] = await Promise.all([
         supabase.from('attempts').select('user_id', { count: 'exact', head: true }).eq('day', day).lt('best_ms', myBest),
-        supabase.from('attempts').select(SEL).eq('day', day).lt('best_ms', myBest).order('best_ms', { ascending: false }).limit(1),
-        supabase.from('attempts').select(SEL).eq('day', day).gt('best_ms', myBest).order('best_ms', { ascending: true }).limit(1),
+        supabase.from('attempts').select(SEL).eq('day', day).lt('best_ms', myBest).order('best_ms', { ascending: false }).limit(2),
+        supabase.from('attempts').select(SEL).eq('day', day).gt('best_ms', myBest).order('best_ms', { ascending: true }).limit(2),
       ]);
       const myRank = (fasterRes.count ?? 0) + 1;
       me = {
@@ -203,12 +230,14 @@ export async function getGlobalBoard(day = todayKey()) {
         isMe: true,
         gapToLeaderMs: leaderMs != null ? myBest - leaderMs : 0,
       };
-      if (aboveRes.data?.[0]) above = mapRow(aboveRes.data[0], myRank - 1, leaderMs);
-      if (belowRes.data?.[0]) below = mapRow(belowRes.data[0], myRank + 1, leaderMs);
+      // aboveRes viene ordenado más-cercano-primero (rank-1, rank-2); belowRes
+      // igual (rank+1, rank+2).
+      aboveRows = (aboveRes.data || []).map((r, i) => mapRow(r, myRank - 1 - i, leaderMs));
+      belowRows = (belowRes.data || []).map((r, i) => mapRow(r, myRank + 1 + i, leaderMs));
     }
   }
 
-  return { total, leaderMs, top, me, above, below };
+  return { total, leaderMs, top, me, aboveRows, belowRows };
 }
 
 // Leaderboard del día. `scope` = 'global' o el id de un grupo. Lista ordenada

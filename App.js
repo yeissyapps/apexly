@@ -28,7 +28,7 @@ import { C, MONO } from './src/theme';
 import {
   ensureSession, ensureDailyTrack, getLocalNickname, saveNickname, submitTime,
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
-  getLeaderboard, getGlobalBoard,
+  getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -47,6 +47,29 @@ function dayShort() {
   return `${d}·${m}`;
 }
 
+// Cuenta atrás hasta el circuito de mañana. El cambio es a medianoche LOCAL
+// del dispositivo (todayKey() usa fecha local), así que no hay zonas horarias
+// que resolver: cada uno cuenta hasta su propia medianoche.
+function msUntilMidnight() {
+  const now = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  return next.getTime() - now.getTime();
+}
+function fmtCountdown(ms) {
+  const totalMin = Math.max(0, Math.ceil(ms / 60000));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}min` : `${m} min`;
+}
+function useMidnightCountdown() {
+  const [label, setLabel] = useState(() => fmtCountdown(msUntilMidnight()));
+  useEffect(() => {
+    const id = setInterval(() => setLabel(fmtCountdown(msUntilMidnight())), 30000);
+    return () => clearInterval(id);
+  }, []);
+  return label;
+}
+
 export default function App() {
   const [screen, setScreen] = useState('loading'); // loading|error|onboarding|home|playing|results
   const [nickname, setNickname] = useState(null);
@@ -55,6 +78,7 @@ export default function App() {
   const [retry, setRetry] = useState(0);
   const [myStreak, setMyStreak] = useState(null);
   const [ghost, setGhost] = useState(null); // { ms, trace } de tu mejor vuelta de hoy
+  const [sectorBests, setSectorBests] = useState(null); // { [sector]: ms } mejor del mundo hoy
 
   const [forceWx, setForceWx] = useState(null); // id de clima forzado (modo prueba)
   const [att, setAtt] = useState({ used: 0, bonus: 0 }); // intentos del día
@@ -64,14 +88,17 @@ export default function App() {
   const left = calcLeft(att);
   const total = FREE_ATTEMPTS + (att?.bonus || 0);
   const daily = useMemo(() => dailyCircuit(todayKey()), []);
+  const midnightLabel = useMidnightCountdown();
   const weather = useMemo(
     () => (forceWx ? weatherById(forceWx) : dailyWeather(todayKey())),
     [forceWx],
   );
 
-  // Cargar el fantasma (tu mejor vuelta) del día.
+  // Cargar el fantasma (tu mejor vuelta) del día + el mejor tiempo de cada
+  // sector hoy entre todos (para el morado estilo F1 en el HUD de juego).
   useEffect(() => {
     loadGhost(todayKey()).then(setGhost).catch(() => {});
+    getSectorBests(todayKey()).then(setSectorBests).catch(() => {});
   }, []);
 
   // Cargar los intentos del día + inicializar anuncios (y, tras el consentimiento,
@@ -164,11 +191,18 @@ export default function App() {
     }
   }
 
-  async function handleFinish(ms, trace) {
+  async function handleFinish(ms, trace, sectorSplits) {
     setResult({ ms, isBest: false, submitting: true });
     setScreen('results');
     // Guarda tu mejor vuelta (fantasma) en el móvil.
     saveGhostIfBest(todayKey(), ms, trace).then((g) => { if (g) setGhost(g); }).catch(() => {});
+    // Splits de sector de ESTA vuelta (aunque no sea tu mejor tiempo general —
+    // un sector suelto puede ser tu mejor aunque la vuelta entera no lo sea).
+    // El servidor decide si mejora el mejor del mundo hoy; si acierta, se
+    // reflejará en el próximo intento al recargar sectorBests.
+    if (sectorSplits && sectorSplits.length) {
+      submitSectorSplits(sectorSplits).then(() => getSectorBests(todayKey())).then(setSectorBests).catch(() => {});
+    }
     try {
       const { isBest, prevMs } = await submitTime(ms);
       let streak = null;
@@ -220,6 +254,7 @@ export default function App() {
         track={daily.track}
         ghost={ghost?.trace}
         weather={weather}
+        sectorBests={sectorBests}
         attemptsLeft={left}
         onAttemptStart={startAttempt}
         onNeedMore={() => setScreen('nomore')}
@@ -281,6 +316,7 @@ export default function App() {
         <Text style={styles.trackLabel}>Circuito de hoy</Text>
         <Text style={styles.trackName}>{daily.label}</Text>
         <Text style={styles.trackDesc}>Generado para hoy · ~{Math.round(daily.timeEstimate)}s limpio</Text>
+        <Text style={styles.trackCountdown}>Cambia en {midnightLabel}</Text>
         <View style={styles.wxRow}>
           <Text style={styles.wxIcon}>{weather.icon}</Text>
           <Text style={styles.wxRowText}>
@@ -708,6 +744,7 @@ const styles = StyleSheet.create({
   attBadgeEmpty: { backgroundColor: 'rgba(255,106,61,0.14)', borderColor: 'rgba(255,106,61,0.34)' },
   attBadgeTextEmpty: { color: C.hot },
   trackDesc: { color: C.dim, fontSize: 14, marginTop: 4 },
+  trackCountdown: { color: C.faint, fontSize: 12, fontFamily: MONO, fontVariant: ['tabular-nums'], marginTop: 2 },
   wxRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   wxIcon: { fontSize: 18 },
   wxRowText: { color: C.dim, fontSize: 13, flex: 1 },

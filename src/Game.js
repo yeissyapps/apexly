@@ -73,6 +73,55 @@ const FIXED_DT = 1 / 120;
 // 25 da muchísimo margen incluso tras un choque.
 const TRACK_WINDOW = 25;
 
+// --- Sectores (barra de progreso + comparación con el fantasma / el mundo) -
+const SECTOR_COUNT = 4;
+
+// ¿En qué sector cae el punto `idx` de la línea central? (0..SECTOR_COUNT-1)
+function sectorOfIdx(idx, totalPoints) {
+  const s = Math.floor((idx / Math.max(1, totalPoints - 1)) * SECTOR_COUNT);
+  return clamp(s, 0, SECTOR_COUNT - 1);
+}
+
+// Convierte la traza del fantasma [[t,x,y,h],...] en una tabla progreso->tiempo:
+// para cada muestra, en qué punto de la línea central estaba (nearestOnPolyline)
+// y a qué tiempo. Se hace UNA VEZ al cargar el fantasma (no en el bucle de
+// física) y se fuerza monótona en idx (un fantasma real solo avanza; cualquier
+// ruido de la búsqueda más cercana no debe hacer que la tabla vaya hacia atrás,
+// o la búsqueda binaria de abajo daría resultados inconsistentes).
+function buildGhostProgress(trace, track) {
+  if (!trace || trace.length === 0) return null;
+  const out = [];
+  let hint = 0;
+  let lastIdx = 0;
+  for (let i = 0; i < trace.length; i++) {
+    const [t, x, y] = trace[i];
+    const near = nearestOnPolyline(track.center, x, y, hint, TRACK_WINDOW);
+    hint = near.idx;
+    const idx = Math.max(lastIdx, near.idx);
+    lastIdx = idx;
+    out.push({ idx, t });
+  }
+  return out;
+}
+
+// Tiempo (ms) al que el fantasma pasó por el punto `idx` de la línea central,
+// interpolando entre las dos muestras más cercanas de la tabla. `progress` es
+// el resultado de buildGhostProgress(); null si no hay fantasma todavía.
+function ghostTimeAtIdx(progress, idx) {
+  if (!progress || progress.length === 0) return null;
+  if (idx <= progress[0].idx) return progress[0].t;
+  if (idx >= progress[progress.length - 1].idx) return progress[progress.length - 1].t;
+  let lo = 0, hi = progress.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (progress[mid].idx <= idx) lo = mid; else hi = mid;
+  }
+  const a = progress[lo], b = progress[hi];
+  const span = b.idx - a.idx || 1;
+  const f = (idx - a.idx) / span;
+  return a.t + (b.t - a.t) * f;
+}
+
 // --- Grabadora de diagnóstico (solo beta; quitar al cerrar el caso) ---------
 // Búfer circular con los últimos frames. Con una sola foto del instante no se
 // ve CÓMO se llegó al fallo: aquí queda la secuencia de entradas y estado.
@@ -86,7 +135,7 @@ const REC_FIELDS = 8;    // t, entrada, volante, velocidad, rumbo, muro, dt, ded
 
 const SCREEN = Dimensions.get('window');
 
-export default function Game({ track, ghost, weather, attemptsLeft = Infinity, onAttemptStart, onNeedMore, onFinish, onExit }) {
+export default function Game({ track, ghost, weather, sectorBests, attemptsLeft = Infinity, onAttemptStart, onNeedMore, onFinish, onExit }) {
   const playW = SCREEN.width;
   const playH = SCREEN.height - HUD_H;
   const wx = weather || NEUTRAL;
@@ -105,9 +154,17 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
   ghostRef.current = ghost;
   const weatherRef = useRef(wx);
   weatherRef.current = wx;
+  const sectorBestsRef = useRef(sectorBests);
+  sectorBestsRef.current = sectorBests;
   const traceRef = useRef([]); // grabación de la vuelta actual
   const lastSampleRef = useRef(-999);
   const ghostIdxRef = useRef(0);
+  // Tabla progreso->tiempo del fantasma, para el delta en vivo y los splits de
+  // sector. Se recalcula solo cuando cambia la traza (no en el bucle de física).
+  const ghostProgressRef = useRef(null);
+  useEffect(() => {
+    ghostProgressRef.current = ghost ? buildGhostProgress(ghost, track) : null;
+  }, [ghost, track]);
 
   const [view, setView] = useState(null);
   const [snap, setSnap] = useState(null); // foto de diagnóstico (solo beta)
@@ -327,7 +384,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
         let guard = 0;
         const wasTouching = s.touching;
         while (s.acc >= FIXED_DT && guard < 10) {
-          stepSimulation(s, FIXED_DT, t, track, pressLeft, pressRight, weatherRef.current);
+          stepSimulation(s, FIXED_DT, t, track, pressLeft, pressRight, weatherRef.current, ghostProgressRef.current, sectorBestsRef.current);
           s.acc -= FIXED_DT;
           guard++;
           if (s.phase !== 'running') break;
@@ -349,7 +406,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
         if (s.phase === 'finished' && !s.reported) {
           s.reported = true;
           tr.push([Math.round(s.elapsed), Math.round(s.x * 10) / 10, Math.round(s.y * 10) / 10, Math.round(s.heading * 1000) / 1000]);
-          if (onFinishRef.current) onFinishRef.current(s.elapsed, tr);
+          if (onFinishRef.current) onFinishRef.current(s.elapsed, tr, s.sectorSplits);
         }
       }
 
@@ -563,9 +620,44 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
           )}
         </View>
       </View>
+
+      {/* Barra de sectores: morado = mejor del mundo hoy en ese sector, verde =
+          mejoras tu fantasma, amarillo = no lo mejoras. El segmento actual se
+          resalta mientras lo recorres; los que aún no llegas quedan tenues. */}
+      {view.phase !== 'ready' && (
+        <View style={[styles.sectorRow, { top: HUD_H + 6 }]}>
+          <View style={styles.sectorBar}>
+            {Array.from({ length: SECTOR_COUNT }).map((_, i) => {
+              const done = i < view.sector;
+              const active = i === view.sector && view.phase === 'running';
+              const color = done
+                ? SECTOR_COLORS[view.sectorColors[i]] || SECTOR_COLORS.none
+                : active ? SECTOR_COLORS.active : SECTOR_COLORS.pending;
+              return <View key={i} style={[styles.sectorSeg, { backgroundColor: color }]} />;
+            })}
+          </View>
+          <Text style={styles.sectorLabel}>
+            SECTOR {Math.min(view.sector + 1, SECTOR_COUNT)}/{SECTOR_COUNT}
+          </Text>
+          {view.ghostDeltaMs != null && (
+            <Text style={[styles.sectorDelta, { color: view.ghostDeltaMs <= 0 ? SECTOR_COLORS.green : '#ff6a5a' }]}>
+              {view.ghostDeltaMs <= 0 ? '−' : '+'}{Math.abs(view.ghostDeltaMs / 1000).toFixed(2)}
+            </Text>
+          )}
+        </View>
+      )}
     </View>
   );
 }
+
+const SECTOR_COLORS = {
+  purple: '#b884ff',
+  green: '#43e08a',
+  yellow: '#ffd83d',
+  none: 'rgba(255,255,255,0.28)',   // sector cerrado sin con qué compararlo
+  pending: 'rgba(255,255,255,0.14)', // aún no llegas
+  active: '#ff6a3d',                 // el que estás recorriendo ahora
+};
 
 // --- Paleta de la pista (solo render) --------------------------------------
 const ROAD = {
@@ -656,6 +748,45 @@ function kerbPath(pts, blockLen, halfW) {
   return out.join('');
 }
 
+// Línea de carril discontinua como geometría explícita (mismo motivo que
+// kerbPath: `strokeDasharray` se rasteriza distinto en iOS, con bloques de
+// tamaño desigual sobre todo en curva y al cerrar el patrón). Nº ENTERO de
+// periodos dash+hueco para que cierre limpio sin trozo corto al final.
+function dashedPath(pts, dashLen, gapLen) {
+  const n = pts.length;
+  if (n < 2) return '';
+  const cum = [0];
+  for (let i = 1; i < n; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  const total = cum[n - 1];
+  if (total <= 0) return '';
+
+  let seg = 0;
+  const at = (s) => {
+    while (seg < n - 2 && cum[seg + 1] < s) seg++;
+    const a = cum[seg], b = cum[seg + 1];
+    const f = b > a ? (s - a) / (b - a) : 0;
+    return { x: pts[seg].x + (pts[seg + 1].x - pts[seg].x) * f, y: pts[seg].y + (pts[seg + 1].y - pts[seg].y) * f };
+  };
+
+  const period = dashLen + gapLen;
+  const count = Math.max(1, Math.round(total / period));
+  const p = total / count; // periodo ajustado para encajar un nº entero exacto
+  const dash = p * (dashLen / period);
+  const SUB = 4; // sub-muestras por raya (para que siga la curva)
+  const out = [];
+  for (let k = 0; k < count; k++) {
+    const s0 = k * p;
+    const s1 = Math.min(total, s0 + dash);
+    const raya = [];
+    for (let m = 0; m <= SUB; m++) {
+      const pt = at(s0 + ((s1 - s0) * m) / SUB);
+      raya.push(`${pt.x},${pt.y}`);
+    }
+    out.push(`M${raya[0]}L${raya.slice(1).join('L')}`);
+  }
+  return out.join('');
+}
+
 // Cuadros del damero de meta, alineados a la línea a→b y al sentido de marcha.
 function checkeredQuads(finish) {
   const { a, b } = finish;
@@ -692,6 +823,7 @@ const TrackLayer = memo(function TrackLayer({ track, showDebug, wet }) {
   const geom = useMemo(() => ({
     road: track.roadPolygon.map((p) => `${p.x},${p.y}`).join(' '),
     lane: track.center.map((p) => `${p.x},${p.y}`).join(' '),
+    lanePath: dashedPath(track.center, 10, 16),
     edgeL: track.left.map((p) => `${p.x},${p.y}`).join(' '),
     edgeR: track.right.map((p) => `${p.x},${p.y}`).join(' '),
     kerbL: kerbPath(track.left, KERB_BLOCK, KERB_W / 2),
@@ -709,8 +841,10 @@ const TrackLayer = memo(function TrackLayer({ track, showDebug, wet }) {
       <Polyline points={geom.edgeR} fill="none" stroke={ROAD.kerbWhite} strokeWidth={KERB_W} strokeLinejoin="round" />
       <Path d={geom.kerbL} fill={ROAD.kerbRed} />
       <Path d={geom.kerbR} fill={ROAD.kerbRed} />
-      {/* Línea de carril discontinua */}
-      <Polyline points={geom.lane} fill="none" stroke={ROAD.lane} strokeWidth={2} strokeDasharray="10,16" opacity={0.7} />
+      {/* Línea de carril discontinua (geometría explícita, no strokeDasharray:
+          en iOS se rasterizaba con rayas de tamaño desigual, sobre todo cerca
+          de meta — mismo motivo que el piano). */}
+      <Path d={geom.lanePath} fill="none" stroke={ROAD.lane} strokeWidth={2} strokeLinecap="round" opacity={0.7} />
       {/* Salida (sutil, dorada) */}
       <Line
         x1={track.startLine.a.x} y1={track.startLine.a.y}
@@ -792,11 +926,21 @@ function initialState(track) {
     contactMs: 0,   // tiempo total pegado al muro
     elapsed: 0,
     reported: false, // ¿ya avisamos del final?
+    // --- Sectores ---
+    bestTrackIdx: 0,       // máx. trackIdx visto (evita que un rebote haga retroceder la comparación con el fantasma)
+    sector: 0,              // sector actual (0..SECTOR_COUNT-1)
+    lastSectorElapsed: 0,   // tiempo (ms) al que se cerró el último sector
+    sectorSplits: [],       // ms de cada sector ya completado
+    sectorColors: [],       // 'purple'|'green'|'yellow'|null por sector completado
+    ghostDeltaMs: null,     // delta en vivo contra el fantasma (null si no hay fantasma)
   };
 }
 
 function toView(s, flash, ghost) {
-  return { x: s.x, y: s.y, heading: s.heading, camAngle: s.camAngle, elapsed: s.elapsed, phase: s.phase, flash, ghost, fps: s.fps };
+  return {
+    x: s.x, y: s.y, heading: s.heading, camAngle: s.camAngle, elapsed: s.elapsed, phase: s.phase, flash, ghost, fps: s.fps,
+    sector: s.sector, sectorColors: s.sectorColors, ghostDeltaMs: s.ghostDeltaMs,
+  };
 }
 
 // Pose del fantasma (tu mejor vuelta) en el instante `e` (ms). Avanza un puntero
@@ -821,9 +965,33 @@ function ghostPoseAt(trace, e, idxRef) {
 // --- Un paso de simulación (feel del coche; no tocar) ----------------------
 //  El clima entra SOLO como modificadores (steerMul/speedMul/viento) encima de
 //  las constantes; con NEUTRAL el comportamiento es idéntico al de siempre.
-function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather) {
+function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather, ghostProgress, sectorBests) {
   const C = CONFIG;
   const W = weather || NEUTRAL;
+
+  // Cierra el sector `s.sector` en el instante `elapsedNow`, decidiendo el
+  // color estilo F1: MORADO si es el mejor de ese sector hoy entre todos los
+  // jugadores (no "más rápido que el líder", así funciona el morado real:
+  // el mejor de la sesión, lo ponga quien lo ponga); si no, VERDE si mejoras
+  // tu propio fantasma; si no, AMARILLO. Sin fantasma ni mejor mundial -> null
+  // (se muestra el tiempo sin colorear).
+  function closeSector(elapsedNow) {
+    const total = track.center.length;
+    const boundaryIdx = Math.round(((s.sector + 1) / SECTOR_COUNT) * (total - 1));
+    const startIdx = Math.round((s.sector / SECTOR_COUNT) * (total - 1));
+    const mySplit = elapsedNow - s.lastSectorElapsed;
+    const ghostSplit = ghostProgress
+      ? ghostTimeAtIdx(ghostProgress, boundaryIdx) - ghostTimeAtIdx(ghostProgress, startIdx)
+      : null;
+    const worldBest = sectorBests ? sectorBests[s.sector] : null;
+    let color = null;
+    if (worldBest != null && mySplit <= worldBest) color = 'purple';
+    else if (ghostSplit != null) color = mySplit < ghostSplit ? 'green' : 'yellow';
+    s.sectorSplits.push(mySplit);
+    s.sectorColors.push(color);
+    s.lastSectorElapsed = elapsedNow;
+    s.sector++;
+  }
 
   let target = 0;
   if (pressLeft.current) target -= 1;
@@ -852,6 +1020,15 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather) {
 
   const near = nearestOnPolyline(track.center, s.x, s.y, s.trackIdx, TRACK_WINDOW);
   s.trackIdx = near.idx;
+
+  if (s.phase === 'running') {
+    s.bestTrackIdx = Math.max(s.bestTrackIdx, s.trackIdx);
+    const elapsedNow = t - s.startTime;
+    if (ghostProgress) s.ghostDeltaMs = elapsedNow - ghostTimeAtIdx(ghostProgress, s.bestTrackIdx);
+    const newSector = sectorOfIdx(s.bestTrackIdx, track.center.length);
+    while (s.sector < newSector) closeSector(elapsedNow);
+  }
+
   const radius = near.w - C.CAR_WIDTH / 2;
   if (near.dist > radius) {
     const inv = near.dist || 1;
@@ -905,6 +1082,10 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather) {
   if (proj >= 0 && Math.hypot(dx, dy) < C.TRACK_WIDTH) {
     s.phase = 'finished';
     s.elapsed = t - s.startTime;
+    // La meta puede llegar antes de que bestTrackIdx alcance el último punto
+    // exacto de la línea central (son dos criterios distintos) — cierra
+    // cualquier sector que se hubiera quedado a medias con el tiempo final.
+    while (s.sector < SECTOR_COUNT) closeSector(s.elapsed);
   }
 }
 
@@ -965,4 +1146,12 @@ const styles = StyleSheet.create({
   timer: { color: '#ffffff', fontSize: 30, fontWeight: '800', fontVariant: ['tabular-nums'] },
   hudBtn: { backgroundColor: '#2a3242', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
   hudBtnText: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
+  sectorRow: {
+    position: 'absolute', left: 18, right: 18,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+  },
+  sectorBar: { flex: 1, flexDirection: 'row', gap: 4 },
+  sectorSeg: { flex: 1, height: 5, borderRadius: 3 },
+  sectorLabel: { color: 'rgba(255,255,255,0.55)', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  sectorDelta: { fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'], minWidth: 46, textAlign: 'right' },
 });
