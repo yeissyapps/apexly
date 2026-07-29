@@ -97,6 +97,17 @@ export const CONFIG = {
   // --- Circuito -----------------------------------------------------------
   TRACK_WIDTH: 104, // ancho del carril
 
+  // --- Beta / diagnóstico -------------------------------------------------
+  // true => se ven el contador de FPS, el botón ⚑ de marcar anomalía con su
+  // panel y el envío de la grabación, y el motivo técnico por el que un anuncio
+  // no ha cargado ("no-fill", etc.).
+  //
+  // Va en false para publicar. La grabadora sigue corriendo por dentro (es un
+  // búfer preasignado, no cuesta nada), así que si el volantazo fantasma vuelve
+  // a aparecer basta con poner esto en true y generar build: no hay que volver
+  // a escribir nada del instrumental.
+  DIAG: false,
+
   // --- Debug / ayudas visuales -------------------------------------------
   // true => dibuja una flecha sutil en cada zona táctil (para comparar el
   // "feel" con y sin pista visual de dónde tocar).

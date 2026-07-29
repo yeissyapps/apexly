@@ -34,6 +34,7 @@ import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
 import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
 import { PUSH_ENABLED, intentosTxt } from './src/features';
+import { CONFIG } from './src/config';
 import { initAds, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError } from './src/ads';
 import ShareCard from './src/ShareCard';
 import { shareCardImage } from './src/share';
@@ -96,9 +97,9 @@ export default function App() {
         // Sin relleno de AdMob, sin red, o el usuario cerró el vídeo antes de
         // ganarse la recompensa. Sin aviso, el botón volvía a su sitio sin
         // explicar nada y parecía que la app se había quedado colgada.
-        // El motivo se muestra en pequeño porque en iOS/TestFlight no hay
-        // ningún otro sitio donde verlo (quitar cuando esté diagnosticado).
-        const why = getLastAdError();
+        // El motivo técnico ("no-fill", etc.) solo se enseña en modo
+        // diagnóstico: al jugador no le dice nada y ensucia el aviso.
+        const why = CONFIG.DIAG ? getLastAdError() : '';
         setAdMsg(
           'Ahora mismo no hay ningún anuncio disponible. Prueba de nuevo en unos minutos.' +
           (why ? `\n(${why})` : '')

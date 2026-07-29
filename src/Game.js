@@ -488,13 +488,15 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
           <Text style={styles.wxPillText}>{wx.icon} {wx.label}</Text>
         </View>
 
-        {/* FPS — solo para la beta, quitar cuando esté diagnosticado */}
-        <View pointerEvents="none" style={styles.fpsPill}>
-          <Text style={styles.fpsText}>{view.fps} fps</Text>
-        </View>
+        {/* FPS — solo con CONFIG.DIAG */}
+        {CONFIG.DIAG && (
+          <View pointerEvents="none" style={styles.fpsPill}>
+            <Text style={styles.fpsText}>{view.fps} fps</Text>
+          </View>
+        )}
 
-        {/* Foto de diagnóstico al marcar una anomalía (solo beta) */}
-        {snap && (
+        {/* Foto de diagnóstico al marcar una anomalía (solo con CONFIG.DIAG) */}
+        {CONFIG.DIAG && snap && (
           <View style={styles.snapPanel}>
             <Text style={styles.snapTitle}>Marcado en {snap.t}s</Text>
             <Text style={styles.snapRow}>
@@ -552,11 +554,13 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
         </View>
         <Text style={styles.timer}>{fmt(view.elapsed)}</Text>
         <View style={[styles.hudSide, { justifyContent: 'flex-end' }]}>
-          {/* Marcar anomalía — solo beta. Va en la barra superior, FUERA de la
-              zona táctil, para no robarle toques al volante. */}
-          <Pressable style={styles.flagBtn} onPress={marcar} hitSlop={12}>
-            <Text style={styles.flagBtnText}>⚑</Text>
-          </Pressable>
+          {/* Marcar anomalía — solo con CONFIG.DIAG. Va en la barra superior,
+              FUERA de la zona táctil, para no robarle toques al volante. */}
+          {CONFIG.DIAG && (
+            <Pressable style={styles.flagBtn} onPress={marcar} hitSlop={12}>
+              <Text style={styles.flagBtnText}>⚑</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </View>
