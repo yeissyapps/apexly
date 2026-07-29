@@ -82,7 +82,7 @@ const TRACK_WINDOW = 25;
 // dedo), los ~2 s de golpes que describe JC, y su tiempo de reacción hasta
 // pulsar el botón. Con 2,5 s se perdía justo el disparo, que es lo que importa.
 const REC_N = 720;
-const REC_FIELDS = 7;    // t, entrada, volante, velocidad, rumbo, muro, dt
+const REC_FIELDS = 8;    // t, entrada, volante, velocidad, rumbo, muro, dt, dedos
 
 const SCREEN = Dimensions.get('window');
 
@@ -94,7 +94,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
   const g = useRef(null);
   const pressLeft = useRef(false);
   const pressRight = useRef(false);
-  const touchMap = useRef(new Map()); // identifier del dedo -> pageX
+  const dedos = useRef(0); // nº de dedos apoyados en el último evento (diagnóstico)
   const rec = useRef(new Float64Array(REC_N * REC_FIELDS)); // grabadora (beta)
   const recAt = useRef(0); // nº total de frames escritos (el índice va en módulo)
   const onFinishRef = useRef(onFinish);
@@ -131,48 +131,60 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
     }
   }
 
-  // Volante: se lleva la cuenta de CADA dedo por su identifier y se borra
-  // explícitamente al levantarlo (`changedTouches`), en vez de recalcular desde
-  // `nativeEvent.touches`. Motivo: en iOS ese array puede seguir incluyendo el
-  // dedo que se acaba de soltar, así que el volante no se soltaba hasta el
-  // siguiente evento — y si no llegaba ninguno (dedo quieto, típico al mantener
-  // pulsado en una horquilla), el coche seguía girando de más.
-  function applyTouches() {
+  // Volante SIN ESTADO PROPIO: en cada evento se recalcula desde la lista de
+  // dedos activos que da el sistema. Antes se mantenía un Map por identifier
+  // (añadir al tocar, borrar al levantar) y eso tiene un fallo grave: si se
+  // pierde un evento de "levantar", o llega con otro identifier, la entrada se
+  // queda ahí PARA SIEMPRE y el coche gira solo como si tuvieras el dedo
+  // apoyado — justo lo que pasaba dando toquecitos rápidos. Sin estado propio,
+  // ese fallo no puede existir: cada evento parte de cero.
+  //
+  // El matiz de iOS: en un evento de levantar, `touches` puede seguir
+  // incluyendo el dedo que se acaba de soltar (Android lo excluye), así que se
+  // descuenta explícitamente lo que venga en `changedTouches`.
+  function applyTouches(evt, esFinDeToque) {
+    const ne = evt.nativeEvent;
+    const activos = ne.touches || [];
+    const soltados = esFinDeToque ? (ne.changedTouches || []) : null;
+
     let left = false;
     let right = false;
-    touchMap.current.forEach((x) => {
-      if (x < playW / 2) left = true;
+    let n = 0;
+    for (let i = 0; i < activos.length; i++) {
+      const tq = activos[i];
+      if (soltados) {
+        let yaSoltado = false;
+        for (let j = 0; j < soltados.length; j++) {
+          if (soltados[j].identifier === tq.identifier) { yaSoltado = true; break; }
+        }
+        if (yaSoltado) continue;
+      }
+      n++;
+      if (tq.pageX < playW / 2) left = true;
       else right = true;
-    });
+    }
     pressLeft.current = left;
     pressRight.current = right;
+    dedos.current = n;
     return left || right;
   }
 
   function onTouchDown(evt) {
-    const ch = evt.nativeEvent.changedTouches || [];
-    for (let i = 0; i < ch.length; i++) touchMap.current.set(ch[i].identifier, ch[i].pageX);
-    if (applyTouches()) startRun();
+    if (applyTouches(evt, false)) startRun();
   }
 
   function onTouchMove(evt) {
-    const ch = evt.nativeEvent.changedTouches || [];
-    for (let i = 0; i < ch.length; i++) touchMap.current.set(ch[i].identifier, ch[i].pageX);
-    applyTouches();
+    applyTouches(evt, false);
   }
 
   function onTouchUp(evt) {
-    const ch = evt.nativeEvent.changedTouches || [];
-    for (let i = 0; i < ch.length; i++) touchMap.current.delete(ch[i].identifier);
-    // Red de seguridad: si el sistema dice que ya no queda ningún dedo, se
-    // suelta todo aunque `changedTouches` viniera incompleto.
-    if ((evt.nativeEvent.touches || []).length === 0) touchMap.current.clear();
-    applyTouches();
+    applyTouches(evt, true);
   }
 
   function onTouchCancel() {
-    touchMap.current.clear();
-    applyTouches();
+    pressLeft.current = false;
+    pressRight.current = false;
+    dedos.current = 0;
   }
 
   // --- Marcar anomalía (solo beta) -----------------------------------------
@@ -191,7 +203,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
       dtMax: Math.round(s.dtMax * 1000),
       steps: s.stepsMax,
       capped: s.stepsCapped,
-      dedos: touchMap.current.size,
+      dedos: dedos.current,
       izq: pressLeft.current,
       der: pressRight.current,
       steer: s.steer.toFixed(2),
@@ -219,6 +231,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
     let prevIn = null;
     let prevMuro = null;
     let prevRumbo = null;
+    let prevFantasma = false;
     const nombreIn = (v) => (v === -1 ? 'IZQ' : v === 1 ? 'DER' : 'suelta');
 
     for (let k = 0; k < n; k++) {
@@ -227,9 +240,16 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
       const inp = b[o + 1];
       const muro = b[o + 5] ? 1 : 0;
       const rumbo = b[o + 4];
+      const nDedos = b[o + 7];
+
+      // EL CASO DELATOR: el coche recibe orden de girar con CERO dedos en
+      // pantalla. Si esto aparece, el bug es del táctil, no de la física.
+      const fantasma = nDedos === 0 && inp !== 0;
+      if (fantasma && !prevFantasma) eventos.push(`${t.toFixed(2)}s  *** GIRO FANTASMA (0 dedos, orden ${nombreIn(inp)}) ***`);
+      prevFantasma = fantasma;
 
       if (prevIn !== null && inp !== prevIn) {
-        eventos.push(`${t.toFixed(2)}s  ${nombreIn(prevIn)} -> ${nombreIn(inp)}`);
+        eventos.push(`${t.toFixed(2)}s  ${nombreIn(prevIn)} -> ${nombreIn(inp)}  (dedos ${nDedos})`);
       }
       if (prevMuro !== null && muro !== prevMuro) {
         eventos.push(`${t.toFixed(2)}s  ${muro ? 'TOCA muro' : 'sale del muro'}`);
@@ -251,6 +271,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
           Math.round(rumbo),               // rumbo
           muro ? 'MURO' : '-',             // contacto
           b[o + 6].toFixed(1),             // dt del frame (ms)
+          nDedos,                          // dedos apoyados
         ].join('\t'),
       );
     }
@@ -265,7 +286,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
       `EVENTOS (${eventos.length}):`,
       eventos.length ? eventos.join('\n') : '  (ninguno)',
       '',
-      't\tpulsa\tvolante\tvel\trumbo\tmuro\tdt',
+      't\tpulsa\tvolante\tvel\trumbo\tmuro\tdt\tdedos',
     ].join('\n');
     Share.share({ message: `${cab}\n${filas.join('\n')}` }).catch(() => {});
   }
@@ -275,7 +296,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
     g.current = initialState(track);
     pressLeft.current = false;
     pressRight.current = false;
-    touchMap.current.clear();
+    dedos.current = 0;
     setView(toView(g.current, false, ghostPoseAt(ghostRef.current, 0, ghostIdxRef)));
 
     let raf;
@@ -356,6 +377,7 @@ export default function Game({ track, ghost, weather, attemptsLeft = Infinity, o
         b[o + 4] = (s.heading * 180) / Math.PI;
         b[o + 5] = s.touching ? 1 : 0;
         b[o + 6] = dt * 1000;
+        b[o + 7] = dedos.current;
         recAt.current++;
       }
 
