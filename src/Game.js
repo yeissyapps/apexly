@@ -11,13 +11,27 @@ import { AppState, Dimensions, Pressable, Share, StyleSheet, Text, View } from '
 import { StatusBar } from 'expo-status-bar';
 import Svg, { G, Line, Path, Polygon, Polyline, Rect, Circle } from 'react-native-svg';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { CONFIG } from './config';
 import { fmt } from './format';
 import { NEUTRAL } from './weather';
 import WeatherFX from './WeatherFX';
+import { RD, RD_FONT } from './theme';
 
 const now = () => Date.now();
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+
+// Crono en dos tonos (grande + centésimas atenuadas): parte entera+punto vs
+// los 2 dígitos finales de fmt(), p. ej. "22." + "41".
+function fmtMain(ms) {
+  const s = fmt(ms);
+  return s.slice(0, s.length - 2);
+}
+function fmtFrac(ms) {
+  const s = fmt(ms);
+  return s.slice(-2);
+}
 
 // Punto más cercano de la línea central a (px,py) + medio-ancho (w) interpolado.
 //
@@ -55,8 +69,12 @@ function nearestOnPolyline(pts, px, py, hint, window) {
   return best;
 }
 
-const STATUS_PAD = 44;
-const HUD_H = 52 + STATUS_PAD;
+// Cabecera del rediseño "Parrilla": fila de crono + barra de sectores + label,
+// todo dentro del mismo panel opaco (antes la barra de sectores flotaba
+// encima de la pista) — por eso ahora reserva más alto que antes. El inset
+// superior real (notch / dynamic island / cámara) se suma aparte con
+// useSafeAreaInsets(), no es un número fijo — ver dentro del componente.
+const HUD_CONTENT_H = 122;
 
 // --- Cámara (solo render; no afecta a la física) ---------------------------
 const CAM_VIEW_W = 260; // unidades de mundo visibles a lo ancho (mayor = menos zoom)
@@ -74,7 +92,7 @@ const FIXED_DT = 1 / 120;
 const TRACK_WINDOW = 25;
 
 // --- Sectores (barra de progreso + comparación con el fantasma / el mundo) -
-const SECTOR_COUNT = 4;
+const SECTOR_COUNT = 3;
 
 // ¿En qué sector cae el punto `idx` de la línea central? (0..SECTOR_COUNT-1)
 function sectorOfIdx(idx, totalPoints) {
@@ -136,6 +154,8 @@ const REC_FIELDS = 8;    // t, entrada, volante, velocidad, rumbo, muro, dt, ded
 const SCREEN = Dimensions.get('window');
 
 export default function Game({ track, ghost, weather, sectorBests, attemptsLeft = Infinity, onAttemptStart, onNeedMore, onFinish, onExit }) {
+  const insets = useSafeAreaInsets();
+  const HUD_H = insets.top + HUD_CONTENT_H;
   const playW = SCREEN.width;
   const playH = SCREEN.height - HUD_H;
   const wx = weather || NEUTRAL;
@@ -406,7 +426,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
         if (s.phase === 'finished' && !s.reported) {
           s.reported = true;
           tr.push([Math.round(s.elapsed), Math.round(s.x * 10) / 10, Math.round(s.y * 10) / 10, Math.round(s.heading * 1000) / 1000]);
-          if (onFinishRef.current) onFinishRef.current(s.elapsed, tr, s.sectorSplits);
+          if (onFinishRef.current) onFinishRef.current(s.elapsed, tr, s.sectorSplits, s.impacts, s.sectorColors, s.sectorDeltas);
         }
       }
 
@@ -540,10 +560,14 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
         {/* Efecto visual del clima del día (lluvia / viento / seco) */}
         <WeatherFX weather={wx} w={playW} h={playH} />
 
-        {/* Parte meteorológico (siempre visible) */}
-        <View pointerEvents="none" style={styles.wxPill}>
-          <Text style={styles.wxPillText}>{wx.icon} {wx.label}</Text>
-        </View>
+        {/* Recordatorio de las zonas táctiles — no ocupa alto propio, va
+            superpuesto sobre el borde inferior de la pista. Oculto en reposo:
+            el panel "Toca para arrancar" ya lleva su propio texto y se solapan. */}
+        {view.phase !== 'ready' && (
+          <View pointerEvents="none" style={[rd.footer, { bottom: insets.bottom + 12 }]}>
+            <Text style={rd.footerText}>IZQUIERDA GIRA ‹ · DERECHA GIRA ›</Text>
+          </View>
+        )}
 
         {/* FPS — solo con CONFIG.DIAG */}
         {CONFIG.DIAG && (
@@ -601,63 +625,104 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
         )}
       </View>
 
-      <View style={[styles.hud, { height: HUD_H, paddingTop: STATUS_PAD }]}>
-        <View style={styles.hudSide}>
-          {view.phase === 'ready' && (
-            <Pressable style={styles.hudBtn} onPress={onExit} hitSlop={10}>
-              <Text style={styles.hudBtnText}>‹ Salir</Text>
-            </Pressable>
-          )}
+      {/* Cabecera "Parrilla": crono + barra de sectores + label, todo dentro
+          del mismo panel opaco (antes la barra de sectores flotaba encima de
+          la pista, ahora reserva su propio alto — ver HUD_CONTENT_H). */}
+      <View style={[rd.hud, { height: HUD_H, paddingTop: insets.top }]}>
+        <View style={rd.hudTopRow}>
+          <View style={rd.hudSide}>
+            {view.phase === 'ready' && (
+              <Pressable onPress={onExit} hitSlop={10}>
+                <Text style={rd.exitText}>‹ SALIR</Text>
+              </Pressable>
+            )}
+          </View>
+          <Text style={rd.timer}>
+            {fmtMain(view.elapsed)}<Text style={rd.timerFrac}>{fmtFrac(view.elapsed)}</Text>
+          </Text>
+          <View style={[rd.hudSide, { justifyContent: 'flex-end', gap: 8 }]}>
+            <View style={rd.wxBadge}>
+              <Text style={rd.wxBadgeText}>{wx.label.toUpperCase()}</Text>
+            </View>
+            {/* Marcar anomalía — solo con CONFIG.DIAG. */}
+            {CONFIG.DIAG && (
+              <Pressable style={styles.flagBtn} onPress={marcar} hitSlop={12}>
+                <Text style={styles.flagBtnText}>⚑</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
-        <Text style={styles.timer}>{fmt(view.elapsed)}</Text>
-        <View style={[styles.hudSide, { justifyContent: 'flex-end' }]}>
-          {/* Marcar anomalía — solo con CONFIG.DIAG. Va en la barra superior,
-              FUERA de la zona táctil, para no robarle toques al volante. */}
-          {CONFIG.DIAG && (
-            <Pressable style={styles.flagBtn} onPress={marcar} hitSlop={12}>
-              <Text style={styles.flagBtnText}>⚑</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
 
-      {/* Barra de sectores: morado = mejor del mundo hoy en ese sector, verde =
-          mejoras tu fantasma, amarillo = no lo mejoras. El segmento actual se
-          resalta mientras lo recorres; los que aún no llegas quedan tenues. */}
-      {view.phase !== 'ready' && (
-        <View style={[styles.sectorRow, { top: HUD_H + 6 }]}>
-          <View style={styles.sectorBar}>
+        {/* Morado = mejor del mundo hoy en ese sector, verde = mejoras tu
+            fantasma, amarillo = no lo mejoras. Naranja = el que recorres
+            ahora; gris = aún no llegas. */}
+        <View style={rd.sectorBlock}>
+          <View style={rd.sectorBar}>
             {Array.from({ length: SECTOR_COUNT }).map((_, i) => {
               const done = i < view.sector;
               const active = i === view.sector && view.phase === 'running';
               const color = done
                 ? SECTOR_COLORS[view.sectorColors[i]] || SECTOR_COLORS.none
                 : active ? SECTOR_COLORS.active : SECTOR_COLORS.pending;
-              return <View key={i} style={[styles.sectorSeg, { backgroundColor: color }]} />;
+              return <View key={i} style={[rd.sectorSeg, { backgroundColor: color }]} />;
             })}
           </View>
-          <Text style={styles.sectorLabel}>
-            SECTOR {Math.min(view.sector + 1, SECTOR_COUNT)}/{SECTOR_COUNT}
-          </Text>
-          {view.ghostDeltaMs != null && (
-            <Text style={[styles.sectorDelta, { color: view.ghostDeltaMs <= 0 ? SECTOR_COLORS.green : '#ff6a5a' }]}>
-              {view.ghostDeltaMs <= 0 ? '−' : '+'}{Math.abs(view.ghostDeltaMs / 1000).toFixed(2)}
+          <View style={rd.sectorLabelRow}>
+            <Text style={rd.sectorLabel}>
+              SECTOR {Math.min(view.sector + 1, SECTOR_COUNT)}/{SECTOR_COUNT}
             </Text>
-          )}
+            {view.phase !== 'ready' && view.ghostDeltaMs != null && (
+              <Text style={[rd.sectorDelta, { color: view.ghostDeltaMs <= 0 ? RD.successGreen : RD.dangerRed }]}>
+                {view.ghostDeltaMs <= 0 ? 'FANTASMA −' : 'FANTASMA +'}{Math.abs(view.ghostDeltaMs / 1000).toFixed(2)}
+              </Text>
+            )}
+          </View>
         </View>
-      )}
+      </View>
     </View>
   );
 }
 
 const SECTOR_COLORS = {
   purple: '#b884ff',
-  green: '#43e08a',
+  green: RD.successGreen,
   yellow: '#ffd83d',
-  none: 'rgba(255,255,255,0.28)',   // sector cerrado sin con qué compararlo
-  pending: 'rgba(255,255,255,0.14)', // aún no llegas
-  active: '#ff6a3d',                 // el que estás recorriendo ahora
+  none: RD.cream,          // sector cerrado sin con qué compararlo
+  pending: RD.panelBorder, // aún no llegas
+  active: RD.brandOrange,  // el que estás recorriendo ahora
 };
+
+const rd = StyleSheet.create({
+  hud: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    backgroundColor: RD.bg, borderBottomWidth: 1, borderBottomColor: RD.gridLine,
+    paddingHorizontal: 16, paddingBottom: 14,
+    justifyContent: 'space-between', // reparte el hueco sobrante entre crono y sectores
+  },
+  hudTopRow: { flexDirection: 'row', alignItems: 'center', height: 42 },
+  hudSide: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  exitText: { color: RD.textSecondary, fontSize: 11, fontFamily: RD_FONT.mono },
+  timer: {
+    color: RD.textPrimary, fontSize: 30, lineHeight: 38, fontFamily: RD_FONT.monoBold,
+    fontVariant: ['tabular-nums'], letterSpacing: 0.5,
+  },
+  timerFrac: { color: RD.textTertiary, fontSize: 16, lineHeight: 20 },
+  wxBadge: { borderWidth: 1, borderColor: '#3a3a3a', paddingHorizontal: 6, paddingVertical: 3 },
+  wxBadgeText: { color: RD.cream, fontSize: 11, fontFamily: RD_FONT.mono },
+
+  sectorBlock: { marginTop: 8, gap: 6 },
+  sectorBar: { flexDirection: 'row', gap: 2 },
+  sectorSeg: { flex: 1, height: 5 },
+  sectorLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sectorLabel: { color: RD.textDisabled, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 0.5 },
+  sectorDelta: { fontSize: 12, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
+
+  footer: {
+    position: 'absolute', left: 0, right: 0, paddingVertical: 6,
+    backgroundColor: 'rgba(11,11,12,0.55)', alignItems: 'center',
+  },
+  footerText: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1 },
+});
 
 // --- Paleta de la pista (solo render) --------------------------------------
 const ROAD = {
@@ -932,6 +997,7 @@ function initialState(track) {
     lastSectorElapsed: 0,   // tiempo (ms) al que se cerró el último sector
     sectorSplits: [],       // ms de cada sector ya completado
     sectorColors: [],       // 'purple'|'green'|'yellow'|null por sector completado
+    sectorDeltas: [],       // ms vs el fantasma por sector (null si no había fantasma)
     ghostDeltaMs: null,     // delta en vivo contra el fantasma (null si no hay fantasma)
   };
 }
@@ -939,7 +1005,7 @@ function initialState(track) {
 function toView(s, flash, ghost) {
   return {
     x: s.x, y: s.y, heading: s.heading, camAngle: s.camAngle, elapsed: s.elapsed, phase: s.phase, flash, ghost, fps: s.fps,
-    sector: s.sector, sectorColors: s.sectorColors, ghostDeltaMs: s.ghostDeltaMs,
+    sector: s.sector, sectorColors: s.sectorColors, ghostDeltaMs: s.ghostDeltaMs, impacts: s.impacts,
   };
 }
 
@@ -987,8 +1053,12 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather, ghostPr
     let color = null;
     if (worldBest != null && mySplit <= worldBest) color = 'purple';
     else if (ghostSplit != null) color = mySplit < ghostSplit ? 'green' : 'yellow';
+    // Primera vuelta del día: no hay fantasma que batir, así que no hay nada
+    // "peor" contra lo que perder — cuenta como mejora.
+    else color = 'green';
     s.sectorSplits.push(mySplit);
     s.sectorColors.push(color);
+    s.sectorDeltas.push(ghostSplit != null ? mySplit - ghostSplit : null);
     s.lastSectorElapsed = elapsedNow;
     s.sector++;
   }
@@ -1108,12 +1178,6 @@ const styles = StyleSheet.create({
   startTagText: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '700' },
   startTagWx: { backgroundColor: 'rgba(255,184,77,0.16)' },
   startTagWxText: { color: '#ffb84d', fontSize: 12, fontWeight: '700' },
-  wxPill: {
-    position: 'absolute', top: 12, right: 12,
-    backgroundColor: 'rgba(13,15,19,0.72)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6,
-  },
-  wxPillText: { color: '#ecebe5', fontSize: 13, fontWeight: '700' },
   fpsPill: {
     position: 'absolute', top: 12, left: 12,
     backgroundColor: 'rgba(13,15,19,0.72)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
@@ -1138,20 +1202,4 @@ const styles = StyleSheet.create({
     paddingVertical: 8, alignItems: 'center',
   },
   snapBtnText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
-  hud: {
-    position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 18,
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#151a26',
-  },
-  hudSide: { flex: 1, flexDirection: 'row', alignItems: 'center' },
-  timer: { color: '#ffffff', fontSize: 30, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  hudBtn: { backgroundColor: '#2a3242', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
-  hudBtnText: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
-  sectorRow: {
-    position: 'absolute', left: 18, right: 18,
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-  },
-  sectorBar: { flex: 1, flexDirection: 'row', gap: 4 },
-  sectorSeg: { flex: 1, height: 5, borderRadius: 3 },
-  sectorLabel: { color: 'rgba(255,255,255,0.55)', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
-  sectorDelta: { fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'], minWidth: 46, textAlign: 'right' },
 });

@@ -80,14 +80,17 @@ function WindLayer({ w, h, windX, windY }) {
   const dy = Math.sin(angle);
   const range = Math.hypot(w, h) + 180;
   const angleDeg = (angle * 180) / Math.PI;
+  // Rachas: pocas, rápidas y muy alargadas -> lectura de "líneas de velocidad"
+  // en vez de las gotas de lluvia (finas, numerosas, caída constante).
   const gusts = useRef(
     Array.from({ length: N_GUSTS }, () => ({
-      x: Math.random() * w, y: Math.random() * h, len: 95 + Math.random() * 130,
-      dur: 700 + Math.random() * 800, op: 0.26 + Math.random() * 0.34,
+      x: Math.random() * w, y: Math.random() * h, len: 130 + Math.random() * 220,
+      dur: 380 + Math.random() * 420, op: 0.22 + Math.random() * 0.3,
     })),
   ).current;
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.clip]}>
+      <View style={[StyleSheet.absoluteFill, styles.haze]} />
       {gusts.map((g, i) => <Gust key={i} g={g} dx={dx} dy={dy} range={range} angleDeg={angleDeg} />)}
     </View>
   );
@@ -127,6 +130,7 @@ export default function WeatherFX({ weather, w, h }) {
 const styles = StyleSheet.create({
   clip: { overflow: 'hidden' },
   gloom: { backgroundColor: 'rgba(20,28,46,0.30)' },
+  haze: { backgroundColor: 'rgba(130,116,88,0.10)' }, // tinte cálido/polvoriento — distingue el viento de la lluvia (azulada)
   drop: { position: 'absolute', top: 0, width: 2.4, borderRadius: 1, backgroundColor: 'rgba(200,220,255,0.9)' },
-  gust: { position: 'absolute', height: 2.6, borderRadius: 2, backgroundColor: 'rgba(222,232,245,0.92)' },
+  gust: { position: 'absolute', height: 1.6, borderRadius: 1, backgroundColor: 'rgba(216,202,168,0.85)' },
 });

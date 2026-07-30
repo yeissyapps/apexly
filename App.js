@@ -8,23 +8,34 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Pressable, ScrollView, Share, StyleSheet, Text,
+  ActivityIndicator, Animated, Dimensions, Pressable, ScrollView, Share, StyleSheet, Text,
   TextInput, View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
+import { useFonts } from 'expo-font';
+import {
+  BarlowCondensed_600SemiBold, BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold,
+} from '@expo-google-fonts/barlow-condensed';
+import {
+  IBMPlexMono_500Medium, IBMPlexMono_600SemiBold, IBMPlexMono_700Bold,
+} from '@expo-google-fonts/ibm-plex-mono';
 
 import Game from './src/Game';
-import Leaderboard from './src/Leaderboard';
 import { todayKey } from './src/daily';
 import { dailyCircuit } from './src/generator';
 import { dailyWeather, weatherById, WEATHER_IDS } from './src/weather';
 
 // Modo de prueba: muestra un selector de clima en Inicio para ver los 4 efectos
 // sin esperar a la fecha. false = build de producción (capturas de tienda).
-const DEV_WEATHER = false;
+const DEV_WEATHER = true; // temporal mientras iteramos Juego en vivo
 import { fmtTime, fmtSecs } from './src/format';
-import { C, MONO } from './src/theme';
+import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS } from './src/theme';
+import DangerStripe from './src/DangerStripe';
+import MiniRanking from './src/MiniRanking';
+import MiniTrackMap from './src/MiniTrackMap';
+
+const TRACKMAP_W = Dimensions.get('window').width - 18 * 2 - 14 * 2; // screenContent + panel
 import {
   ensureSession, ensureDailyTrack, getLocalNickname, saveNickname, submitTime,
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
@@ -71,6 +82,10 @@ function useMidnightCountdown() {
 }
 
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    BarlowCondensed_600SemiBold, BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold,
+    IBMPlexMono_500Medium, IBMPlexMono_600SemiBold, IBMPlexMono_700Bold,
+  });
   const [screen, setScreen] = useState('loading'); // loading|error|onboarding|home|playing|results
   const [nickname, setNickname] = useState(null);
   const [result, setResult] = useState(null); // { ms, isBest, submitting, error }
@@ -191,8 +206,8 @@ export default function App() {
     }
   }
 
-  async function handleFinish(ms, trace, sectorSplits) {
-    setResult({ ms, isBest: false, submitting: true });
+  async function handleFinish(ms, trace, sectorSplits, impacts, sectorColors, sectorDeltas) {
+    setResult({ ms, isBest: false, submitting: true, impacts, sectorColors, sectorDeltas });
     setScreen('results');
     // Guarda tu mejor vuelta (fantasma) en el móvil.
     saveGhostIfBest(todayKey(), ms, trace).then((g) => { if (g) setGhost(g); }).catch(() => {});
@@ -207,15 +222,15 @@ export default function App() {
       const { isBest, prevMs } = await submitTime(ms);
       let streak = null;
       try { streak = await bumpStreak(); } catch (_) {}
-      setResult({ ms, isBest, submitting: false, streak });
+      setResult({ ms, isBest, submitting: false, streak, impacts, sectorColors, sectorDeltas });
       if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs); // fire-and-forget: avisa a quien adelantaste
     } catch (e) {
-      setResult({ ms, isBest: false, submitting: false, error: true });
+      setResult({ ms, isBest: false, submitting: false, error: true, impacts, sectorColors, sectorDeltas });
     }
     setRefreshKey((k) => k + 1);
   }
 
-  if (screen === 'loading') {
+  if (!fontsLoaded || screen === 'loading') {
     return (
       <View style={styles.centerScreen}>
         <StatusBar hidden />
@@ -295,44 +310,66 @@ export default function App() {
 
   // home
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.screenContent}>
+    <HomeRD
+      nickname={nickname}
+      myStreak={myStreak}
+      daily={daily}
+      weather={weather}
+      midnightLabel={midnightLabel}
+      left={left}
+      total={total}
+      refreshKey={refreshKey}
+      tryPlay={tryPlay}
+      onManageGroups={() => setScreen('groups')}
+      privacyOptional={privacyOptional}
+      forceWx={forceWx}
+      setForceWx={setForceWx}
+      setAtt={setAtt}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+//  Inicio — dirección "Parrilla" (rediseño, ver Rediseño visual Apexly/).
+// ---------------------------------------------------------------------------
+function HomeRD({
+  nickname, myStreak, daily, weather, midnightLabel, left, total, refreshKey,
+  tryPlay, onManageGroups, privacyOptional, forceWx, setForceWx, setAtt,
+}) {
+  return (
+    <ScrollView style={rd.screen} contentContainerStyle={rd.screenContent}>
       <StatusBar hidden />
-      <View style={styles.homeHeader}>
-        <Text style={styles.hi}>Hola, {nickname}</Text>
-        {myStreak?.current >= 1 && (
-          <View style={styles.streakChip}>
-            <View style={styles.streakDot} />
-            <Text style={styles.streakChipText}>Racha {myStreak.current}</Text>
+      <DangerStripe height={6} />
+
+      {myStreak?.current >= 1 && (
+        <View style={rd.headerRow}>
+          <View style={rd.streakChip}>
+            <Text style={rd.streakChipText}>RACHA {myStreak.current}</Text>
           </View>
-        )}
+        </View>
+      )}
+
+      <View style={rd.panel}>
+        <View style={rd.panelHeadRow}>
+          <Text style={rd.labelMono}>CIRCUITO DE HOY</Text>
+          <View style={rd.attBadge}>
+            <Text style={rd.attBadgeText}>{Math.max(0, left)}/{total}</Text>
+          </View>
+        </View>
+        <Text style={rd.trackName}>{daily.label}</Text>
+        <Text style={rd.trackDesc}>Objetivo: ~{Math.round(daily.timeEstimate)}s en limpio</Text>
+        <View style={rd.wxRow}>
+          <View style={rd.wxDot} />
+          <Text style={rd.wxText}>{weather.label.toUpperCase()} · {weather.hint}</Text>
+        </View>
       </View>
 
-      <View style={styles.trackCard}>
-        <View style={[styles.attBadge, left <= 0 && styles.attBadgeEmpty]}>
-          <Text style={[styles.attBadgeText, left <= 0 && styles.attBadgeTextEmpty]}>
-            Intentos {Math.max(0, left)}/{total}
-          </Text>
-        </View>
-        <Text style={styles.trackLabel}>Circuito de hoy</Text>
-        <Text style={styles.trackName}>{daily.label}</Text>
-        <Text style={styles.trackDesc}>Generado para hoy · ~{Math.round(daily.timeEstimate)}s limpio</Text>
-        <Text style={styles.trackCountdown}>Cambia en {midnightLabel}</Text>
-        <View style={styles.wxRow}>
-          <Text style={styles.wxIcon}>{weather.icon}</Text>
-          <Text style={styles.wxRowText}>
-            <Text style={styles.wxRowLabel}>{weather.label}</Text> · {weather.hint}
-          </Text>
-        </View>
-        {ghost && (
-          <View style={styles.trackBest}>
-            <Text style={styles.trackBestK}>Tu mejor hoy</Text>
-            <Text style={styles.trackBestV}>{fmtTime(ghost.ms)}</Text>
-          </View>
-        )}
-      </View>
+      <Text style={rd.countdown}>
+        Próximo circuito en <Text style={rd.countdownValue}>{midnightLabel}</Text>
+      </Text>
 
-      <Pressable style={styles.primaryBtn} onPress={tryPlay}>
-        <Text style={styles.primaryBtnText}>{left > 0 ? 'Jugar' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
+      <Pressable style={rd.cta} onPress={tryPlay}>
+        <Text style={rd.ctaText}>{left > 0 ? 'Jugar' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
       </Pressable>
 
       {DEV_WEATHER && (
@@ -350,17 +387,108 @@ export default function App() {
         </View>
       )}
 
-      <View style={{ height: 24 }} />
-      <Leaderboard refreshKey={refreshKey} onManageGroups={() => setScreen('groups')} />
+      <Text style={rd.labelMono}>RANKING DE HOY</Text>
+      <MiniRanking refreshKey={refreshKey} onManageGroups={onManageGroups} />
 
       {privacyOptional && (
-        <Pressable style={styles.privacyLink} onPress={() => showPrivacyOptions()} hitSlop={8}>
-          <Text style={styles.privacyLinkText}>Privacidad de anuncios</Text>
+        <Pressable style={rd.privacyLink} onPress={() => showPrivacyOptions()} hitSlop={8}>
+          <Text style={rd.privacyLinkText}>Privacidad de anuncios</Text>
         </Pressable>
       )}
     </ScrollView>
   );
 }
+
+const rd = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: RD.bg },
+  screenContent: { paddingHorizontal: 18, paddingTop: PAD, paddingBottom: 40, gap: 16 },
+
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
+  streakChip: {
+    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 7, paddingVertical: 4,
+  },
+  streakChipText: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold },
+
+  panel: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 8 },
+  panelHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  labelMono: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1.4 },
+  attBadge: { backgroundColor: RD.cream, paddingHorizontal: 6, paddingVertical: 3 },
+  attBadgeText: { color: RD.bg, fontSize: 10, fontFamily: RD_FONT.monoBold },
+  trackName: {
+    color: RD.trackBlue, fontSize: 28, fontFamily: RD_FONT.displayBlack,
+    textTransform: 'uppercase', lineHeight: 30,
+  },
+  trackDesc: { color: RD.textSecondary, fontSize: 13 },
+  wxRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2,
+    borderTopWidth: 1, borderTopColor: RD.gridLine, paddingTop: 8,
+  },
+  wxDot: { width: 8, height: 8, backgroundColor: RD.cream },
+  wxText: { color: RD.cream, fontSize: 11, fontFamily: RD_FONT.mono, flex: 1 },
+
+  countdown: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, textAlign: 'center' },
+  countdownValue: { color: RD.textPrimary, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
+
+  cta: { backgroundColor: RD.brandOrange, borderRadius: 2, paddingVertical: 16, alignItems: 'center' },
+  ctaDisabled: { opacity: 0.4 },
+  ctaText: {
+    color: RD.bg, fontSize: 22, fontFamily: RD_FONT.displayBlack,
+    textTransform: 'uppercase', letterSpacing: 0.6,
+  },
+
+  privacyLink: { alignItems: 'center', marginTop: 4, paddingVertical: 6 },
+  privacyLinkText: { color: RD.textDisabled, fontSize: 12, fontFamily: RD_FONT.mono, textDecorationLine: 'underline' },
+
+  resultTop: { alignItems: 'center', paddingTop: 6, gap: 8 },
+  resultBadge: { borderRadius: 2, paddingHorizontal: 14, paddingVertical: 6 },
+  resultBadgeText: { fontFamily: RD_FONT.monoBold, fontSize: 12, letterSpacing: 1 },
+  resultNeutral: { color: RD.textSecondary, fontSize: 15, fontFamily: RD_FONT.mono },
+  resultTime: { fontFamily: RD_FONT.monoBold, fontSize: 52, fontVariant: ['tabular-nums'] },
+  trackMapBox: {
+    width: '100%', borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    alignItems: 'center', justifyContent: 'center', paddingVertical: 8,
+  },
+  sectorSplitsRow: { flexDirection: 'row', justifyContent: 'center', gap: 24 },
+  sectorSplitCol: { alignItems: 'center', gap: 2 },
+  sectorSplitDivider: { width: 1, alignSelf: 'stretch', backgroundColor: RD.panelBorder },
+  sectorSplitLabel: { color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1 },
+  sectorSplitValue: { fontSize: 14, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
+  resultRank: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.mono },
+  resultCrash: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono },
+  resultBtnsRow: { flexDirection: 'row', gap: 10 },
+  resultSecondaryBtn: {
+    flex: 1, borderWidth: 1, borderColor: '#3a3a3a', borderRadius: 2,
+    paddingVertical: 14, alignItems: 'center',
+  },
+  resultSecondaryBtnText: { color: RD.textPrimary, fontSize: 14, fontWeight: '700' },
+
+  backLink: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, marginBottom: 8 },
+  pageTitle: {
+    color: RD.textPrimary, fontSize: 28, fontFamily: RD_FONT.displayBlack,
+    textTransform: 'uppercase', marginBottom: 4,
+  },
+  msgOk: { color: RD.successGreen, fontSize: 13, fontFamily: RD_FONT.mono },
+  msgErr: { color: RD.dangerRed, fontSize: 13, fontFamily: RD_FONT.mono },
+  input: {
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    paddingHorizontal: 12, paddingVertical: 10, color: RD.textPrimary, fontSize: 15,
+    marginTop: 8, marginBottom: 10,
+  },
+  inputMono: { fontFamily: RD_FONT.mono, letterSpacing: 2, textTransform: 'uppercase' },
+  secondaryBtnBig: { borderWidth: 1, borderColor: '#3a3a3a', borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
+  secondaryBtnBigText: { color: RD.textPrimary, fontSize: 14, fontWeight: '700' },
+  muted: { color: RD.textTertiary, fontSize: 13, fontFamily: RD_FONT.mono, marginTop: 8 },
+
+  groupsList: { gap: 1, backgroundColor: RD.gridLine },
+  groupRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: RD.bg, paddingVertical: 10, paddingHorizontal: 12, gap: 10,
+  },
+  groupName: { color: RD.textPrimary, fontSize: 15, fontWeight: '700' },
+  groupCode: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, marginTop: 2 },
+  inviteBtn: { borderWidth: 1, borderColor: RD.brandOrange, paddingHorizontal: 10, paddingVertical: 6 },
+  inviteBtnText: { color: RD.brandOrange, fontSize: 11, fontFamily: RD_FONT.monoBold },
+});
 
 // ---------------------------------------------------------------------------
 //  Grupos: crear / unirse por código / ver los míos.
@@ -412,65 +540,67 @@ function Groups({ onBack, onChanged }) {
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.screenContent}>
+    <ScrollView style={rd.screen} contentContainerStyle={rd.screenContent}>
       <StatusBar hidden />
-      <Pressable onPress={onBack} hitSlop={12} style={styles.backBtn}>
-        <Text style={styles.backText}>‹ Inicio</Text>
+      <Pressable onPress={onBack} hitSlop={12}>
+        <Text style={rd.backLink}>‹ INICIO</Text>
       </Pressable>
-      <Text style={styles.hi}>Grupos</Text>
+      <Text style={rd.pageTitle}>Grupos</Text>
 
       {msg && (
-        <Text style={msg.type === 'ok' ? styles.msgOk : styles.msgErr}>{msg.text}</Text>
+        <Text style={msg.type === 'ok' ? rd.msgOk : rd.msgErr}>{msg.text}</Text>
       )}
 
-      <View style={styles.trackCard}>
-        <Text style={styles.trackLabel}>Crear un grupo</Text>
+      <View style={rd.panel}>
+        <Text style={rd.labelMono}>CREAR UN GRUPO</Text>
         <TextInput
-          style={styles.input2}
+          style={rd.input}
           value={name}
           onChangeText={setName}
           placeholder="Nombre del grupo"
-          placeholderTextColor={C.faint}
+          placeholderTextColor={RD.textDisabled}
           maxLength={24}
         />
-        <Pressable style={[styles.primaryBtn, (!name.trim() || busy) && styles.primaryBtnDisabled]} onPress={doCreate} disabled={!name.trim() || busy}>
-          <Text style={styles.primaryBtnText}>Crear</Text>
+        <Pressable style={[rd.cta, (!name.trim() || busy) && rd.ctaDisabled]} onPress={doCreate} disabled={!name.trim() || busy}>
+          <Text style={rd.ctaText}>Crear</Text>
         </Pressable>
       </View>
 
-      <View style={styles.trackCard}>
-        <Text style={styles.trackLabel}>Unirse con código</Text>
+      <View style={rd.panel}>
+        <Text style={rd.labelMono}>UNIRSE CON CÓDIGO</Text>
         <TextInput
-          style={styles.input2}
+          style={[rd.input, rd.inputMono]}
           value={code}
           onChangeText={setCode}
-          placeholder="Código (p. ej. A1B2C3)"
-          placeholderTextColor={C.faint}
+          placeholder="A1B2C3"
+          placeholderTextColor={RD.textDisabled}
           autoCapitalize="characters"
           maxLength={6}
         />
-        <Pressable style={[styles.secondaryBtn, (!code.trim() || busy) && styles.primaryBtnDisabled]} onPress={doJoin} disabled={!code.trim() || busy}>
-          <Text style={styles.secondaryBtnText}>Unirme</Text>
+        <Pressable style={[rd.secondaryBtnBig, (!code.trim() || busy) && rd.ctaDisabled]} onPress={doJoin} disabled={!code.trim() || busy}>
+          <Text style={rd.secondaryBtnBigText}>Unirme</Text>
         </Pressable>
       </View>
 
-      <Text style={styles.trackLabel}>Tus grupos</Text>
+      <Text style={rd.labelMono}>TUS GRUPOS</Text>
       {groups == null ? (
-        <ActivityIndicator color={C.hot} style={{ marginTop: 12 }} />
+        <ActivityIndicator color={RD.brandOrange} style={{ marginTop: 12 }} />
       ) : groups.length === 0 ? (
-        <Text style={styles.muted2}>Aún no estás en ningún grupo. Crea uno y comparte el código.</Text>
+        <Text style={rd.muted}>Aún no estás en ningún grupo. Crea uno y comparte el código.</Text>
       ) : (
-        groups.map((g) => (
-          <View key={g.id} style={styles.groupRow}>
-            <View style={styles.groupInfo}>
-              <Text style={styles.groupName} numberOfLines={1}>{g.name}</Text>
-              <Text style={styles.groupCode}>Código: {g.join_code}</Text>
+        <View style={rd.groupsList}>
+          {groups.map((g) => (
+            <View key={g.id} style={rd.groupRow}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={rd.groupName} numberOfLines={1}>{g.name}</Text>
+                <Text style={rd.groupCode}>CÓDIGO {g.join_code}</Text>
+              </View>
+              <Pressable style={rd.inviteBtn} onPress={() => shareInvite(g)} hitSlop={8}>
+                <Text style={rd.inviteBtnText}>INVITAR</Text>
+              </Pressable>
             </View>
-            <Pressable style={styles.inviteBtn} onPress={() => shareInvite(g)} hitSlop={8}>
-              <Text style={styles.inviteBtnText}>Invitar</Text>
-            </Pressable>
-          </View>
-        ))
+          ))}
+        </View>
       )}
     </ScrollView>
   );
@@ -562,7 +692,6 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   const isGroupTop = improved && !isGlobalTop && groupRank === 1;
   const isPersonalBest = improved && !isGlobalTop && !isGroupTop;
   const vibe = isGlobalTop ? 'global' : isGroupTop ? 'group' : isPersonalBest ? 'best' : 'flat';
-  const timeColor = vibe === 'global' ? C.gold : vibe === 'group' ? C.purple : vibe === 'best' ? C.green : C.gold;
   const celebrate = vibe !== 'flat';
 
   useEffect(() => {
@@ -618,55 +747,94 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   }
 
   const banner =
-    vibe === 'global' ? { text: '◆  MEJOR TIEMPO MUNDIAL  ◆', style: styles.badgeGlobal, txt: styles.badgeGlobalTxt } :
-    vibe === 'group' ? { text: '★ 1.º DE TU GRUPO', style: styles.badgeGroup, txt: styles.badgeGroupTxt } :
-    vibe === 'best' ? { text: '★ NUEVO RÉCORD', style: styles.badgeBest, txt: styles.badgeBestTxt } :
+    vibe === 'global' ? { text: '◆  MEJOR TIEMPO MUNDIAL  ◆', bg: RD.gold1st } :
+    vibe === 'group' ? { text: '★ 1.º DE TU GRUPO', bg: RD.trackBlue } :
+    vibe === 'best' ? { text: '★ NUEVO RÉCORD', bg: RD.successGreen } :
     null;
+  const timeColor =
+    vibe === 'global' ? RD.gold1st : vibe === 'group' ? RD.trackBlue : vibe === 'best' ? RD.successGreen : RD.cream;
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.screenContent}>
+    <ScrollView style={rd.screen} contentContainerStyle={rd.screenContent}>
       <StatusBar hidden />
 
-      <View style={styles.resultTop}>
+      <View style={rd.resultTop}>
         {banner ? (
           vibe === 'global' ? (
             <Animated.View style={{ opacity, transform: [{ scale }] }}>
-              <ShineBadge style={banner.style}><Text style={banner.txt}>{banner.text}</Text></ShineBadge>
+              <ShineBadge style={[rd.resultBadge, { backgroundColor: banner.bg }]}>
+                <Text style={[rd.resultBadgeText, { color: RD.bg }]}>{banner.text}</Text>
+              </ShineBadge>
             </Animated.View>
           ) : (
-            <Animated.View style={[banner.style, { opacity, transform: [{ scale }] }]}>
-              <Text style={banner.txt}>{banner.text}</Text>
+            <Animated.View style={[rd.resultBadge, { backgroundColor: banner.bg, opacity, transform: [{ scale }] }]}>
+              <Text style={[rd.resultBadgeText, { color: RD.bg }]}>{banner.text}</Text>
             </Animated.View>
           )
-        ) : (
-          <Text style={styles.resultNeutral}>{result.submitting ? 'Guardando…' : 'Buen intento'}</Text>
-        )}
-        <Text style={[styles.resultTime, { color: timeColor }]}>{fmtTime(result.ms)}</Text>
-        <Text style={styles.resultTrack}>{wx.icon} {label}</Text>
+        ) : result.submitting ? (
+          <Text style={rd.resultNeutral}>Guardando…</Text>
+        ) : null}
+        <Text style={[rd.resultTime, { color: timeColor }]}>{fmtTime(result.ms)}</Text>
+
+        <View style={rd.trackMapBox}>
+          <MiniTrackMap track={track} w={TRACKMAP_W} h={80} />
+        </View>
+
+        {result.sectorDeltas && result.sectorDeltas.length > 0 && (() => {
+          const allKnown = result.sectorDeltas.every((d) => d != null);
+          const total = allKnown ? result.sectorDeltas.reduce((a, b) => a + b, 0) : null;
+          return (
+            <View style={rd.sectorSplitsRow}>
+              {result.sectorDeltas.map((delta, i) => {
+                const color = SECTOR_RESULT_COLORS[result.sectorColors?.[i]] || RD.cream;
+                const value = delta == null ? '—' : `${delta <= 0 ? '−' : '+'}${(Math.abs(delta) / 1000).toFixed(3)}s`;
+                return (
+                  <View key={i} style={rd.sectorSplitCol}>
+                    <Text style={rd.sectorSplitLabel}>S{i + 1}</Text>
+                    <Text style={[rd.sectorSplitValue, { color }]}>{value}</Text>
+                  </View>
+                );
+              })}
+              {total != null && (
+                <>
+                  <View style={rd.sectorSplitDivider} />
+                  <View style={rd.sectorSplitCol}>
+                    <Text style={rd.sectorSplitLabel}>TOTAL</Text>
+                    <Text style={[rd.sectorSplitValue, { color: total <= 0 ? RD.successGreen : RD.dangerRed }]}>
+                      {`${total <= 0 ? '−' : '+'}${(Math.abs(total) / 1000).toFixed(3)}s`}
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
+          );
+        })()}
+
         {standing && (
-          <Text style={styles.resultRank}>
-            {standing.rank}.º de {standing.total} en el mundo
-          </Text>
+          <Text style={rd.resultRank}>{standing.rank}.º de {standing.total} en el mundo</Text>
         )}
+        <Text style={rd.resultCrash}>
+          {result.impacts ? `Te has chocado ${result.impacts} ${result.impacts === 1 ? 'vez' : 'veces'}` : 'Vuelta limpia — sin choques'}
+        </Text>
       </View>
 
-      <Pressable style={styles.primaryBtn} onPress={onRetry}>
-        <Text style={styles.primaryBtnText}>
+      <Pressable style={rd.cta} onPress={onRetry}>
+        <Text style={rd.ctaText}>
           {outOfAttempts ? `Ver anuncio · +${intentosTxt(AD_BATCH)}` : `Reintentar (${attemptsLeft}/${total})`}
         </Text>
       </Pressable>
 
-      <View style={styles.resultBtns}>
-        <Pressable style={[styles.secondaryBtn, styles.flex1]} onPress={shareResult}>
-          <Text style={styles.secondaryBtnText}>Compartir</Text>
+      <View style={rd.resultBtnsRow}>
+        <Pressable style={rd.resultSecondaryBtn} onPress={shareResult}>
+          <Text style={rd.resultSecondaryBtnText}>Compartir</Text>
         </Pressable>
-        <Pressable style={[styles.secondaryBtn, styles.flex1]} onPress={onHome}>
-          <Text style={styles.secondaryBtnText}>Inicio</Text>
+        <Pressable style={rd.resultSecondaryBtn} onPress={onHome}>
+          <Text style={rd.resultSecondaryBtnText}>Inicio</Text>
         </Pressable>
       </View>
 
-      <View style={{ height: 22 }} />
-      <Leaderboard refreshKey={refreshKey} />
+      <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING DE HOY</Text>
+      <MiniRanking refreshKey={refreshKey} showEntornoLabel={false} showTabs={false} />
 
       {/* Tarjeta para compartir: renderizada fuera de pantalla y capturada a PNG. */}
       <View style={styles.offscreen} pointerEvents="none">
@@ -724,7 +892,6 @@ const styles = StyleSheet.create({
   subtitle: { color: C.dim, fontSize: 16, textAlign: 'center', marginTop: 8, marginBottom: 24 },
 
   homeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
-  hi: { color: C.ink, fontSize: 22, fontWeight: '800', letterSpacing: -0.4 },
   streakChip: {
     flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: C.card,
     borderWidth: 1, borderColor: C.line, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6,
@@ -732,8 +899,6 @@ const styles = StyleSheet.create({
   streakDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.gold },
   streakChipText: { color: C.ink, fontSize: 13, fontWeight: '700' },
 
-  trackCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 20, padding: 18, marginBottom: 16 },
-  trackLabel: { color: C.dim, fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
   trackName: { color: C.gold, fontSize: 24, fontWeight: '800', marginTop: 6, letterSpacing: -0.5 },
   attBadge: {
     position: 'absolute', top: 14, right: 14, zIndex: 2,
@@ -762,49 +927,27 @@ const styles = StyleSheet.create({
     fontWeight: '700', paddingHorizontal: 16, paddingVertical: 14, marginBottom: 16, textAlign: 'center',
   },
 
-  // --- Grupos ---
-  backBtn: { marginBottom: 6 },
-  backText: { color: C.dim, fontSize: 16, fontWeight: '700' },
-  msgOk: { color: C.green, fontSize: 14, marginBottom: 12 },
-  msgErr: { color: C.hot, fontSize: 14, marginBottom: 12 },
-  input2: {
-    backgroundColor: C.card2, borderWidth: 1, borderColor: C.line, borderRadius: 12, color: C.ink, fontSize: 18,
-    fontWeight: '700', paddingHorizontal: 14, paddingVertical: 12, marginTop: 10, marginBottom: 12,
-  },
-  muted2: { color: C.dim, fontSize: 14, marginTop: 10 },
-  groupRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16, marginTop: 8,
-  },
-  groupInfo: { flex: 1, marginRight: 12 },
-  groupName: { color: C.ink, fontSize: 17, fontWeight: '700' },
-  groupCode: { color: C.gold, fontSize: 13, fontWeight: '800', letterSpacing: 1, fontFamily: MONO, fontVariant: ['tabular-nums'], marginTop: 2 },
-  inviteBtn: { backgroundColor: C.hot, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
-  inviteBtnText: { color: C.hotInk, fontSize: 14, fontWeight: '800' },
 
   primaryBtn: { backgroundColor: C.green, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   primaryBtnDisabled: { opacity: 0.4 },
-  adMsg: { color: C.dim, fontSize: 13, textAlign: 'center', marginTop: 12, lineHeight: 18 },
+  adMsg: {
+    color: C.hot,
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 14,
+    lineHeight: 18,
+    backgroundColor: 'rgba(255,106,61,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,106,61,0.3)',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
   primaryBtnText: { color: '#04160b', fontSize: 17, fontWeight: '800' },
   secondaryBtn: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line2, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   secondaryBtnText: { color: C.ink, fontSize: 16, fontWeight: '700' },
-  flex1: { flex: 1 },
 
-  resultTop: { alignItems: 'center', paddingTop: 10, paddingBottom: 18 },
-  resultNeutral: { color: C.dim, fontSize: 16, fontWeight: '700', marginBottom: 12 },
-  resultTime: {
-    fontSize: 56, fontWeight: '800', fontFamily: MONO, fontVariant: ['tabular-nums'],
-    textShadowColor: 'rgba(0,0,0,0.45)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 14,
-  },
-  resultTrack: { color: C.dim, fontSize: 15, marginTop: 6 },
-  resultRank: { color: C.dim, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'], marginTop: 6 },
-
-  badgeBest: { backgroundColor: 'rgba(67,224,138,0.16)', borderWidth: 1, borderColor: 'rgba(67,224,138,0.40)', borderRadius: 999, paddingHorizontal: 16, paddingVertical: 7, marginBottom: 12 },
-  badgeBestTxt: { color: C.green, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
-  badgeGroup: { backgroundColor: 'rgba(184,132,255,0.16)', borderWidth: 1, borderColor: 'rgba(184,132,255,0.40)', borderRadius: 999, paddingHorizontal: 16, paddingVertical: 7, marginBottom: 12 },
-  badgeGroupTxt: { color: C.purple, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
-  badgeGlobal: { backgroundColor: 'rgba(255,184,77,0.18)', borderWidth: 1, borderColor: 'rgba(255,184,77,0.55)', borderRadius: 999, paddingHorizontal: 18, paddingVertical: 8, marginBottom: 12 },
-  badgeGlobalTxt: { color: C.gold, fontSize: 14, fontWeight: '900', letterSpacing: 1 },
   shineWrap: { overflow: 'hidden' },
   shineBar: { position: 'absolute', top: -10, bottom: -10, width: 26, backgroundColor: 'rgba(255,255,255,0.55)' },
   offscreen: { position: 'absolute', left: -5000, top: 0 },
@@ -821,8 +964,6 @@ const styles = StyleSheet.create({
   shareMeta: { color: C.dim, fontSize: 11, flex: 1, marginRight: 8 },
   sharePill: { color: C.purple, backgroundColor: 'rgba(184,132,255,0.18)', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
 
-  resultBtns: { flexDirection: 'row', gap: 12, marginTop: 12 },
-  resultStreak: { color: C.gold, fontSize: 14, fontWeight: '700', marginTop: 14, textAlign: 'center' },
 
   devRow: { marginTop: 16, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.line, borderStyle: 'dashed' },
   devLabel: { color: C.faint, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 },
