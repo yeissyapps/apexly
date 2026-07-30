@@ -425,8 +425,8 @@ function HomeRD({
         <Text style={rd.ctaText}>{unlimited || left > 0 ? 'Jugar' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
       </Pressable>
 
-      <Pressable style={rd.secondaryBtnBig} onPress={onOpenGarage}>
-        <Text style={rd.secondaryBtnBigText}>Garaje</Text>
+      <Pressable style={rd.garageBtn} onPress={onOpenGarage}>
+        <Text style={rd.garageBtnText}>GARAJE</Text>
       </Pressable>
 
       {DEV_WEATHER && (
@@ -549,6 +549,8 @@ const rd = StyleSheet.create({
   inputMono: { fontFamily: RD_FONT.mono, letterSpacing: 2, textTransform: 'uppercase' },
   secondaryBtnBig: { borderWidth: 1, borderColor: '#3a3a3a', borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
   secondaryBtnBigText: { color: RD.textPrimary, fontSize: 14, fontWeight: '700' },
+  garageBtn: { borderWidth: 1, borderColor: RD.trackBlue, borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
+  garageBtnText: { color: RD.trackBlue, fontSize: 14, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
   muted: { color: RD.textTertiary, fontSize: 13, fontFamily: RD_FONT.mono, marginTop: 8 },
 
   groupsList: { gap: 1, backgroundColor: RD.gridLine },

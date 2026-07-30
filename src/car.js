@@ -15,27 +15,26 @@ export const CAR_DEFAULTS = {
   lightsColor: '#fff6cf',
 };
 
-export const BODY_COLORS = [
+// 8 colores (4 libres + 4 premium), compartidos por carrocería y alerón.
+export const CAR_COLORS = [
   { id: 'amarillo', c: '#ffd23f', locked: false },
   { id: 'naranja', c: '#ff5a1f', locked: false },
   { id: 'azul', c: '#4fa9ff', locked: false },
   { id: 'crema', c: '#eae4d6', locked: false },
   { id: 'plata', c: '#a7a7a7', locked: true },
   { id: 'oro', c: '#f0c451', locked: true },
+  { id: 'verde', c: '#38d97a', locked: true },
+  { id: 'morado', c: '#b884ff', locked: true },
 ];
 
+// Formas de alerón: aparcado de momento (el garaje solo deja elegir color,
+// la forma se queda fija en 'cuello_cisne'). Se deja el catálogo listo para
+// cuando se retome.
 export const WING_SHAPES = [
   { id: 'sin_aleron', label: 'Sin alerón', locked: false },
   { id: 'calle', label: 'Calle', locked: false },
   { id: 'cuello_cisne', label: 'Cuello cisne', locked: false },
   { id: 'doble_plano', label: 'Doble plano', locked: true },
-];
-
-export const WING_COLORS = [
-  { id: 'negro', c: '#0f1218', locked: false },
-  { id: 'blanco', c: '#eae4d6', locked: false },
-  { id: 'naranja', c: '#ff5a1f', locked: false },
-  { id: 'oro', c: '#f0c451', locked: true },
 ];
 
 export const BODY_LIVERIES = [

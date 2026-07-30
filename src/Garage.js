@@ -9,12 +9,12 @@
 
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
-import Svg, { Ellipse } from 'react-native-svg';
+import Svg, { Ellipse, Rect } from 'react-native-svg';
 
 import DangerStripe from './DangerStripe';
 import CarSprite from './CarSprite';
 import { RD, RD_FONT } from './theme';
-import { CAR_DEFAULTS, BODY_COLORS, WING_SHAPES, WING_COLORS, BODY_LIVERIES, LIGHT_COLORS } from './car';
+import { CAR_DEFAULTS, CAR_COLORS, BODY_LIVERIES, LIGHT_COLORS } from './car';
 import { getMyLoadout, saveLoadout } from './api';
 
 const TABS = [
@@ -24,7 +24,17 @@ const TABS = [
   { id: 'lights', label: 'FAROS' },
 ];
 
-const WING_BARS = { sin_aleron: [8], calle: [13], cuello_cisne: [22], doble_plano: [17, 22] };
+// Suelo del garaje: cuadrícula tipo pit-lane, blanco y negro (los oscuros son
+// el propio fondo del panel, solo se dibujan los claros).
+const FLOOR_SQ = 20;
+const FLOOR_COLS = 10;
+const FLOOR_ROWS = 7;
+const FLOOR_SQUARES = [];
+for (let row = 0; row < FLOOR_ROWS; row++) {
+  for (let col = 0; col < FLOOR_COLS; col++) {
+    if ((row + col) % 2 === 0) FLOOR_SQUARES.push({ x: col * FLOOR_SQ, y: row * FLOOR_SQ });
+  }
+}
 
 export default function Garage({ onBack }) {
   const [loadout, setLoadout] = useState(CAR_DEFAULTS);
@@ -59,6 +69,9 @@ export default function Garage({ onBack }) {
 
         <View style={s.preview}>
           <Svg width="100%" height={170} viewBox="0 0 200 140">
+            {FLOOR_SQUARES.map((sq, i) => (
+              <Rect key={i} x={sq.x} y={sq.y} width={FLOOR_SQ} height={FLOOR_SQ} fill={RD.cream} opacity={0.05} />
+            ))}
             <Ellipse cx={100} cy={104} rx={44} ry={8} fill="#000000" opacity={0.35} />
             <CarSprite x={100} y={68} deg={spin} scale={3.15} loadout={loadout} />
           </Svg>
@@ -78,27 +91,18 @@ export default function Garage({ onBack }) {
 
         {tab === 'body' && (
           <ColorGrid
-            options={BODY_COLORS}
+            options={CAR_COLORS}
             selected={loadout.bodyColor}
             onSelect={(c) => apply({ bodyColor: c })}
           />
         )}
 
         {tab === 'wing' && (
-          <>
-            <Text style={s.groupLabel}>FORMA</Text>
-            <ShapeGrid
-              options={WING_SHAPES}
-              selected={loadout.wingShape}
-              onSelect={(id) => apply({ wingShape: id })}
-            />
-            <Text style={s.groupLabel}>COLOR</Text>
-            <ColorGrid
-              options={WING_COLORS}
-              selected={loadout.wingColor}
-              onSelect={(c) => apply({ wingColor: c })}
-            />
-          </>
+          <ColorGrid
+            options={CAR_COLORS}
+            selected={loadout.wingColor}
+            onSelect={(c) => apply({ wingColor: c })}
+          />
         )}
 
         {tab === 'livery' && (
@@ -153,39 +157,6 @@ function ColorGrid({ options, selected, getValue = (o) => o.c, onSelect }) {
   );
 }
 
-function ShapeGrid({ options, selected, onSelect }) {
-  return (
-    <View style={s.grid}>
-      {options.map((opt) => {
-        const isSelected = opt.id === selected;
-        return (
-          <Pressable
-            key={opt.id}
-            style={s.swatchWrap}
-            disabled={opt.locked}
-            onPress={() => onSelect(opt.id)}
-          >
-            <View
-              style={[
-                s.shapeChip,
-                isSelected && s.swatchSelected,
-                opt.locked && s.swatchLocked,
-              ]}
-            >
-              {(WING_BARS[opt.id] || [10]).map((h, i) => (
-                <View key={i} style={[s.shapeBar, { height: h }]} />
-              ))}
-            </View>
-            <Text style={s.swatchLabel} numberOfLines={1}>
-              {opt.locked ? 'BLOQUEADO' : opt.label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: RD.bg },
   content: { paddingHorizontal: 18, paddingTop: 50, paddingBottom: 40, gap: 16 },
@@ -196,7 +167,7 @@ const s = StyleSheet.create({
   },
   preview: {
     borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
-    alignItems: 'center', justifyContent: 'center', paddingVertical: 8,
+    alignItems: 'center', justifyContent: 'center', paddingVertical: 8, overflow: 'hidden',
   },
   tabsRow: { flexDirection: 'row', gap: 6 },
   tab: {
@@ -206,16 +177,10 @@ const s = StyleSheet.create({
   tabActive: { borderColor: RD.brandOrange },
   tabText: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
   tabTextActive: { color: RD.textPrimary },
-  groupLabel: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1.4 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
   swatchWrap: { width: 60, alignItems: 'center' },
-  swatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: 'transparent' },
-  swatchSelected: { borderColor: RD.brandOrange },
+  swatch: { width: 36, height: 36, borderRadius: 2, borderWidth: 2, borderColor: 'transparent' },
+  swatchSelected: { borderColor: '#ffffff' },
   swatchLocked: { opacity: 0.35 },
   swatchLabel: { color: RD.textTertiary, fontSize: 9, fontFamily: RD_FONT.mono, marginTop: 5, textAlign: 'center' },
-  shapeChip: {
-    width: 60, height: 36, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
-    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: 4, paddingBottom: 5,
-  },
-  shapeBar: { width: 6, backgroundColor: RD.textTertiary, borderRadius: 1 },
 });
