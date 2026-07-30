@@ -70,7 +70,7 @@ export default function Garage({ onBack }) {
         <View style={s.preview}>
           <Svg width="100%" height={170} viewBox="0 0 200 140">
             {FLOOR_SQUARES.map((sq, i) => (
-              <Rect key={i} x={sq.x} y={sq.y} width={FLOOR_SQ} height={FLOOR_SQ} fill={RD.cream} opacity={0.05} />
+              <Rect key={i} x={sq.x} y={sq.y} width={FLOOR_SQ} height={FLOOR_SQ} fill={RD.cream} opacity={0.14} />
             ))}
             <Ellipse cx={100} cy={104} rx={44} ry={8} fill="#000000" opacity={0.35} />
             <CarSprite x={100} y={68} deg={spin} scale={3.15} loadout={loadout} />
@@ -177,7 +177,7 @@ const s = StyleSheet.create({
   tabActive: { borderColor: RD.brandOrange },
   tabText: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
   tabTextActive: { color: RD.textPrimary },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, justifyContent: 'center' },
   swatchWrap: { width: 60, alignItems: 'center' },
   swatch: { width: 36, height: 36, borderRadius: 2, borderWidth: 2, borderColor: 'transparent' },
   swatchSelected: { borderColor: '#ffffff' },

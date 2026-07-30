@@ -15,12 +15,16 @@ export const CAR_DEFAULTS = {
   lightsColor: '#fff6cf',
 };
 
-// 8 colores (4 libres + 4 premium), compartidos por carrocería y alerón.
+// 12 colores (8 libres + 4 premium), compartidos por carrocería y alerón.
 export const CAR_COLORS = [
   { id: 'amarillo', c: '#ffd23f', locked: false },
   { id: 'naranja', c: '#ff5a1f', locked: false },
   { id: 'azul', c: '#4fa9ff', locked: false },
   { id: 'crema', c: '#eae4d6', locked: false },
+  { id: 'rojo', c: '#ff5c5c', locked: false },
+  { id: 'rosa', c: '#ff7db0', locked: false },
+  { id: 'turquesa', c: '#4fd6c8', locked: false },
+  { id: 'blanco', c: '#ffffff', locked: false },
   { id: 'plata', c: '#a7a7a7', locked: true },
   { id: 'oro', c: '#f0c451', locked: true },
   { id: 'verde', c: '#38d97a', locked: true },
