@@ -10,7 +10,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.yeissyapps.circuitodiario",
-      "buildNumber": "17",
+      "buildNumber": "18",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -40,7 +40,8 @@
       ],
       "expo-sharing",
       "./plugins/withAndroidSigning.js",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-iap"
     ],
     "owner": "yeissyapps",
     "extra": {
