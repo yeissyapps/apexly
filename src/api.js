@@ -8,6 +8,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { todayKey, dayOffset } from './daily';
+import { CAR_DEFAULTS } from './car';
 
 const NICK_KEY = 'nickname';
 
@@ -143,6 +144,42 @@ export async function getMyStreak() {
   const yesterday = dayOffset(today, -1);
   const alive = u.last_played === today || u.last_played === yesterday;
   return { current: alive ? u.current_streak || 0 : 0, longest: u.longest_streak || 0 };
+}
+
+// ---- Coche (garaje) ---------------------------------------------------------
+// Loadout guardado del usuario. Si no hay fila o faltan columnas, cae a
+// CAR_DEFAULTS (mismo criterio que usa CarSprite si no le llega loadout).
+export async function getMyLoadout() {
+  const user = await ensureSession();
+  const { data } = await supabase
+    .from('users')
+    .select('car_body_color, car_wing_shape, car_wing_color, car_livery, car_lights_color')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (!data) return { ...CAR_DEFAULTS };
+  return {
+    bodyColor: data.car_body_color || CAR_DEFAULTS.bodyColor,
+    wingShape: data.car_wing_shape || CAR_DEFAULTS.wingShape,
+    wingColor: data.car_wing_color || CAR_DEFAULTS.wingColor,
+    livery: data.car_livery,
+    lightsColor: data.car_lights_color || CAR_DEFAULTS.lightsColor,
+  };
+}
+
+// Guarda el loadout completo (se aplica al vuelo desde el garaje, sin botón
+// de "guardar" — cada toque en una pieza dispara esto).
+export async function saveLoadout(loadout) {
+  const user = await ensureSession();
+  await supabase
+    .from('users')
+    .update({
+      car_body_color: loadout.bodyColor,
+      car_wing_shape: loadout.wingShape,
+      car_wing_color: loadout.wingColor,
+      car_livery: loadout.livery,
+      car_lights_color: loadout.lightsColor,
+    })
+    .eq('id', user.id);
 }
 
 // ---- Grupos ----------------------------------------------------------------

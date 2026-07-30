@@ -34,12 +34,15 @@ import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS } from './src/theme';
 import DangerStripe from './src/DangerStripe';
 import MiniRanking from './src/MiniRanking';
 import MiniTrackMap from './src/MiniTrackMap';
+import Garage from './src/Garage';
+import { CAR_DEFAULTS } from './src/car';
 
 const TRACKMAP_W = Dimensions.get('window').width - 18 * 2 - 14 * 2; // screenContent + panel
 import {
   ensureSession, ensureDailyTrack, getLocalNickname, saveNickname, submitTime,
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
   getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
+  getMyLoadout,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -96,6 +99,7 @@ export default function App() {
   const [myStreak, setMyStreak] = useState(null);
   const [ghost, setGhost] = useState(null); // { ms, trace } de tu mejor vuelta de hoy
   const [sectorBests, setSectorBests] = useState(null); // { [sector]: ms } mejor del mundo hoy
+  const [loadout, setLoadout] = useState(CAR_DEFAULTS); // personalización del coche (garaje)
 
   const [forceWx, setForceWx] = useState(null); // id de clima forzado (modo prueba)
   const [att, setAtt] = useState({ used: 0, bonus: 0 }); // intentos del día
@@ -199,6 +203,12 @@ export default function App() {
     getMyStreak().then(setMyStreak).catch(() => {});
   }, [nickname, refreshKey]);
 
+  // Loadout del coche (garaje): al tener nickname, y al volver del garaje.
+  useEffect(() => {
+    if (!nickname) return;
+    getMyLoadout().then(setLoadout).catch(() => {});
+  }, [nickname, refreshKey]);
+
   // Registrar token de notificaciones una vez que hay nickname.
   useEffect(() => {
     if (PUSH_ENABLED && nickname) registerPushToken().catch(() => {});
@@ -291,6 +301,14 @@ export default function App() {
     );
   }
 
+  if (screen === 'garage') {
+    return (
+      <Garage
+        onBack={() => { setRefreshKey((k) => k + 1); setScreen('home'); }}
+      />
+    );
+  }
+
   if (screen === 'playing') {
     return (
       <Game
@@ -298,6 +316,7 @@ export default function App() {
         ghost={ghost?.trace}
         weather={weather}
         sectorBests={sectorBests}
+        loadout={loadout}
         attemptsLeft={unlimited ? Infinity : left}
         onAttemptStart={startAttempt}
         onNeedMore={() => setScreen('nomore')}
@@ -354,6 +373,7 @@ export default function App() {
       refreshKey={refreshKey}
       tryPlay={tryPlay}
       onManageGroups={() => setScreen('groups')}
+      onOpenGarage={() => setScreen('garage')}
       privacyOptional={privacyOptional}
       forceWx={forceWx}
       setForceWx={setForceWx}
@@ -367,7 +387,7 @@ export default function App() {
 // ---------------------------------------------------------------------------
 function HomeRD({
   nickname, myStreak, daily, weather, midnightLabel, left, total, unlimited, refreshKey,
-  tryPlay, onManageGroups, privacyOptional, forceWx, setForceWx, setAtt,
+  tryPlay, onManageGroups, onOpenGarage, privacyOptional, forceWx, setForceWx, setAtt,
 }) {
   return (
     <ScrollView style={rd.screen} contentContainerStyle={rd.screenContent}>
@@ -403,6 +423,10 @@ function HomeRD({
 
       <Pressable style={rd.cta} onPress={tryPlay}>
         <Text style={rd.ctaText}>{unlimited || left > 0 ? 'Jugar' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
+      </Pressable>
+
+      <Pressable style={rd.secondaryBtnBig} onPress={onOpenGarage}>
+        <Text style={rd.secondaryBtnBigText}>Garaje</Text>
       </Pressable>
 
       {DEV_WEATHER && (

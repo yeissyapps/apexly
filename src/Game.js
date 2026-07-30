@@ -18,6 +18,8 @@ import { fmt } from './format';
 import { NEUTRAL } from './weather';
 import WeatherFX from './WeatherFX';
 import { RD, RD_FONT } from './theme';
+import CarSprite from './CarSprite';
+import { CAR_DEFAULTS } from './car';
 
 const now = () => Date.now();
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -153,7 +155,7 @@ const REC_FIELDS = 8;    // t, entrada, volante, velocidad, rumbo, muro, dt, ded
 
 const SCREEN = Dimensions.get('window');
 
-export default function Game({ track, ghost, weather, sectorBests, attemptsLeft = Infinity, onAttemptStart, onNeedMore, onFinish, onExit }) {
+export default function Game({ track, ghost, weather, sectorBests, attemptsLeft = Infinity, loadout, onAttemptStart, onNeedMore, onFinish, onExit }) {
   const insets = useSafeAreaInsets();
   const HUD_H = insets.top + HUD_CONTENT_H;
   const playW = SCREEN.width;
@@ -491,7 +493,11 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   if (!view) return <View style={styles.root}><StatusBar hidden /></View>;
 
   const carDeg = (view.heading * 180) / Math.PI;
-  const carColor = view.flash ? '#ff5a3c' : '#ffd23f';
+  const carLoadout = {
+    ...CAR_DEFAULTS,
+    ...loadout,
+    bodyColor: view.flash ? '#ff5a3c' : (loadout?.bodyColor || CAR_DEFAULTS.bodyColor),
+  };
 
   const camZoom = playW / CAM_VIEW_W;
   const camRot = -((view.camAngle * 180) / Math.PI + 90);
@@ -520,7 +526,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
                 transform={`rotate(${(view.ghost.h * 180) / Math.PI} ${view.ghost.x} ${view.ghost.y})`}
               />
             )}
-            <CarSprite x={view.x} y={view.y} deg={carDeg} color={carColor} />
+            <CarSprite x={view.x} y={view.y} deg={carDeg} loadout={carLoadout} />
             {CONFIG.SHOW_DEBUG && (
               <Line
                 x1={view.x}
@@ -930,39 +936,6 @@ const TrackLayer = memo(function TrackLayer({ track, showDebug, wet }) {
     </G>
   );
 });
-
-// Coche cenital estilo Porsche 911 GT3 RS: morro afilado, aletas traseras
-// anchas, gran alerón "cuello de cisne", splitter y faros redondos. El eje
-// local +x apunta al morro. La carrocería usa `color` (personalizable en el
-// futuro); los detalles son fijos.
-const CAR_BODY =
-  'M16,0 C15,-4 13,-6.5 10,-7.2 C6,-7.8 2,-7.2 -2,-7.6 ' +
-  'C-6,-8 -9,-8.6 -12,-8.2 C-14,-7.9 -15.5,-6 -16,0 ' +
-  'C-15.5,6 -14,7.9 -12,8.2 C-9,8.6 -6,8 -2,7.6 ' +
-  'C2,7.2 6,7.8 10,7.2 C13,6.5 15,4 16,0 Z';
-
-function CarSprite({ x, y, deg, color }) {
-  return (
-    <G transform={`rotate(${deg} ${x} ${y}) translate(${x} ${y})`}>
-      {/* Alerón trasero "cuello de cisne": montante + plano ancho + derivas */}
-      <Rect x={-16.5} y={-4} width={3.6} height={8} rx={1} fill="#0f1218" />
-      <Rect x={-18.6} y={-10.8} width={3.6} height={21.6} rx={1.6} fill="#0f1218" />
-      <Rect x={-18.9} y={-11.2} width={5.2} height={2.4} rx={1} fill="#0f1218" />
-      <Rect x={-18.9} y={8.8} width={5.2} height={2.4} rx={1} fill="#0f1218" />
-      {/* Carrocería */}
-      <Path d={CAR_BODY} fill={color} />
-      {/* Rejilla del motor (trasera) */}
-      <Rect x={-12} y={-4.6} width={8} height={9.2} rx={2} fill="rgba(0,0,0,0.18)" />
-      {/* Cabina / cristales */}
-      <Rect x={-1} y={-4.8} width={9} height={9.6} rx={3.4} fill="#1b2733" />
-      {/* Splitter delantero (sobresale del morro) */}
-      <Rect x={13.6} y={-6.6} width={2.6} height={13.2} rx={1} fill="#0f1218" />
-      {/* Faros */}
-      <Circle cx={11.4} cy={-5} r={1.7} fill="#fff6cf" />
-      <Circle cx={11.4} cy={5} r={1.7} fill="#fff6cf" />
-    </G>
-  );
-}
 
 function initialState(track) {
   return {
