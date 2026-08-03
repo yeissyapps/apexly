@@ -18,7 +18,7 @@ import { getGlobalBoard, getLeaderboard, listMyGroups } from './api';
 import { fmtTime } from './format';
 import { RD, RD_FONT } from './theme';
 
-export default function MiniRanking({ refreshKey = 0, showEntornoLabel = true, showTabs = true, onManageGroups }) {
+export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageGroups }) {
   const [groups, setGroups] = useState([]);
   const [scope, setScope] = useState('global');
   const isGlobal = scope === 'global';
@@ -83,6 +83,9 @@ export default function MiniRanking({ refreshKey = 0, showEntornoLabel = true, s
     return (
       <>
         {tabs}
+        <Text style={styles.totalLabel}>
+          {total} {total === 1 ? 'jugador ha corrido hoy' : 'jugadores han corrido hoy'}
+        </Text>
         {podium.length >= 3 ? (
           <Podium rows={podium} />
         ) : (
@@ -91,17 +94,16 @@ export default function MiniRanking({ refreshKey = 0, showEntornoLabel = true, s
           </View>
         )}
 
-        {showEntornoLabel && <Text style={styles.entornoLabel}>TU ENTORNO — SIEMPRE VISIBLE</Text>}
         {entorno.length > 0 ? (
           <View style={styles.list}>
             {entorno.map((r) => <RankRow key={r.userId} r={r} />)}
           </View>
-        ) : (
+        ) : !me ? (
           <View style={styles.placeholder}>
             <Text style={styles.placeholderText}>— · Juega para entrar</Text>
             <Text style={styles.placeholderHint}>tu puesto aparecerá aquí</Text>
           </View>
-        )}
+        ) : null}
       </>
     );
   }
@@ -236,9 +238,9 @@ const styles = StyleSheet.create({
   rowNameMe: { color: RD.textPrimary },
   rowTime: { color: RD.cream, fontSize: 12, fontFamily: RD_FONT.mono },
 
-  entornoLabel: {
+  totalLabel: {
     color: RD.textDisabled, fontSize: 9, fontFamily: RD_FONT.mono,
-    letterSpacing: 1, marginTop: 2,
+    letterSpacing: 1, marginTop: 2, marginBottom: 2,
   },
   placeholder: {
     backgroundColor: RD.youMagentaBg, borderWidth: 1, borderColor: RD.youMagenta,

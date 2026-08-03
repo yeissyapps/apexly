@@ -51,6 +51,10 @@ import { PUSH_ENABLED, intentosTxt } from './src/features';
 import { CONFIG } from './src/config';
 import { initAds, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError } from './src/ads';
 import { isUnlimitedCached, restoreUnlimited, buyUnlimited, getUnlimitedPrice } from './src/iap';
+import {
+  logOnboardingComplete, logRaceStart, logRaceFinish, logPaywallView,
+  logAdWatched, logPurchaseUnlimited, logGarageOpen,
+} from './src/analytics';
 import ShareCard from './src/ShareCard';
 import { shareCardImage } from './src/share';
 
@@ -146,7 +150,7 @@ export default function App() {
     setAdMsg('');
     try {
       const ok = await buyUnlimited();
-      if (ok) setUnlimited(true);
+      if (ok) { setUnlimited(true); logPurchaseUnlimited(); }
       else setAdMsg('No se ha completado la compra.');
       return ok;
     } finally {
@@ -156,6 +160,11 @@ export default function App() {
 
   // Consume un intento al empezar una vuelta (con ilimitado, no hace falta llevar la cuenta).
   function startAttempt() {
+    logRaceStart();
+    // Refresca el mejor mundial de sector justo antes de correr: si solo se
+    // cargó una vez al abrir la app, el morado no reflejaba tiempos que otros
+    // jugadores hubieran puesto mientras la app seguía abierta en segundo plano.
+    getSectorBests(todayKey()).then(setSectorBests).catch(() => {});
     if (unlimited) return;
     consumeAttempt(todayKey()).then(setAtt).catch(() => {});
   }
@@ -182,6 +191,7 @@ export default function App() {
       }
       const a = await grantBatch(todayKey());
       setAtt(a);
+      logAdWatched();
       return true;
     } catch (_) {
       setAdMsg('No se ha podido cargar el anuncio. Prueba de nuevo en unos minutos.');
@@ -194,7 +204,7 @@ export default function App() {
   // Intentar jugar: ilimitado o con intentos → a jugar; si no, ofrecer el anuncio/IAP.
   function tryPlay() {
     if (unlimited || left > 0) setScreen('playing');
-    else setScreen('nomore');
+    else { logPaywallView(); setScreen('nomore'); }
   }
 
   // Racha propia (para Inicio): al tener nickname y tras cada partida.
@@ -236,10 +246,12 @@ export default function App() {
     try {
       const saved = await saveNickname(nick);
       setNickname(saved);
+      logOnboardingComplete();
       setScreen('home');
     } catch (e) {
       // Si falla la red, al menos deja jugar con el nombre local.
       setNickname(nick.trim().slice(0, 16));
+      logOnboardingComplete();
       setScreen('home');
     }
   }
@@ -261,6 +273,7 @@ export default function App() {
       let streak = null;
       try { streak = await bumpStreak(); } catch (_) {}
       setResult({ ms, isBest, submitting: false, streak, impacts, sectorColors, sectorDeltas });
+      logRaceFinish({ ms, isBest });
       if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs); // fire-and-forget: avisa a quien adelantaste
     } catch (e) {
       setResult({ ms, isBest: false, submitting: false, error: true, impacts, sectorColors, sectorDeltas });
@@ -319,7 +332,7 @@ export default function App() {
         loadout={loadout}
         attemptsLeft={unlimited ? Infinity : left}
         onAttemptStart={startAttempt}
-        onNeedMore={() => setScreen('nomore')}
+        onNeedMore={() => { logPaywallView(); setScreen('nomore'); }}
         onFinish={handleFinish}
         onExit={() => setScreen('home')}
       />
@@ -373,7 +386,7 @@ export default function App() {
       refreshKey={refreshKey}
       tryPlay={tryPlay}
       onManageGroups={() => setScreen('groups')}
-      onOpenGarage={() => setScreen('garage')}
+      onOpenGarage={() => { logGarageOpen(); setScreen('garage'); }}
       privacyOptional={privacyOptional}
       forceWx={forceWx}
       setForceWx={setForceWx}
@@ -518,8 +531,13 @@ const rd = StyleSheet.create({
   sectorSplitDivider: { width: 1, alignSelf: 'stretch', backgroundColor: RD.panelBorder },
   sectorSplitLabel: { color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1 },
   sectorSplitValue: { fontSize: 14, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
+  resultDivider: { alignSelf: 'stretch', height: 1, backgroundColor: RD.gridLine, marginVertical: 2 },
   resultRank: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.mono },
-  resultCrash: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono },
+  resultChase: {
+    color: RD.textPrimary, fontSize: 13, fontFamily: RD_FONT.monoBold,
+    textAlign: 'center', marginTop: 2,
+  },
+  resultChaseTime: { color: RD.trackBlue },
   resultBtnsRow: { flexDirection: 'row', gap: 10 },
   resultSecondaryBtn: {
     flex: 1, borderWidth: 1, borderColor: '#3a3a3a', borderRadius: 2,
@@ -774,6 +792,37 @@ function Onboarding({ onDone }) {
   );
 }
 
+// Banco de frases del "gancho de rival" (justo encima del botón de reintentar
+// en Resultado): rotan al azar para que no se repita siempre la misma. `gap`
+// llega ya formateado (p.ej. "0.120", sin "s") y siempre se pinta en azul
+// junto a la "s"; el resto del texto en blanco (ver rd.resultChase/-Time).
+const CHASE_LINES = [
+  (gap, rival) => <>Estás a solo <Text style={rd.resultChaseTime}>{gap}s</Text> de {rival} · ¿no quieres quitarle el puesto?</>,
+  (gap, rival) => <>{rival} te saca solo <Text style={rd.resultChaseTime}>{gap}s</Text> — una curva mejor tomada y es tuyo.</>,
+  (gap, rival) => <>A <Text style={rd.resultChaseTime}>{gap}s</Text> de quitarle el puesto a {rival}. Con una vuelta más lo tienes.</>,
+  (gap, rival) => <>Tan solo <Text style={rd.resultChaseTime}>{gap}s</Text> separan tu nombre del de {rival}. Otra vuelta y listo.</>,
+  (gap, rival) => <><Text style={rd.resultChaseTime}>{gap}s</Text>. Dale con las largas y que se aparte. Adelántalo.</>,
+  (gap, rival) => <>Con una trazada más limpia le ganas esos <Text style={rd.resultChaseTime}>{gap}s</Text> a {rival}.</>,
+  (gap, rival) => <>Te faltan <Text style={rd.resultChaseTime}>{gap}s</Text> para pasar a {rival} — se nota más en las frenadas que en la recta.</>,
+  (gap, rival) => <><Text style={rd.resultChaseTime}>{gap}s</Text> es nada. {rival} lo sabe, tú también.</>,
+  (gap, rival) => <>Ajusta un poco la entrada en curva y esos <Text style={rd.resultChaseTime}>{gap}s</Text> con {rival} desaparecerán.</>,
+  (gap, rival) => <>{rival} va <Text style={rd.resultChaseTime}>{gap}s</Text> por delante. Te ve por el retrovisor.</>,
+  (gap, rival) => <>Solo <Text style={rd.resultChaseTime}>{gap}s</Text> te separan de {rival} — mantén pulsado para tomar las horquillas.</>,
+  (gap, rival) => <>{rival} está a tu alcance: <Text style={rd.resultChaseTime}>{gap}s</Text>, ni un suspiro.</>,
+];
+
+// Banco de frases del bloque "líder del ranking" (junto al mapa con el peor
+// sector en rojo): mismo mecanismo de rotación al azar que CHASE_LINES.
+// `sectorNum` llega en base 1 (S1/S2/S3, igual que las etiquetas de arriba).
+const LEADER_LINES = [
+  (sectorNum) => <>En el mapa puedes ver cuál es tu peor sector respecto al líder de hoy. Trabaja el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> y te pondrás en el podio.</>,
+  (sectorNum) => <>El <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> es tu talón de Aquiles hoy — ahí es donde más te saca el líder. Corrígelo y subes al podio.</>,
+  (sectorNum) => <>Fíjate en el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text>, en rojo en el mapa: es tu mayor diferencia con el líder de hoy.</>,
+  (sectorNum) => <>Todo tu margen para el podio está en el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> — es donde más se aleja el líder.</>,
+  (sectorNum) => <>El líder de hoy te saca la diferencia sobre todo en el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text>. Iguálalo ahí y el podio es tuyo.</>,
+  (sectorNum) => <>Marcado en rojo: el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> es tu única barrera para el podio de hoy.</>,
+];
+
 // ---------------------------------------------------------------------------
 //  Resultado: tiempo + stats + tarjeta para compartir. Micro-recompensa si récord.
 // ---------------------------------------------------------------------------
@@ -783,7 +832,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   const cardRef = useRef(null);
   const scale = useRef(new Animated.Value(0.6)).current;
   const opacity = useRef(new Animated.Value(0)).current;
-  const [standing, setStanding] = useState(null);      // global { rank, total, gapToLeaderMs }
+  const [standing, setStanding] = useState(null);      // global { rank, total, gapToLeaderMs, above }
   const [groupRank, setGroupRank] = useState(null);     // puesto en tu grupo principal
 
   // Logro conseguido. La celebración exige HABER MEJORADO en esta vuelta
@@ -796,6 +845,38 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   const isPersonalBest = improved && !isGlobalTop && !isGroupTop;
   const vibe = isGlobalTop ? 'global' : isGroupTop ? 'group' : isPersonalBest ? 'best' : 'flat';
   const celebrate = vibe !== 'flat';
+
+  // Peor sector respecto al mejor de hoy (no morado) con más pérdida frente al
+  // fantasma — es la mejor aproximación que tenemos a "tu sector más flojo
+  // frente al líder", ya que no guardamos la traza de nadie más (solo el
+  // mejor tiempo de sector del día, el mismo criterio del morado).
+  let worstSectorIdx = null;
+  if (result.sectorColors) {
+    let worstMs = 0;
+    result.sectorColors.forEach((color, i) => {
+      if (color === 'purple') return; // ya es el mejor del día en ese tramo
+      const d = result.sectorDeltas?.[i];
+      if (d != null && d > worstMs) { worstMs = d; worstSectorIdx = i; }
+    });
+  }
+  const showWorstSectorTip = worstSectorIdx != null && !isGlobalTop;
+
+  // Una sola frase motivadora (no dos): sortea entre el banco de rival y el
+  // de líder según qué dato haya disponible esta vez. Si no hay ni rival por
+  // delante ni sector flojo (vas líder en todo), no hay nada que incitar.
+  const finalLine = useMemo(() => {
+    if (!standing) return null;
+    const candidates = [];
+    if (standing.above) {
+      const gapTxt = fmtSecs(standing.above.gapMs);
+      CHASE_LINES.forEach((tpl) => candidates.push(tpl(gapTxt, standing.above.nickname)));
+    }
+    if (showWorstSectorTip) {
+      LEADER_LINES.forEach((tpl) => candidates.push(tpl(worstSectorIdx + 1)));
+    }
+    if (candidates.length === 0) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }, [standing, showWorstSectorTip, worstSectorIdx]);
 
   useEffect(() => {
     if (!result.submitting && celebrate) {
@@ -816,7 +897,15 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     getGlobalBoard()
       .then((b) => {
         if (!alive) return;
-        if (b.me) setStanding({ rank: b.me.rank, total: b.total, gapToLeaderMs: b.me.gapToLeaderMs });
+        if (b.me) {
+          const rival = b.aboveRows?.[0];
+          setStanding({
+            rank: b.me.rank,
+            total: b.total,
+            gapToLeaderMs: b.me.gapToLeaderMs,
+            above: rival ? { nickname: rival.nickname, gapMs: b.me.bestMs - rival.bestMs } : null,
+          });
+        }
       })
       .catch(() => {});
     return () => { alive = false; };
@@ -880,7 +969,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
         <Text style={[rd.resultTime, { color: timeColor }]}>{fmtTime(result.ms)}</Text>
 
         <View style={rd.trackMapBox}>
-          <MiniTrackMap track={track} w={TRACKMAP_W} h={80} />
+          <MiniTrackMap track={track} w={TRACKMAP_W} h={80} worstSector={showWorstSectorTip ? worstSectorIdx : null} />
         </View>
 
         {result.sectorDeltas && result.sectorDeltas.length > 0 && (() => {
@@ -914,11 +1003,12 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
         })()}
 
         {standing && (
-          <Text style={rd.resultRank}>{standing.rank}.º de {standing.total} en el mundo</Text>
+          <>
+            <View style={rd.resultDivider} />
+            <Text style={rd.resultRank}>{standing.rank}.º de {standing.total} en el mundo</Text>
+            {finalLine && <Text style={rd.resultChase}>{finalLine}</Text>}
+          </>
         )}
-        <Text style={rd.resultCrash}>
-          {result.impacts ? `Te has chocado ${result.impacts} ${result.impacts === 1 ? 'vez' : 'veces'}` : 'Vuelta limpia — sin choques'}
-        </Text>
       </View>
 
       <Pressable style={rd.cta} onPress={onRetry}>
@@ -937,7 +1027,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
       </View>
 
       <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING DE HOY</Text>
-      <MiniRanking refreshKey={refreshKey} showEntornoLabel={false} showTabs={false} />
+      <MiniRanking refreshKey={refreshKey} showTabs={false} />
 
       {/* Tarjeta para compartir: renderizada fuera de pantalla y capturada a PNG. */}
       <View style={styles.offscreen} pointerEvents="none">

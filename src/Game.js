@@ -1036,6 +1036,18 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather, ghostPr
     s.sector++;
   }
 
+  // Si hay que cerrar varios sectores de golpe (p. ej. la meta llega antes de
+  // que el progreso por la línea central se ponga al día del último sector),
+  // reparte el tiempo transcurrido a partes iguales en vez de darle 0 ms al
+  // segundo sector en adelante — si no, ese sector queda "batido" con un
+  // tiempo imposible que nadie puede superar el resto del día.
+  function closeSectorsUpTo(upToSector, elapsedNow) {
+    const remaining = upToSector - s.sector;
+    if (remaining <= 0) return;
+    const per = (elapsedNow - s.lastSectorElapsed) / remaining;
+    for (let i = 0; i < remaining; i++) closeSector(s.lastSectorElapsed + per);
+  }
+
   let target = 0;
   if (pressLeft.current) target -= 1;
   if (pressRight.current) target += 1;
@@ -1069,7 +1081,7 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather, ghostPr
     const elapsedNow = t - s.startTime;
     if (ghostProgress) s.ghostDeltaMs = elapsedNow - ghostTimeAtIdx(ghostProgress, s.bestTrackIdx);
     const newSector = sectorOfIdx(s.bestTrackIdx, track.center.length);
-    while (s.sector < newSector) closeSector(elapsedNow);
+    closeSectorsUpTo(newSector, elapsedNow);
   }
 
   const radius = near.w - C.CAR_WIDTH / 2;
@@ -1128,7 +1140,7 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather, ghostPr
     // La meta puede llegar antes de que bestTrackIdx alcance el último punto
     // exacto de la línea central (son dos criterios distintos) — cierra
     // cualquier sector que se hubiera quedado a medias con el tiempo final.
-    while (s.sector < SECTOR_COUNT) closeSector(s.elapsed);
+    closeSectorsUpTo(SECTOR_COUNT, s.elapsed);
   }
 }
 

@@ -11,6 +11,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.yeissyapps.circuitodiario",
       "buildNumber": "18",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -23,7 +24,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.yeissyapps.circuitodiario",
-      "versionCode": 4,
+      "versionCode": 5,
       "googleServicesFile": "./google-services.json"
     },
     "web": {
@@ -41,7 +42,9 @@
       "expo-sharing",
       "./plugins/withAndroidSigning.js",
       "expo-status-bar",
-      "expo-iap"
+      "expo-iap",
+      "@react-native-firebase/app",
+      "@react-native-firebase/analytics"
     ],
     "owner": "yeissyapps",
     "extra": {

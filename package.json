@@ -6,6 +6,8 @@
     "@expo-google-fonts/barlow-condensed": "^0.4.1",
     "@expo-google-fonts/ibm-plex-mono": "^0.4.1",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-firebase/analytics": "^26.0.0",
+    "@react-native-firebase/app": "^26.0.0",
     "@supabase/supabase-js": "^2.110.6",
     "@types/react": "~19.2.4",
     "expo": "~57.0.9",

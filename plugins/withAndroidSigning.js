@@ -51,8 +51,10 @@ function withAndroidSigning(config) {
       // signingConfigs, y el de buildTypes) y DOS "signingConfig
       // signingConfigs.debug" (debug y release) -> anclamos a "buildTypes {"
       // primero para no confundir el bloque de signingConfigs con el correcto.
+      // El "=" es opcional: la plantilla de Gradle lo ha usado con y sin él
+      // según la versión de Expo/RN (visto romperse en el cambio a SDK 57.0.9).
       contents = contents.replace(
-        /(buildTypes\s*\{[\s\S]*?release\s*\{[\s\S]*?signingConfig signingConfigs)\.debug/,
+        /(buildTypes\s*\{[\s\S]*?release\s*\{[\s\S]*?signingConfig\s*=?\s*signingConfigs)\.debug/,
         '$1.release'
       );
     }
