@@ -153,7 +153,7 @@ export async function getMyLoadout() {
   const user = await ensureSession();
   const { data } = await supabase
     .from('users')
-    .select('car_body_color, car_wing_shape, car_wing_color, car_livery, car_lights_color')
+    .select('car_body_color, car_wing_shape, car_wing_color, car_livery, car_livery_pattern, car_lights_color')
     .eq('id', user.id)
     .maybeSingle();
   if (!data) return { ...CAR_DEFAULTS };
@@ -162,6 +162,7 @@ export async function getMyLoadout() {
     wingShape: data.car_wing_shape || CAR_DEFAULTS.wingShape,
     wingColor: data.car_wing_color || CAR_DEFAULTS.wingColor,
     livery: data.car_livery,
+    liveryPattern: data.car_livery_pattern || CAR_DEFAULTS.liveryPattern,
     lightsColor: data.car_lights_color || CAR_DEFAULTS.lightsColor,
   };
 }
@@ -177,6 +178,7 @@ export async function saveLoadout(loadout) {
       car_wing_shape: loadout.wingShape,
       car_wing_color: loadout.wingColor,
       car_livery: loadout.livery,
+      car_livery_pattern: loadout.liveryPattern,
       car_lights_color: loadout.lightsColor,
     })
     .eq('id', user.id);

@@ -4,48 +4,97 @@
 //  Todo lo que define QUÉ opciones existen vive aquí (sin React), para que
 //  CarSprite (dibuja) y Garage (elige) lean del mismo sitio y nunca diverjan.
 //  `locked: true` marca piezas premium — el CÓMO se desbloquean (racha,
-//  ranking...) se decide más adelante; de momento solo se muestran bloqueadas.
+//  ranking, sobres...) se decide más adelante; de momento solo se muestran
+//  bloqueadas, como escaparate de lo que vendrá.
 // ============================================================================
 
 export const CAR_DEFAULTS = {
   bodyColor: '#ffd23f',
-  wingShape: 'cuello_cisne',
+  wingShape: 'sin_aleron', // todos empiezan sin extras, nada equipado de fábrica
   wingColor: '#0f1218',
-  livery: null, // id de BODY_LIVERIES, o null = sin franja
+  livery: null, // color de la franja (hex de CAR_COLORS), null = sin franja
+  liveryPattern: 'simple', // id de LIVERY_PATTERNS
   lightsColor: '#fff6cf',
 };
 
-// 12 colores (8 libres + 4 premium), compartidos por carrocería y alerón.
+// 20 colores (8 base + 12 premium en 3 acabados), compartidos por
+// carrocería, alerón y franja de librea.
+//
+// `finish` decide cómo se pinta en el coche de verdad (ver CarSprite.js):
+//   'flat'       -> el hex de `c` tal cual, como hasta ahora.
+//   'metalizado' / 'cromado' -> degradado ESTÁTICO a partir de `stops`.
+//   'holografico'            -> degradado que ROTA con el tiempo (sin timer
+//                                nuevo: el coche ya se re-renderiza solo,
+//                                sea el plato giratorio del garaje o el rAF
+//                                del juego).
+// `c` se queda siempre como representante plano (para localizar la pieza
+// por su hex guardado en Supabase, que sigue siendo un string simple).
 export const CAR_COLORS = [
-  { id: 'amarillo', c: '#ffd23f', locked: false },
-  { id: 'naranja', c: '#ff5a1f', locked: false },
-  { id: 'azul', c: '#4fa9ff', locked: false },
-  { id: 'crema', c: '#eae4d6', locked: false },
-  { id: 'rojo', c: '#ff5c5c', locked: false },
-  { id: 'rosa', c: '#ff7db0', locked: false },
-  { id: 'turquesa', c: '#4fd6c8', locked: false },
-  { id: 'blanco', c: '#ffffff', locked: false },
-  { id: 'plata', c: '#a7a7a7', locked: true },
-  { id: 'oro', c: '#f0c451', locked: true },
-  { id: 'verde', c: '#38d97a', locked: true },
-  { id: 'morado', c: '#b884ff', locked: true },
+  { id: 'blanco', c: '#ffffff', locked: false, finish: 'flat' },
+  { id: 'negro', c: '#1a1a1c', locked: false, finish: 'flat' },
+  { id: 'amarillo', c: '#ffd23f', locked: false, finish: 'flat' },
+  { id: 'naranja', c: '#ff5a1f', locked: false, finish: 'flat' },
+  { id: 'rojo', c: '#ff5c5c', locked: false, finish: 'flat' },
+  { id: 'azul', c: '#4fa9ff', locked: false, finish: 'flat' },
+  { id: 'verde', c: '#3fae5c', locked: false, finish: 'flat' },
+  { id: 'marron', c: '#6b4a2f', locked: false, finish: 'flat' },
+
+  // --- Metalizado (rara) ---
+  { id: 'morado_metalizado', c: '#7a5ea8', locked: true, finish: 'metalizado',
+    stops: ['#5c447f', '#8f74bf', '#6a5192', '#c3b0e0', '#6a5192', '#4a3766'] },
+  { id: 'verde_metalizado', c: '#3f7a52', locked: true, finish: 'metalizado',
+    stops: ['#2c5a3c', '#4f9968', '#3a7a4f', '#a8dcb8', '#3a7a4f', '#204030'] },
+  { id: 'azul_metalizado', c: '#3a6ea5', locked: true, finish: 'metalizado',
+    stops: ['#294e78', '#5c8dc2', '#3a6ea5', '#a9cdec', '#3a6ea5', '#1c3752'] },
+  { id: 'rojo_metalizado', c: '#a13f3f', locked: true, finish: 'metalizado',
+    stops: ['#7a2c2c', '#c26161', '#a13f3f', '#e8adad', '#a13f3f', '#521818'] },
+
+  // --- Cromado (épica) ---
+  { id: 'oro', c: '#d4af37', locked: true, finish: 'cromado',
+    stops: ['#7a5f16', '#e8c65a', '#fff3c4', '#e8c65a', '#a67f24', '#f5da8a', '#7a5f16', '#c99f2e'] },
+  { id: 'plata', c: '#c0c0c0', locked: true, finish: 'cromado',
+    stops: ['#6e6e6e', '#d8d8d8', '#ffffff', '#d8d8d8', '#8a8a8a', '#e8e8e8', '#6e6e6e', '#b0b0b0'] },
+  { id: 'grafito', c: '#5b5f66', locked: true, finish: 'cromado',
+    stops: ['#3d4046', '#7d828b', '#5b5f66', '#c4c8ce', '#5b5f66', '#26282c'] },
+  { id: 'bronce', c: '#8a5a34', locked: true, finish: 'cromado',
+    stops: ['#5f3c20', '#a97c4d', '#8a5a34', '#d9b98d', '#8a5a34', '#3d2612'] },
+
+  // --- Holográfico (legendaria) ---
+  { id: 'holografico_arcoiris', c: '#ff5c8a', locked: true, finish: 'holografico',
+    stops: ['#ff5c8a', '#ffb84d', '#f5e663', '#5ce8a0', '#5cc8ff', '#b884ff'] },
+  { id: 'holografico_verde_amarillo_morado', c: '#5ce87a', locked: true, finish: 'holografico',
+    stops: ['#5ce87a', '#f5e663', '#b884ff'] },
+  { id: 'holografico_rosa_cian_azul', c: '#ff6fa8', locked: true, finish: 'holografico',
+    stops: ['#ff6fa8', '#5ce8e0', '#4fa9ff'] },
+  { id: 'holografico_ambar_magenta_violeta', c: '#ffb84d', locked: true, finish: 'holografico',
+    stops: ['#ffb84d', '#ff4fa0', '#8a4fff'] },
 ];
 
-// Formas de alerón: aparcado de momento (el garaje solo deja elegir color,
-// la forma se queda fija en 'cuello_cisne'). Se deja el catálogo listo para
-// cuando se retome.
+// Busca la ficha de catálogo de un color por su hex guardado (loadout sigue
+// guardando un hex plano, no un id — así no hace falta tocar la columna de
+// Supabase). Si no está en el catálogo (color heredado/antiguo), degrada a
+// plano con ese mismo hex.
+export function findColorEntry(hex) {
+  return CAR_COLORS.find((c) => c.c === hex) || { c: hex, finish: 'flat' };
+}
+
+// Formas de alerón. 'sin_aleron' es la única libre (nuevo valor de fábrica);
+// el resto son piezas premium, de más a menos común.
 export const WING_SHAPES = [
   { id: 'sin_aleron', label: 'Sin alerón', locked: false },
-  { id: 'calle', label: 'Calle', locked: false },
-  { id: 'cuello_cisne', label: 'Cuello cisne', locked: false },
-  { id: 'doble_plano', label: 'Doble plano', locked: true },
+  { id: 'cuello_cisne', label: 'Cuello cisne', locked: true },
+  { id: 'gt', label: 'GT', locked: true },
+  { id: 'barrido', label: 'Barrido', locked: true },
+  { id: 'cola_de_pato', label: 'Cola de pato', locked: true },
 ];
 
-export const BODY_LIVERIES = [
-  { id: null, label: 'Sin franja', c: null, locked: false },
-  { id: 'blanca', label: 'Blanca', c: '#eae4d6', locked: false },
-  { id: 'azul', label: 'Azul', c: '#4fa9ff', locked: false },
-  { id: 'dorada', label: 'Dorada', c: '#f0c451', locked: true },
+// Patrones de librea (la franja). El COLOR de la franja ya no es propio de
+// la librea: reutiliza CAR_COLORS (mismo picker que carrocería/alerón).
+export const LIVERY_PATTERNS = [
+  { id: 'simple', label: 'Franja simple', locked: false },
+  { id: 'doble', label: 'Doble franja', locked: true },
+  { id: 'diagonal', label: 'Diagonal', locked: true },
+  { id: 'numero', label: 'Número', locked: true },
 ];
 
 export const LIGHT_COLORS = [
@@ -53,7 +102,3 @@ export const LIGHT_COLORS = [
   { id: 'ambar', c: '#ffb84d', locked: false },
   { id: 'multicolor', c: '#b884ff', locked: true },
 ];
-
-export function findLivery(id) {
-  return BODY_LIVERIES.find((l) => l.id === id) || BODY_LIVERIES[0];
-}

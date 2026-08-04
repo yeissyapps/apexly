@@ -1,20 +1,22 @@
 // ============================================================================
 //  Garaje — personalización del coche (carrocería, alerón, librea, faros).
 //
-//  Cada toque en una pieza se aplica al vuelo (preview + Supabase), sin botón
-//  de "guardar". Las piezas premium se muestran bloqueadas — el CÓMO se
-//  desbloquean (racha, ranking...) se decide más adelante; de momento solo
-//  son un escaparate de lo que vendrá.
+//  Cada toque en una pieza LIBRE se aplica al vuelo (preview + Supabase), sin
+//  botón de "guardar". Las piezas premium se muestran bloqueadas — el CÓMO se
+//  desbloquean (racha, ranking, sobres...) se decide más adelante; de momento
+//  tocarlas solo las PREVISUALIZA en el coche (candado, sin poder quedártelas)
+//  para dar ganas de la colección que vendrá.
 // ============================================================================
 
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
-import Svg, { Ellipse, Rect } from 'react-native-svg';
+import Svg, { Ellipse, Path, Rect } from 'react-native-svg';
+import * as Haptics from 'expo-haptics';
 
 import DangerStripe from './DangerStripe';
 import CarSprite from './CarSprite';
 import { RD, RD_FONT } from './theme';
-import { CAR_DEFAULTS, CAR_COLORS, BODY_LIVERIES, LIGHT_COLORS } from './car';
+import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS } from './car';
 import { getMyLoadout, saveLoadout } from './api';
 
 const TABS = [
@@ -40,6 +42,7 @@ export default function Garage({ onBack }) {
   const [loadout, setLoadout] = useState(CAR_DEFAULTS);
   const [tab, setTab] = useState('body');
   const [spin, setSpin] = useState(0);
+  const [preview, setPreview] = useState(null); // { field, value } de una pieza bloqueada, o null
 
   useEffect(() => {
     getMyLoadout().then(setLoadout).catch(() => {});
@@ -52,10 +55,25 @@ export default function Garage({ onBack }) {
   }, []);
 
   function apply(patch) {
+    setPreview(null);
     const next = { ...loadout, ...patch };
     setLoadout(next);
     saveLoadout(next).catch(() => {});
   }
+
+  // Toca una pieza bloqueada: se ve en el coche un momento, pero no se guarda
+  // ni sustituye lo que llevas puesto de verdad.
+  function previewLocked(field, value) {
+    Haptics.selectionAsync().catch(() => {});
+    setPreview({ field, value });
+  }
+
+  function selectTab(id) {
+    setPreview(null);
+    setTab(id);
+  }
+
+  const displayLoadout = preview ? { ...loadout, [preview.field]: preview.value } : loadout;
 
   return (
     <View style={s.screen}>
@@ -66,6 +84,7 @@ export default function Garage({ onBack }) {
           <Text style={s.backLink}>‹ INICIO</Text>
         </Pressable>
         <Text style={s.pageTitle}>Garaje</Text>
+        <Text style={s.disclaimer}>Solo estético — no afecta al rendimiento del coche</Text>
 
         <View style={s.preview}>
           <Svg width="100%" height={170} viewBox="0 0 200 140">
@@ -73,8 +92,13 @@ export default function Garage({ onBack }) {
               <Rect key={i} x={sq.x} y={sq.y} width={FLOOR_SQ} height={FLOOR_SQ} fill={RD.cream} opacity={0.14} />
             ))}
             <Ellipse cx={100} cy={104} rx={44} ry={8} fill="#000000" opacity={0.35} />
-            <CarSprite x={100} y={68} deg={spin} scale={3.15} loadout={loadout} />
+            <CarSprite x={100} y={68} deg={spin} scale={3.15} loadout={displayLoadout} />
           </Svg>
+          {preview && (
+            <View style={s.previewBadge}>
+              <Text style={s.previewBadgeText}>VISTA PREVIA — SE DESBLOQUEARÁ MÁS ADELANTE</Text>
+            </View>
+          )}
         </View>
 
         <View style={s.tabsRow}>
@@ -82,7 +106,7 @@ export default function Garage({ onBack }) {
             <Pressable
               key={t.id}
               style={[s.tab, tab === t.id && s.tabActive]}
-              onPress={() => setTab(t.id)}
+              onPress={() => selectTab(t.id)}
             >
               <Text style={[s.tabText, tab === t.id && s.tabTextActive]}>{t.label}</Text>
             </Pressable>
@@ -91,33 +115,71 @@ export default function Garage({ onBack }) {
 
         {tab === 'body' && (
           <ColorGrid
+            field="bodyColor"
             options={CAR_COLORS}
             selected={loadout.bodyColor}
+            preview={preview}
+            onPreview={previewLocked}
             onSelect={(c) => apply({ bodyColor: c })}
           />
         )}
 
         {tab === 'wing' && (
-          <ColorGrid
-            options={CAR_COLORS}
-            selected={loadout.wingColor}
-            onSelect={(c) => apply({ wingColor: c })}
-          />
+          <>
+            <Text style={s.sectionLabel}>FORMA</Text>
+            <ColorGrid
+              field="wingShape"
+              options={WING_SHAPES}
+              selected={loadout.wingShape}
+              getValue={(o) => o.id}
+              preview={preview}
+              onPreview={previewLocked}
+              onSelect={(id) => apply({ wingShape: id })}
+            />
+            <Text style={s.sectionLabel}>COLOR</Text>
+            <ColorGrid
+              field="wingColor"
+              options={CAR_COLORS}
+              selected={loadout.wingColor}
+              preview={preview}
+              onPreview={previewLocked}
+              onSelect={(c) => apply({ wingColor: c })}
+            />
+          </>
         )}
 
         {tab === 'livery' && (
-          <ColorGrid
-            options={BODY_LIVERIES}
-            selected={loadout.livery}
-            getValue={(o) => o.id}
-            onSelect={(id) => apply({ livery: id })}
-          />
+          <>
+            <Text style={s.sectionLabel}>PATRÓN</Text>
+            <ColorGrid
+              field="liveryPattern"
+              options={LIVERY_PATTERNS}
+              selected={loadout.liveryPattern}
+              getValue={(o) => o.id}
+              preview={preview}
+              onPreview={previewLocked}
+              onSelect={(id) => apply({ liveryPattern: id })}
+            />
+            <Text style={s.sectionLabel}>COLOR</Text>
+            <ColorGrid
+              field="livery"
+              options={[{ id: 'sin_franja', label: 'Sin franja', c: null, locked: false }, ...CAR_COLORS]}
+              selected={loadout.livery}
+              getValue={(o) => (o.id === 'sin_franja' ? null : o.c)}
+              preview={preview}
+              onPreview={previewLocked}
+              onSelect={(c) => apply({ livery: c })}
+            />
+          </>
         )}
 
         {tab === 'lights' && (
           <ColorGrid
+            field="lightsColor"
             options={LIGHT_COLORS}
             selected={loadout.lightsColor}
+            preview={preview}
+            onPreview={previewLocked}
             onSelect={(c) => apply({ lightsColor: c })}
           />
         )}
@@ -126,29 +188,48 @@ export default function Garage({ onBack }) {
   );
 }
 
-function ColorGrid({ options, selected, getValue = (o) => o.c, onSelect }) {
+// Candado dibujado (nada de emoji, mismo lenguaje técnico que el resto del
+// juego): arco de la grapa + cuerpo sólido.
+function LockIcon() {
+  return (
+    <Svg width={14} height={14} viewBox="0 0 16 16">
+      <Path d="M4,7 V5 A4,4 0 0,1 12,5 V7" fill="none" stroke={RD.brandOrange} strokeWidth={1.7} />
+      <Rect x={3} y={7} width={10} height={7} rx={1.5} fill={RD.brandOrange} />
+    </Svg>
+  );
+}
+
+function ColorGrid({ field, options, selected, getValue = (o) => o.c, preview, onPreview, onSelect }) {
   return (
     <View style={s.grid}>
       {options.map((opt) => {
         const value = getValue(opt);
-        const isSelected = value === selected;
+        const isSelected = !preview && value === selected;
+        const isPreviewing = !!preview && preview.field === field && preview.value === value;
         return (
           <Pressable
             key={String(opt.id)}
             style={s.swatchWrap}
-            disabled={opt.locked}
-            onPress={() => onSelect(value)}
+            onPress={() => (opt.locked ? onPreview(field, value) : onSelect(value))}
           >
-            <View
-              style={[
-                s.swatch,
-                { backgroundColor: opt.c || RD.gridLine },
-                isSelected && s.swatchSelected,
-                opt.locked && s.swatchLocked,
-              ]}
-            />
-            <Text style={s.swatchLabel} numberOfLines={1}>
-              {opt.locked ? 'BLOQUEADO' : (opt.label || '')}
+            <View style={s.swatchStack}>
+              <View
+                style={[
+                  s.swatch,
+                  { backgroundColor: opt.c || RD.gridLine },
+                  isSelected && s.swatchSelected,
+                  isPreviewing && s.swatchPreviewing,
+                  opt.locked && !isPreviewing && s.swatchLocked,
+                ]}
+              />
+              {opt.locked && !isPreviewing && (
+                <View style={s.lockBadge} pointerEvents="none">
+                  <LockIcon />
+                </View>
+              )}
+            </View>
+            <Text style={[s.swatchLabel, isPreviewing && s.swatchLabelPreviewing]} numberOfLines={1}>
+              {isPreviewing ? 'Mirando…' : opt.locked ? 'Bloqueado' : (opt.label || '')}
             </Text>
           </Pressable>
         );
@@ -165,10 +246,21 @@ const s = StyleSheet.create({
     color: RD.textPrimary, fontSize: 28, fontFamily: RD_FONT.displayBlack,
     textTransform: 'uppercase', marginBottom: 4,
   },
+  disclaimer: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, marginBottom: -4 },
+  sectionLabel: {
+    color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono,
+    letterSpacing: 0.8, marginBottom: -6,
+  },
   preview: {
     borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
     alignItems: 'center', justifyContent: 'center', paddingVertical: 8, overflow: 'hidden',
   },
+  previewBadge: {
+    position: 'absolute', bottom: 6, left: 6, right: 6,
+    backgroundColor: 'rgba(0,0,0,0.72)', borderWidth: 1, borderColor: RD.brandOrange,
+    paddingVertical: 5, alignItems: 'center',
+  },
+  previewBadgeText: { color: RD.brandOrange, fontSize: 9, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
   tabsRow: { flexDirection: 'row', gap: 6 },
   tab: {
     flex: 1, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
@@ -179,8 +271,12 @@ const s = StyleSheet.create({
   tabTextActive: { color: RD.textPrimary },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, justifyContent: 'center' },
   swatchWrap: { width: 60, alignItems: 'center' },
+  swatchStack: { width: 36, height: 36 },
   swatch: { width: 36, height: 36, borderRadius: 2, borderWidth: 2, borderColor: 'transparent' },
   swatchSelected: { borderColor: '#ffffff' },
-  swatchLocked: { opacity: 0.35 },
+  swatchPreviewing: { borderColor: RD.brandOrange },
+  swatchLocked: { opacity: 0.3 },
+  lockBadge: { position: 'absolute', top: 0, left: 0, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   swatchLabel: { color: RD.textTertiary, fontSize: 9, fontFamily: RD_FONT.mono, marginTop: 5, textAlign: 'center' },
+  swatchLabelPreviewing: { color: RD.brandOrange, fontFamily: RD_FONT.monoBold },
 });
