@@ -28,7 +28,7 @@ import { dailyWeather, weatherById, WEATHER_IDS } from './src/weather';
 
 // Modo de prueba: muestra un selector de clima en Inicio para ver los 4 efectos
 // sin esperar a la fecha. false = build de producción (capturas de tienda).
-const DEV_WEATHER = false;
+const DEV_WEATHER = true; // temporal mientras iteramos Juego en vivo
 import { fmtTime, fmtSecs } from './src/format';
 import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS } from './src/theme';
 import DangerStripe from './src/DangerStripe';
@@ -50,16 +50,14 @@ import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft a
 import { PUSH_ENABLED, intentosTxt } from './src/features';
 import { CONFIG } from './src/config';
 import { initAds, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError } from './src/ads';
-import { isUnlimitedCached, restoreUnlimited, buyUnlimited, getUnlimitedPrice } from './src/iap';
 import {
   logOnboardingComplete, logRaceStart, logRaceFinish, logPaywallView,
-  logAdWatched, logPurchaseUnlimited, logGarageOpen,
+  logAdWatched, logGarageOpen,
 } from './src/analytics';
 import ShareCard from './src/ShareCard';
 import { shareCardImage } from './src/share';
 
 const PAD = 50; // hueco superior (barra de estado oculta)
-const UNLIMITED_FALLBACK_PRICE = '2,99 €'; // si la tienda no responde con el precio localizado
 
 // Fecha corta "DD·MM" para tarjetas.
 function dayShort() {
@@ -110,9 +108,6 @@ export default function App() {
   const [unlocking, setUnlocking] = useState(false);     // viendo el anuncio
   const [adMsg, setAdMsg] = useState('');                // aviso si el anuncio no sale
   const [privacyOptional, setPrivacyOptional] = useState(false); // ¿mostrar "Privacidad de anuncios"?
-  const [unlimited, setUnlimited] = useState(false);      // IAP "ilimitado para siempre"
-  const [unlimitedPrice, setUnlimitedPrice] = useState(null);
-  const [buying, setBuying] = useState(false);
   const left = calcLeft(att);
   const total = FREE_ATTEMPTS + (att?.bonus || 0);
   const daily = useMemo(() => dailyCircuit(todayKey()), []);
@@ -136,36 +131,13 @@ export default function App() {
     initAds().then(() => isPrivacyOptionsRequired()).then(setPrivacyOptional).catch(() => {});
   }, []);
 
-  // Ilimitado: valor guardado primero (rápido, sin red), luego se reconcilia
-  // con la tienda (por si se compró desde otro dispositivo/reinstalación).
-  useEffect(() => {
-    isUnlimitedCached().then(setUnlimited).catch(() => {});
-    restoreUnlimited().then(setUnlimited).catch(() => {});
-    getUnlimitedPrice().then(setUnlimitedPrice).catch(() => {});
-  }, []);
-
-  async function handleBuyUnlimited() {
-    if (buying || unlimited) return unlimited;
-    setBuying(true);
-    setAdMsg('');
-    try {
-      const ok = await buyUnlimited();
-      if (ok) { setUnlimited(true); logPurchaseUnlimited(); }
-      else setAdMsg('No se ha completado la compra.');
-      return ok;
-    } finally {
-      setBuying(false);
-    }
-  }
-
-  // Consume un intento al empezar una vuelta (con ilimitado, no hace falta llevar la cuenta).
+  // Consume un intento al empezar una vuelta.
   function startAttempt() {
     logRaceStart();
     // Refresca el mejor mundial de sector justo antes de correr: si solo se
     // cargó una vez al abrir la app, el morado no reflejaba tiempos que otros
     // jugadores hubieran puesto mientras la app seguía abierta en segundo plano.
     getSectorBests(todayKey()).then(setSectorBests).catch(() => {});
-    if (unlimited) return;
     consumeAttempt(todayKey()).then(setAtt).catch(() => {});
   }
 
@@ -201,9 +173,9 @@ export default function App() {
     }
   }
 
-  // Intentar jugar: ilimitado o con intentos → a jugar; si no, ofrecer el anuncio/IAP.
+  // Intentar jugar: si hay intentos, a jugar; si no, ofrecer el anuncio.
   function tryPlay() {
-    if (unlimited || left > 0) setScreen('playing');
+    if (left > 0) setScreen('playing');
     else { logPaywallView(); setScreen('nomore'); }
   }
 
@@ -330,7 +302,7 @@ export default function App() {
         weather={weather}
         sectorBests={sectorBests}
         loadout={loadout}
-        attemptsLeft={unlimited ? Infinity : left}
+        attemptsLeft={left}
         onAttemptStart={startAttempt}
         onNeedMore={() => { logPaywallView(); setScreen('nomore'); }}
         onFinish={handleFinish}
@@ -345,10 +317,7 @@ export default function App() {
         left={left}
         unlocking={unlocking}
         adMsg={adMsg}
-        unlimitedPrice={unlimitedPrice}
-        buying={buying}
         onWatchAd={async () => { const ok = await watchAdForMore(); if (ok) setScreen('playing'); }}
-        onBuyUnlimited={async () => { const ok = await handleBuyUnlimited(); if (ok) setScreen('home'); }}
         onBack={() => { setAdMsg(''); setScreen('home'); }}
       />
     );
@@ -362,9 +331,8 @@ export default function App() {
         track={daily.track}
         weather={weather}
         nickname={nickname}
-        attemptsLeft={unlimited ? Infinity : left}
+        attemptsLeft={left}
         total={total}
-        unlimited={unlimited}
         refreshKey={refreshKey}
         onRetry={tryPlay}
         onHome={() => setScreen('home')}
@@ -382,7 +350,6 @@ export default function App() {
       midnightLabel={midnightLabel}
       left={left}
       total={total}
-      unlimited={unlimited}
       refreshKey={refreshKey}
       tryPlay={tryPlay}
       onManageGroups={() => setScreen('groups')}
@@ -399,7 +366,7 @@ export default function App() {
 //  Inicio — dirección "Parrilla" (rediseño, ver Rediseño visual Apexly/).
 // ---------------------------------------------------------------------------
 function HomeRD({
-  nickname, myStreak, daily, weather, midnightLabel, left, total, unlimited, refreshKey,
+  nickname, myStreak, daily, weather, midnightLabel, left, total, refreshKey,
   tryPlay, onManageGroups, onOpenGarage, privacyOptional, forceWx, setForceWx, setAtt,
 }) {
   return (
@@ -419,7 +386,7 @@ function HomeRD({
         <View style={rd.panelHeadRow}>
           <Text style={rd.labelMono}>CIRCUITO DE HOY</Text>
           <View style={rd.attBadge}>
-            <Text style={rd.attBadgeText}>{unlimited ? '∞' : `${Math.max(0, left)}/${total}`}</Text>
+            <Text style={rd.attBadgeText}>{Math.max(0, left)}/{total}</Text>
           </View>
         </View>
         <Text style={rd.trackName}>{daily.label}</Text>
@@ -435,7 +402,7 @@ function HomeRD({
       </Text>
 
       <Pressable style={rd.cta} onPress={tryPlay}>
-        <Text style={rd.ctaText}>{unlimited || left > 0 ? 'Jugar' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
+        <Text style={rd.ctaText}>{left > 0 ? 'Jugar' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
       </Pressable>
 
       <Pressable style={rd.garageBtn} onPress={onOpenGarage}>
@@ -472,14 +439,6 @@ function HomeRD({
 const rd = StyleSheet.create({
   screen: { flex: 1, backgroundColor: RD.bg },
   screenContent: { paddingHorizontal: 18, paddingTop: PAD, paddingBottom: 40, gap: 16 },
-
-  onboardWrap: { flex: 1, justifyContent: 'center', paddingHorizontal: 18, gap: 28 },
-  onboardBrand: { alignItems: 'center', gap: 6 },
-  onboardTitle: {
-    color: RD.textPrimary, fontSize: 44, fontFamily: RD_FONT.displayBlack,
-    textTransform: 'uppercase', letterSpacing: 1,
-  },
-  onboardTagline: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 3 },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   streakChip: {
@@ -552,13 +511,6 @@ const rd = StyleSheet.create({
   },
   msgOk: { color: RD.successGreen, fontSize: 13, fontFamily: RD_FONT.mono },
   msgErr: { color: RD.dangerRed, fontSize: 13, fontFamily: RD_FONT.mono },
-  noAttemptsBody: { color: RD.textSecondary, fontSize: 14, lineHeight: 20, marginTop: 4 },
-  noAttemptsMsg: { color: RD.brandOrange, fontSize: 13, fontFamily: RD_FONT.mono, textAlign: 'center' },
-  noAttemptsSkip: { color: RD.textTertiary, fontSize: 13, fontFamily: RD_FONT.mono, textAlign: 'center' },
-  orDivider: {
-    color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono,
-    letterSpacing: 1.4, textAlign: 'center',
-  },
   input: {
     borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
     paddingHorizontal: 12, paddingVertical: 10, color: RD.textPrimary, fontSize: 15,
@@ -701,50 +653,28 @@ function Groups({ onBack, onChanged }) {
 // ---------------------------------------------------------------------------
 //  Sin intentos: ofrecer ver un anuncio para +3 (rewarded).
 // ---------------------------------------------------------------------------
-function NoMoreAttempts({ left, unlocking, adMsg, unlimitedPrice, buying, onWatchAd, onBuyUnlimited, onBack }) {
+function NoMoreAttempts({ left, unlocking, adMsg, onWatchAd, onBack }) {
   return (
-    <ScrollView style={rd.screen} contentContainerStyle={{ flexGrow: 1 }}>
+    <View style={styles.screen}>
       <StatusBar hidden />
-      <DangerStripe height={6} />
-      <View style={rd.onboardWrap}>
-        <View style={rd.panel}>
-          <Text style={rd.labelMono}>SIN INTENTOS POR HOY</Text>
-          <Text style={rd.noAttemptsBody}>
-            Has usado tus intentos gratis. Mira un anuncio y sigue intentando bajar tu tiempo — te da {intentosTxt(AD_BATCH)} más.
-          </Text>
-          <Pressable
-            style={[rd.cta, unlocking && rd.ctaDisabled]}
-            disabled={unlocking}
-            onPress={onWatchAd}
-          >
-            <Text style={rd.ctaText}>{unlocking ? 'Cargando anuncio…' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
-          </Pressable>
-          {!!adMsg && !unlocking && <Text style={rd.noAttemptsMsg}>{adMsg}</Text>}
-        </View>
-
-        <Text style={rd.orDivider}>O BIEN</Text>
-
-        <View style={rd.panel}>
-          <Text style={rd.labelMono}>SIN LÍMITES</Text>
-          <Text style={rd.noAttemptsBody}>
-            Intentos ilimitados para siempre, sin ver anuncios. Compra única.
-          </Text>
-          <Pressable
-            style={[rd.secondaryBtnBig, buying && rd.ctaDisabled]}
-            disabled={buying}
-            onPress={onBuyUnlimited}
-          >
-            <Text style={rd.secondaryBtnBigText}>
-              {buying ? 'Procesando…' : `Ilimitado para siempre · ${unlimitedPrice || UNLIMITED_FALLBACK_PRICE}`}
-            </Text>
-          </Pressable>
-        </View>
-
-        <Pressable style={{ marginTop: 4 }} onPress={onBack}>
-          <Text style={rd.noAttemptsSkip}>Ahora no</Text>
+      <View style={styles.onboardInner}>
+        <Text style={styles.brand}>Sin intentos por hoy</Text>
+        <Text style={styles.subtitle}>
+          Has usado tus intentos gratis. Mira un anuncio y sigue intentando bajar tu tiempo — te da {intentosTxt(AD_BATCH)} más.
+        </Text>
+        <Pressable
+          style={[styles.primaryBtn, unlocking && styles.primaryBtnDisabled]}
+          disabled={unlocking}
+          onPress={onWatchAd}
+        >
+          <Text style={styles.primaryBtnText}>{unlocking ? 'Cargando anuncio…' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
+        </Pressable>
+        {!!adMsg && !unlocking && <Text style={styles.adMsg}>{adMsg}</Text>}
+        <Pressable style={[styles.secondaryBtn, { marginTop: 12 }]} onPress={onBack}>
+          <Text style={styles.secondaryBtnText}>Ahora no</Text>
         </Pressable>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -756,37 +686,30 @@ function Onboarding({ onDone }) {
   const [saving, setSaving] = useState(false);
   const ok = value.trim().length > 0;
   return (
-    <View style={rd.screen}>
+    <View style={styles.screen}>
       <StatusBar hidden />
-      <DangerStripe height={6} />
-      <View style={rd.onboardWrap}>
-        <View style={rd.onboardBrand}>
-          <Text style={rd.onboardTitle}>APEX<Text style={{ color: RD.brandOrange }}>LY</Text></Text>
-          <Text style={rd.onboardTagline}>CIRCUITO DIARIO</Text>
-        </View>
-
-        <View style={rd.panel}>
-          <Text style={rd.labelMono}>¿CÓMO TE LLAMAMOS?</Text>
-          <TextInput
-            style={rd.input}
-            value={value}
-            onChangeText={setValue}
-            placeholder="Tu nombre"
-            placeholderTextColor={RD.textDisabled}
-            maxLength={16}
-            autoFocus
-            autoCapitalize="words"
-            returnKeyType="done"
-            onSubmitEditing={() => ok && onDone(value)}
-          />
-          <Pressable
-            style={[rd.cta, (!ok || saving) && rd.ctaDisabled]}
-            disabled={!ok || saving}
-            onPress={() => { setSaving(true); onDone(value); }}
-          >
-            <Text style={rd.ctaText}>{saving ? 'Guardando…' : 'Empezar'}</Text>
-          </Pressable>
-        </View>
+      <View style={styles.onboardInner}>
+        <Text style={styles.brand}>Apexly</Text>
+        <Text style={styles.subtitle}>¿Cómo te llamamos?</Text>
+        <TextInput
+          style={styles.input}
+          value={value}
+          onChangeText={setValue}
+          placeholder="Tu nombre"
+          placeholderTextColor={C.faint}
+          maxLength={16}
+          autoFocus
+          autoCapitalize="words"
+          returnKeyType="done"
+          onSubmitEditing={() => ok && onDone(value)}
+        />
+        <Pressable
+          style={[styles.primaryBtn, !ok && styles.primaryBtnDisabled]}
+          disabled={!ok || saving}
+          onPress={() => { setSaving(true); onDone(value); }}
+        >
+          <Text style={styles.primaryBtnText}>{saving ? 'Guardando…' : 'Empezar'}</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -826,7 +749,7 @@ const LEADER_LINES = [
 // ---------------------------------------------------------------------------
 //  Resultado: tiempo + stats + tarjeta para compartir. Micro-recompensa si récord.
 // ---------------------------------------------------------------------------
-function Results({ result, label, track, weather, nickname, attemptsLeft = Infinity, total = 0, unlimited = false, refreshKey, onRetry, onHome }) {
+function Results({ result, label, track, weather, nickname, attemptsLeft = Infinity, total = 0, refreshKey, onRetry, onHome }) {
   const wx = weather || { icon: '', label: '' };
   const outOfAttempts = attemptsLeft <= 0;
   const cardRef = useRef(null);
@@ -1013,7 +936,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
 
       <Pressable style={rd.cta} onPress={onRetry}>
         <Text style={rd.ctaText}>
-          {outOfAttempts ? `Ver anuncio · +${intentosTxt(AD_BATCH)}` : unlimited ? 'Reintentar' : `Reintentar (${attemptsLeft}/${total})`}
+          {outOfAttempts ? `Ver anuncio · +${intentosTxt(AD_BATCH)}` : `Reintentar (${attemptsLeft}/${total})`}
         </Text>
       </Pressable>
 

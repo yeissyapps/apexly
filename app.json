@@ -42,7 +42,6 @@
       "expo-sharing",
       "./plugins/withAndroidSigning.js",
       "expo-status-bar",
-      "expo-iap",
       "@react-native-firebase/app",
       "@react-native-firebase/analytics",
       [
