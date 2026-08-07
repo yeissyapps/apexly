@@ -35,6 +35,8 @@ import DangerStripe from './src/DangerStripe';
 import MiniRanking from './src/MiniRanking';
 import MiniTrackMap from './src/MiniTrackMap';
 import Garage from './src/Garage';
+import Tienda from './src/Tienda';
+import ShineBadge from './src/ShineBadge';
 import { CAR_DEFAULTS } from './src/car';
 
 const TRACKMAP_W = Dimensions.get('window').width - 18 * 2 - 14 * 2; // screenContent + panel
@@ -42,7 +44,7 @@ import {
   ensureSession, ensureDailyTrack, getLocalNickname, saveNickname, submitTime,
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
   getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
-  getMyLoadout,
+  getMyLoadout, getWallet, claimDailyReward,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -101,6 +103,7 @@ export default function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [retry, setRetry] = useState(0);
   const [myStreak, setMyStreak] = useState(null);
+  const [wallet, setWallet] = useState({ balance: 0, pendingPacks: 0 }); // monedas + sobres pendientes
   const [ghost, setGhost] = useState(null); // { ms, trace } de tu mejor vuelta de hoy
   const [sectorBests, setSectorBests] = useState(null); // { [sector]: ms } mejor del mundo hoy
   const [loadout, setLoadout] = useState(CAR_DEFAULTS); // personalización del coche (garaje)
@@ -213,6 +216,12 @@ export default function App() {
     getMyStreak().then(setMyStreak).catch(() => {});
   }, [nickname, refreshKey]);
 
+  // Saldo de monedas (para Inicio): al tener nickname y tras cada partida/sobre.
+  useEffect(() => {
+    if (!nickname) return;
+    getWallet().then(setWallet).catch(() => {});
+  }, [nickname, refreshKey]);
+
   // Loadout del coche (garaje): al tener nickname, y al volver del garaje.
   useEffect(() => {
     if (!nickname) return;
@@ -272,6 +281,7 @@ export default function App() {
       const { isBest, prevMs } = await submitTime(ms);
       let streak = null;
       try { streak = await bumpStreak(); } catch (_) {}
+      claimDailyReward().catch(() => {}); // monedas de racha si toca hoy (idempotente en servidor)
       setResult({ ms, isBest, submitting: false, streak, impacts, sectorColors, sectorDeltas });
       logRaceFinish({ ms, isBest });
       if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs); // fire-and-forget: avisa a quien adelantaste
@@ -317,6 +327,14 @@ export default function App() {
   if (screen === 'garage') {
     return (
       <Garage
+        onBack={() => { setRefreshKey((k) => k + 1); setScreen('home'); }}
+      />
+    );
+  }
+
+  if (screen === 'tienda') {
+    return (
+      <Tienda
         onBack={() => { setRefreshKey((k) => k + 1); setScreen('home'); }}
       />
     );
@@ -377,6 +395,7 @@ export default function App() {
     <HomeRD
       nickname={nickname}
       myStreak={myStreak}
+      wallet={wallet}
       daily={daily}
       weather={weather}
       midnightLabel={midnightLabel}
@@ -387,6 +406,7 @@ export default function App() {
       tryPlay={tryPlay}
       onManageGroups={() => setScreen('groups')}
       onOpenGarage={() => { logGarageOpen(); setScreen('garage'); }}
+      onOpenTienda={() => setScreen('tienda')}
       privacyOptional={privacyOptional}
       forceWx={forceWx}
       setForceWx={setForceWx}
@@ -399,19 +419,26 @@ export default function App() {
 //  Inicio — dirección "Parrilla" (rediseño, ver Rediseño visual Apexly/).
 // ---------------------------------------------------------------------------
 function HomeRD({
-  nickname, myStreak, daily, weather, midnightLabel, left, total, unlimited, refreshKey,
-  tryPlay, onManageGroups, onOpenGarage, privacyOptional, forceWx, setForceWx, setAtt,
+  nickname, myStreak, wallet, daily, weather, midnightLabel, left, total, unlimited, refreshKey,
+  tryPlay, onManageGroups, onOpenGarage, onOpenTienda, privacyOptional, forceWx, setForceWx, setAtt,
 }) {
   return (
     <ScrollView style={rd.screen} contentContainerStyle={rd.screenContent}>
       <StatusBar hidden />
       <DangerStripe height={6} />
 
-      {myStreak?.current >= 1 && (
+      {(myStreak?.current >= 1 || wallet?.balance > 0) && (
         <View style={rd.headerRow}>
-          <View style={rd.streakChip}>
-            <Text style={rd.streakChipText}>RACHA {myStreak.current}</Text>
-          </View>
+          {wallet?.balance > 0 && (
+            <View style={rd.coinChip}>
+              <Text style={rd.coinChipText}>{wallet.balance}</Text>
+            </View>
+          )}
+          {myStreak?.current >= 1 && (
+            <View style={rd.streakChip}>
+              <Text style={rd.streakChipText}>RACHA {myStreak.current}</Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -438,9 +465,14 @@ function HomeRD({
         <Text style={rd.ctaText}>{unlimited || left > 0 ? 'Jugar' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
       </Pressable>
 
-      <Pressable style={rd.garageBtn} onPress={onOpenGarage}>
-        <Text style={rd.garageBtnText}>GARAJE</Text>
-      </Pressable>
+      <View style={rd.actionsRow}>
+        <Pressable style={[rd.garageBtn, rd.actionBtn]} onPress={onOpenGarage}>
+          <Text style={rd.garageBtnText}>GARAJE</Text>
+        </Pressable>
+        <Pressable style={[rd.garageBtn, rd.actionBtn]} onPress={onOpenTienda}>
+          <Text style={rd.garageBtnText}>TIENDA</Text>
+        </Pressable>
+      </View>
 
       {DEV_WEATHER && (
         <View style={styles.devRow}>
@@ -481,7 +513,12 @@ const rd = StyleSheet.create({
   },
   onboardTagline: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 3 },
 
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
+  coinChip: {
+    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 7, paddingVertical: 4,
+    backgroundColor: RD.gold1stShade,
+  },
+  coinChipText: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold },
   streakChip: {
     borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 7, paddingVertical: 4,
   },
@@ -567,6 +604,8 @@ const rd = StyleSheet.create({
   inputMono: { fontFamily: RD_FONT.mono, letterSpacing: 2, textTransform: 'uppercase' },
   secondaryBtnBig: { borderWidth: 1, borderColor: '#3a3a3a', borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
   secondaryBtnBigText: { color: RD.textPrimary, fontSize: 14, fontWeight: '700' },
+  actionsRow: { flexDirection: 'row', gap: 8 },
+  actionBtn: { flex: 1 },
   garageBtn: { borderWidth: 1, borderColor: RD.trackBlue, borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
   garageBtnText: { color: RD.trackBlue, fontSize: 14, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
   muted: { color: RD.textTertiary, fontSize: 13, fontFamily: RD_FONT.mono, marginTop: 8 },
@@ -1046,30 +1085,6 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   );
 }
 
-// Badge con "brillo" (barra de luz que barre) para el mejor tiempo mundial.
-function ShineBadge({ children, style }) {
-  const x = useRef(new Animated.Value(-1)).current;
-  useEffect(() => {
-    const loop = Animated.loop(Animated.sequence([
-      Animated.timing(x, { toValue: 1, duration: 1200, useNativeDriver: true }),
-      Animated.timing(x, { toValue: -1, duration: 0, useNativeDriver: true }),
-      Animated.delay(700),
-    ]));
-    loop.start();
-    return () => loop.stop();
-  }, []);
-  const translateX = x.interpolate({ inputRange: [-1, 1], outputRange: [-150, 150] });
-  return (
-    <View style={[style, styles.shineWrap]}>
-      {children}
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.shineBar, { transform: [{ translateX }, { rotate: '20deg' }] }]}
-      />
-    </View>
-  );
-}
-
 const DevChip = ({ label, active, onPress }) => (
   <Pressable onPress={onPress} style={[styles.devChip, active && styles.devChipOn]}>
     <Text style={[styles.devChipText, active && styles.devChipTextOn]}>{label}</Text>
@@ -1141,8 +1156,6 @@ const styles = StyleSheet.create({
   secondaryBtn: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line2, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
   secondaryBtnText: { color: C.ink, fontSize: 16, fontWeight: '700' },
 
-  shineWrap: { overflow: 'hidden' },
-  shineBar: { position: 'absolute', top: -10, bottom: -10, width: 26, backgroundColor: 'rgba(255,255,255,0.55)' },
   offscreen: { position: 'absolute', left: -5000, top: 0 },
 
   shareCard: {

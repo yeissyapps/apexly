@@ -104,30 +104,21 @@ export async function notifyOvertakes(newMs, prevMs, day = todayKey()) {
 
 // ---- Racha -----------------------------------------------------------------
 // Actualiza la racha al jugar (solo cambia en el PRIMER intento del día).
-// Devuelve { current, longest, changed, isNewLongest }.
+// RPC server-side (ver economy_prereq.sql): el día ya no lo decide el
+// cliente, así que no se puede granjear racha llamando con fechas
+// inventadas. Devuelve { current, longest, changed, isNewLongest }.
 export async function bumpStreak() {
-  const user = await ensureSession();
-  const today = todayKey();
-  const yesterday = dayOffset(today, -1);
-  const { data: u } = await supabase
-    .from('users')
-    .select('current_streak, longest_streak, last_played')
-    .eq('id', user.id)
-    .maybeSingle();
-  if (!u) return null;
-
-  const cur = u.current_streak || 0;
-  const lng = u.longest_streak || 0;
-  if (u.last_played === today) {
-    return { current: cur, longest: lng, changed: false, isNewLongest: false };
-  }
-  const current = u.last_played === yesterday ? cur + 1 : 1; // consecutivo o reinicio
-  const longest = Math.max(lng, current);
-  await supabase
-    .from('users')
-    .update({ current_streak: current, longest_streak: longest, last_played: today })
-    .eq('id', user.id);
-  return { current, longest, changed: true, isNewLongest: current > lng };
+  await ensureSession();
+  const { data, error } = await supabase.rpc('bump_streak');
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+  return {
+    current: row.current_streak,
+    longest: row.longest_streak,
+    changed: row.changed,
+    isNewLongest: row.is_new_longest,
+  };
 }
 
 // Racha actual del usuario (para mostrar en Inicio). Ajusta a 0 si perdió la
@@ -168,20 +159,81 @@ export async function getMyLoadout() {
 }
 
 // Guarda el loadout completo (se aplica al vuelo desde el garaje, sin botón
-// de "guardar" — cada toque en una pieza dispara esto).
+// de "guardar" — cada toque en una pieza dispara esto). RPC server-side (ver
+// economy.sql): valida que cada pieza no-libre esté en tu inventory antes de
+// escribirla, así no se puede equipar una pieza premium sin haberla ganado.
 export async function saveLoadout(loadout) {
+  await ensureSession();
+  const { error } = await supabase.rpc('save_loadout', {
+    p_body_color: loadout.bodyColor,
+    p_wing_shape: loadout.wingShape,
+    p_wing_color: loadout.wingColor,
+    p_livery: loadout.livery,
+    p_livery_pattern: loadout.liveryPattern,
+    p_lights_color: loadout.lightsColor,
+  });
+  if (error) throw error;
+}
+
+// ---- Economía (monedas / sobres) --------------------------------------------
+// Saldo + sobres pendientes. Fallback a 0 si el usuario aún no tiene fila en
+// wallet (se crea sola en el primer grant_daily_reward/open_pack).
+export async function getWallet() {
   const user = await ensureSession();
-  await supabase
-    .from('users')
-    .update({
-      car_body_color: loadout.bodyColor,
-      car_wing_shape: loadout.wingShape,
-      car_wing_color: loadout.wingColor,
-      car_livery: loadout.livery,
-      car_livery_pattern: loadout.liveryPattern,
-      car_lights_color: loadout.lightsColor,
-    })
-    .eq('id', user.id);
+  const { data } = await supabase
+    .from('wallet')
+    .select('balance, pending_packs')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  return { balance: data?.balance ?? 0, pendingPacks: data?.pending_packs ?? 0 };
+}
+
+// Reclama la recompensa diaria de racha (idempotente server-side: si ya se
+// reclamó hoy, granted vuelve false). Fire-and-forget: no debe bloquear el
+// flujo de Inicio si falla.
+export async function claimDailyReward() {
+  await ensureSession();
+  try {
+    const { data, error } = await supabase.rpc('grant_daily_reward');
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+    return {
+      granted: row.granted,
+      amount: row.amount,
+      newBalance: row.new_balance,
+      freePack: row.free_pack,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+// Abre un sobre ('paid' gasta 125 monedas, 'free' consume uno de los
+// pendientes). Lanza si falla (saldo insuficiente, sin sobre pendiente,
+// colección completa) — el usuario lo pidió, hay que mostrarlo.
+export async function openPack(source = 'paid') {
+  await ensureSession();
+  const { data, error } = await supabase.rpc('open_pack', { p_source: source });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    category: row.category,
+    pieceId: row.piece_id,
+    rarity: row.rarity,
+    newBalance: row.new_balance,
+  };
+}
+
+// Piezas premium que ya posees. Devuelve pares { category, pieceId }.
+export async function getInventory() {
+  const user = await ensureSession();
+  const { data, error } = await supabase
+    .from('inventory')
+    .select('category, piece_id')
+    .eq('user_id', user.id);
+  if (error) return [];
+  return (data || []).map((r) => ({ category: r.category, pieceId: r.piece_id }));
 }
 
 // ---- Grupos ----------------------------------------------------------------

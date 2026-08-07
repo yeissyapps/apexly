@@ -17,7 +17,7 @@ import DangerStripe from './DangerStripe';
 import CarSprite from './CarSprite';
 import { RD, RD_FONT } from './theme';
 import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS } from './car';
-import { getMyLoadout, saveLoadout } from './api';
+import { getMyLoadout, saveLoadout, getInventory } from './api';
 
 const TABS = [
   { id: 'body', label: 'CARROCERÍA' },
@@ -43,9 +43,13 @@ export default function Garage({ onBack }) {
   const [tab, setTab] = useState('body');
   const [spin, setSpin] = useState(0);
   const [preview, setPreview] = useState(null); // { field, value } de una pieza bloqueada, o null
+  const [owned, setOwned] = useState(new Set()); // "categoria:pieza" que ya tienes (sobres)
 
   useEffect(() => {
     getMyLoadout().then(setLoadout).catch(() => {});
+    getInventory()
+      .then((items) => setOwned(new Set(items.map((p) => `${p.category}:${p.pieceId}`))))
+      .catch(() => {});
   }, []);
 
   // Plato giratorio del escaparate: una vuelta cada ~20s.
@@ -116,8 +120,10 @@ export default function Garage({ onBack }) {
         {tab === 'body' && (
           <ColorGrid
             field="bodyColor"
+            category="color"
             options={CAR_COLORS}
             selected={loadout.bodyColor}
+            owned={owned}
             preview={preview}
             onPreview={previewLocked}
             onSelect={(c) => apply({ bodyColor: c })}
@@ -129,9 +135,11 @@ export default function Garage({ onBack }) {
             <Text style={s.sectionLabel}>FORMA</Text>
             <ColorGrid
               field="wingShape"
+              category="wing"
               options={WING_SHAPES}
               selected={loadout.wingShape}
               getValue={(o) => o.id}
+              owned={owned}
               preview={preview}
               onPreview={previewLocked}
               onSelect={(id) => apply({ wingShape: id })}
@@ -139,8 +147,10 @@ export default function Garage({ onBack }) {
             <Text style={s.sectionLabel}>COLOR</Text>
             <ColorGrid
               field="wingColor"
+              category="color"
               options={CAR_COLORS}
               selected={loadout.wingColor}
+              owned={owned}
               preview={preview}
               onPreview={previewLocked}
               onSelect={(c) => apply({ wingColor: c })}
@@ -153,9 +163,11 @@ export default function Garage({ onBack }) {
             <Text style={s.sectionLabel}>PATRÓN</Text>
             <ColorGrid
               field="liveryPattern"
+              category="livery"
               options={LIVERY_PATTERNS}
               selected={loadout.liveryPattern}
               getValue={(o) => o.id}
+              owned={owned}
               preview={preview}
               onPreview={previewLocked}
               onSelect={(id) => apply({ liveryPattern: id })}
@@ -163,9 +175,11 @@ export default function Garage({ onBack }) {
             <Text style={s.sectionLabel}>COLOR</Text>
             <ColorGrid
               field="livery"
+              category="color"
               options={[{ id: 'sin_franja', label: 'Sin franja', c: null, locked: false }, ...CAR_COLORS]}
               selected={loadout.livery}
               getValue={(o) => (o.id === 'sin_franja' ? null : o.c)}
+              owned={owned}
               preview={preview}
               onPreview={previewLocked}
               onSelect={(c) => apply({ livery: c })}
@@ -199,18 +213,22 @@ function LockIcon() {
   );
 }
 
-function ColorGrid({ field, options, selected, getValue = (o) => o.c, preview, onPreview, onSelect }) {
+function ColorGrid({ field, category, options, selected, getValue = (o) => o.c, owned, preview, onPreview, onSelect }) {
   return (
     <View style={s.grid}>
       {options.map((opt) => {
         const value = getValue(opt);
+        // Sin `category` (faros): se queda con el candado estático de
+        // siempre, sin vía de desbloqueo esta fase. Con `category`: bloqueado
+        // solo si de verdad no está en tu inventario (sobres).
+        const isLocked = opt.locked && !(category && owned?.has(`${category}:${opt.id}`));
         const isSelected = !preview && value === selected;
         const isPreviewing = !!preview && preview.field === field && preview.value === value;
         return (
           <Pressable
             key={String(opt.id)}
             style={s.swatchWrap}
-            onPress={() => (opt.locked ? onPreview(field, value) : onSelect(value))}
+            onPress={() => (isLocked ? onPreview(field, value) : onSelect(value))}
           >
             <View style={s.swatchStack}>
               <View
@@ -219,17 +237,17 @@ function ColorGrid({ field, options, selected, getValue = (o) => o.c, preview, o
                   { backgroundColor: opt.c || RD.gridLine },
                   isSelected && s.swatchSelected,
                   isPreviewing && s.swatchPreviewing,
-                  opt.locked && !isPreviewing && s.swatchLocked,
+                  isLocked && !isPreviewing && s.swatchLocked,
                 ]}
               />
-              {opt.locked && !isPreviewing && (
+              {isLocked && !isPreviewing && (
                 <View style={s.lockBadge} pointerEvents="none">
                   <LockIcon />
                 </View>
               )}
             </View>
             <Text style={[s.swatchLabel, isPreviewing && s.swatchLabelPreviewing]} numberOfLines={1}>
-              {isPreviewing ? 'Mirando…' : opt.locked ? 'Bloqueado' : (opt.label || '')}
+              {isPreviewing ? 'Mirando…' : isLocked ? 'Bloqueado' : (opt.label || '')}
             </Text>
           </Pressable>
         );
