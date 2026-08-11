@@ -1166,7 +1166,9 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
   // deslizar). El suelo (MIN_TURN_SPEED) solo actúa MIENTRAS giras: sigue
   // siendo un frenazo real (has perdido el 76% de MAX_SPEED), pero no un
   // parón total que te deja indefenso en medio de la curva más cerrada.
-  const floor = Math.abs(s.steer) > 0.01 ? C.MIN_TURN_SPEED : 0;
+  // Math.min con el techo: con lluvia el techo baja, y un suelo por encima del
+  // techo haría que clamp() devolviera el suelo, saltándose el límite del clima.
+  const floor = Math.abs(s.steer) > 0.01 ? Math.min(C.MIN_TURN_SPEED, cap) : 0;
   s.speed = clamp(s.speed + (C.ACCEL - turnBrake) * dt, floor, cap);
 
   const stunned = t < s.stunUntil;

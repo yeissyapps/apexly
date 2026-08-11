@@ -30,21 +30,38 @@ export const CONFIG = {
   // decisión real — girar fuerte = más lento pero más cerrado, girar suave
   // = más rápido pero más ancho — en vez de que todo el mundo llegue a tope
   // de velocidad (MAX_SPEED) y solo importe la precisión del volante.
-  // A volante a tope (steer=1) y velocidad máxima, el ritmo neto es
-  // ACCEL - TURN_SPEED_DRAG = 150-350 = -200 u/s² (frena de verdad y se
-  // nota). El primer valor (220 -> -70 u/s²) resultó demasiado sutil en
-  // pista: en 0,4s de curva apenas perdías un 11% de velocidad. Subido tras
-  // ese feedback — sigue siendo una cifra a falta de sentirla otra vez.
-  TURN_SPEED_DRAG: 350, // u/s^2 de frenado extra a volante a tope
+  // A volante a tope (steer=1) el ritmo neto es ACCEL - TURN_SPEED_DRAG.
+  // El primer valor (220 -> -70 u/s²) resultó demasiado sutil en pista: en
+  // 0,4s de curva apenas perdías un 11% de velocidad. Se subió a 350
+  // (-200 u/s²) y ESO FUE EL ERROR: se subió a ojo, sin volver a pisar
+  // pista ("a falta de sentirla otra vez", decía este mismo comentario).
+  //
+  // Medido en una grabación real (iOS, build 31, 22,9s de vuelta): a -200
+  // u/s² el coche llega a CERO en 0,3-0,6s en cuanto mantienes el volante,
+  // y a 0 u/s el giro va a su máximo (TURN_RATE_MAX_DEG), así que pirueta
+  // parado en mitad de la curva. Pasó 20 veces en una sola vuelta:
+  //   4,02s  64 u/s -> 4,40s  0 u/s, y de ahí girando solo -117° -> -143°
+  //   6,14s  71 u/s -> 6,55s  0 u/s, girando 34° -> 108° sin avanzar
+  // No era un fallo de iOS: el Android que iba bien es la versión anterior,
+  // que no tenía esta frenada. Eran dos juegos distintos.
+  //
+  // 240 => -90 u/s² netos: desde 250 u/s, un segundo de volante a tope te
+  // deja en 160 (pierdes el 36%, se nota y sigue siendo una decisión), pero
+  // no te para. El suelo MIN_TURN_SPEED remata el caso extremo.
+  TURN_SPEED_DRAG: 240, // u/s^2 de frenado extra a volante a tope
 
   // Suelo de velocidad MIENTRAS giras (no se aplica si no tocas el volante,
-  // ni en un choque — solo frena hasta aquí, nunca hasta 0, cuando el motivo
-  // es el frenado por volante). Sin esto, un giro largo a tope (una
-  // horquilla, 175°, mucho más que una curva normal) puede dejar al coche a
-  // ~0 u/s A MITAD DE LA CURVA — y a esa velocidad, tocar el muro se vuelve
-  // errático (rebota de pared a pared) en vez de deslizar con control.
-  // 60 = 24% de MAX_SPEED: sigue siendo un frenazo real, no un parón.
-  MIN_TURN_SPEED: 60, // u/s
+  // ni en un choque — solo limita el frenado POR VOLANTE). Es la segunda mitad
+  // del arreglo: aunque bajemos TURN_SPEED_DRAG, entrar a una horquilla ya
+  // lento seguiría pudiendo llevarte a 0, y a 0 el coche pirueta parado.
+  //
+  // 110 = 44% de MAX_SPEED. El primer intento fue 60 (24%) y se quedó corto:
+  // a 60 u/s el coche va arrastrándose y aun así gira a ~200°/s, o sea sigue
+  // dando vueltas sobre sí mismo, solo que despacio en vez de parado. A 110
+  // el giro baja a ~186°/s y, sobre todo, el coche SE MUEVE: describe un arco
+  // de radio ~34 unidades, que cabe de sobra en un carril de 104. Una
+  // horquilla se hace del tirón sin quedarte clavado.
+  MIN_TURN_SPEED: 110, // u/s
 
   // --- Giro ---------------------------------------------------------------
   // Grados por segundo que puede girar el coche a velocidad ~0 (giro máximo).
