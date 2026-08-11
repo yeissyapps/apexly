@@ -1157,7 +1157,12 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
 
   const cap = C.MAX_SPEED * W.speedMul;
   const turnBrake = C.TURN_SPEED_DRAG * Math.abs(s.steer);
-  s.speed = clamp(s.speed + (C.ACCEL - turnBrake) * dt, 0, cap);
+  // El suelo solo actúa MIENTRAS giras: el frenado por volante nunca puede
+  // dejarte parado a mitad de curva (a 0 u/s el coche pirueta sobre sí mismo).
+  // Chocar y rozar sí siguen pudiendo bajarte de aquí: eso se aplica más abajo
+  // y no pasa por este clamp.
+  const floor = Math.abs(s.steer) > 0.01 ? Math.min(C.MIN_TURN_SPEED, cap) : 0;
+  s.speed = clamp(s.speed + (C.ACCEL - turnBrake) * dt, floor, cap);
 
   const stunned = t < s.stunUntil;
   if (!stunned) {
