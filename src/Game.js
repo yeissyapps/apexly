@@ -147,10 +147,11 @@ function ghostTimeAtIdx(progress, idx) {
 // ve CÓMO se llegó al fallo: aquí queda la secuencia de entradas y estado.
 // Se usa un Float64Array preasignado en vez de ir creando objetos por frame,
 // para no meter presión de basura justo en el bucle que estamos midiendo.
-// 6 s a 120 fps. Tiene que cubrir el episodio ENTERO: el disparo (soltar el
-// dedo), los ~2 s de golpes que describe JC, y su tiempo de reacción hasta
-// pulsar el botón. Con 2,5 s se perdía justo el disparo, que es lo que importa.
-const REC_N = 720;
+// 20 s a 120 fps (subido de 6s): el episodio de la horquilla es más largo que
+// el caso original que calibró los 6s — el giro sostenido en sí ya son unos
+// segundos, más soltar, más los "latigazos" que describe JC, más su tiempo de
+// reacción hasta pulsar el botón. Mejor sobrar margen que perder el disparo.
+const REC_N = 2400;
 const REC_FIELDS = 8;    // t, entrada, volante, velocidad, rumbo, muro, dt, dedos
 
 const SCREEN = Dimensions.get('window');
