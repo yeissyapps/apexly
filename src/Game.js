@@ -167,7 +167,6 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   const pressLeft = useRef(false);
   const pressRight = useRef(false);
   const dedos = useRef(0); // nº de dedos apoyados en el último evento (diagnóstico)
-  const soltadosRef = useRef(new Set()); // identifiers soltados que `touches` de iOS puede seguir arrastrando
   const rec = useRef(new Float64Array(REC_N * REC_FIELDS)); // grabadora (beta)
   const recAt = useRef(0); // nº total de frames escritos (el índice va en módulo)
   const onFinishRef = useRef(onFinish);
@@ -198,7 +197,6 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     lastSampleRef.current = -999;
     ghostIdxRef.current = 0;
     recAt.current = 0; // la grabación es por intento
-    soltadosRef.current.clear();
   }
 
   function startRun() {
@@ -223,41 +221,28 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   //
   // El matiz de iOS: en un evento de levantar, `touches` puede seguir
   // incluyendo el dedo que se acaba de soltar (Android lo excluye), así que se
-  // descuenta explícitamente lo que venga en `changedTouches`. PERO eso solo
-  // se aplicaba en el MISMO evento de soltar — si iOS entrega un evento
-  // siguiente (p. ej. un onResponderMove del otro dedo) con `touches`
-  // todavía sin refrescar, ese dedo ya soltado se colaba otra vez. Con un
-  // dedo fantasma en un lado y uno de verdad en el otro, target = -1 + 1 = 0:
-  // el volante se anula y "no gira" aunque estés tocando de verdad
-  // (grabación real de JC en iOS, línea 1053-1054 más abajo). `soltadosRef`
-  // recuerda cada identifier soltado y lo sigue filtrando en TODOS los
-  // eventos siguientes, no solo en el de soltar, hasta que ese identifier
-  // deja de aparecer del todo en `touches`.
+  // descuenta explícitamente lo que venga en `changedTouches`.
   function applyTouches(evt, esFinDeToque) {
     const ne = evt.nativeEvent;
     const activos = ne.touches || [];
-    if (esFinDeToque) {
-      const soltados = ne.changedTouches || [];
-      for (let j = 0; j < soltados.length; j++) soltadosRef.current.add(soltados[j].identifier);
-    }
+    const soltados = esFinDeToque ? (ne.changedTouches || []) : null;
 
     let left = false;
     let right = false;
     let n = 0;
-    let vistos = 0;
     for (let i = 0; i < activos.length; i++) {
       const tq = activos[i];
-      if (soltadosRef.current.has(tq.identifier)) continue;
-      vistos++;
+      if (soltados) {
+        let yaSoltado = false;
+        for (let j = 0; j < soltados.length; j++) {
+          if (soltados[j].identifier === tq.identifier) { yaSoltado = true; break; }
+        }
+        if (yaSoltado) continue;
+      }
       n++;
       if (tq.pageX < playW / 2) left = true;
       else right = true;
     }
-    // Ninguno de los "soltados recientes" sigue apareciendo -> el sistema ya
-    // se ha puesto al día, se puede olvidar (si no, el set crecería sin
-    // límite a lo largo de toda la carrera).
-    if (vistos === activos.length) soltadosRef.current.clear();
-
     pressLeft.current = left;
     pressRight.current = right;
     dedos.current = n;
@@ -280,7 +265,6 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     pressLeft.current = false;
     pressRight.current = false;
     dedos.current = 0;
-    soltadosRef.current.clear();
   }
 
   // --- Marcar anomalía (solo beta) -----------------------------------------
