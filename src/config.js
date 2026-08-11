@@ -37,6 +37,15 @@ export const CONFIG = {
   // ese feedback — sigue siendo una cifra a falta de sentirla otra vez.
   TURN_SPEED_DRAG: 350, // u/s^2 de frenado extra a volante a tope
 
+  // Suelo de velocidad MIENTRAS giras (no se aplica si no tocas el volante,
+  // ni en un choque — solo frena hasta aquí, nunca hasta 0, cuando el motivo
+  // es el frenado por volante). Sin esto, un giro largo a tope (una
+  // horquilla, 175°, mucho más que una curva normal) puede dejar al coche a
+  // ~0 u/s A MITAD DE LA CURVA — y a esa velocidad, tocar el muro se vuelve
+  // errático (rebota de pared a pared) en vez de deslizar con control.
+  // 60 = 24% de MAX_SPEED: sigue siendo un frenazo real, no un parón.
+  MIN_TURN_SPEED: 60, // u/s
+
   // --- Giro ---------------------------------------------------------------
   // Grados por segundo que puede girar el coche a velocidad ~0 (giro máximo).
   TURN_RATE_MAX_DEG: 220,
