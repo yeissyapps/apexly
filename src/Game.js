@@ -173,8 +173,9 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   // en un solo sitio. Ver applyTouches.
   const entrada = useRef(0);
   const ultimoLado = useRef(0); // último lado que pasó de suelto a pulsado
-  // Red de seguridad para toques más cortos que un frame (ver applyTouches).
-  const latchEntrada = useRef(0);
+  // Pulso mínimo garantizado por toque (ver applyTouches).
+  const pulsoDir = useRef(0);
+  const pulsoHasta = useRef(0);
   const entradaEfectiva = useRef(0); // lo que realmente lee la física
   const rec = useRef(new Float64Array(REC_N * REC_FIELDS)); // grabadora (beta)
   const recAt = useRef(0); // nº total de frames escritos (el índice va en módulo)
@@ -282,14 +283,25 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     else if (right) entrada.current = 1;
     else entrada.current = 0;
 
-    // Toque corto que empieza Y acaba entre dos frames: la física solo mira la
-    // entrada una vez por frame (16 ms), así que ese toque no existiría para el
-    // coche. Medido en una grabación real: 9 de 23 toques llegaban con GRANT y
-    // END en el mismo frame y no producían NINGÚN giro — de ahí lo de "los
-    // toques no hacen nada, solo si aprieto fuerte" (apretando, el toque dura
-    // más y sobrevive al frame). El latch guarda la dirección de cualquier
-    // toque nuevo para que el siguiente frame la vea sí o sí.
-    if (entrada.current !== 0) latchEntrada.current = entrada.current;
+    // PULSO MÍNIMO POR TOQUE.
+    // Medido en grabaciones reales de iOS: la MITAD de los toques llegan con
+    // GRANT y END en el mismo frame, o sea que el sistema dice que el dedo
+    // estuvo apoyado menos de 16 ms. 18 de 37 toques en una vuelta. Eso es lo
+    // de "toco y el coche no responde, solo si aprieto fuerte" — apretando, el
+    // toque dura más y sobrevive.
+    //
+    // No sabemos POR QUÉ iOS los reporta así (la dirección siempre llega bien,
+    // eso está comprobado), pero da igual: si el jugador ha tocado, la orden
+    // tiene que valer. Aquí se garantiza que todo toque mande durante al menos
+    // MIN_INPUT_MS aunque el dedo ya se haya levantado.
+    //
+    // Un solo frame NO basta: el volante tarda STEER_EASE_IN (0,1 s) en meterse
+    // del todo, así que en un frame se queda en 0,17 de 1,00 y no gira nada.
+    // Con 130 ms el volante llega a tope y el toque se nota de verdad.
+    if (entrada.current !== 0) {
+      pulsoDir.current = entrada.current;
+      pulsoHasta.current = now() + CONFIG.MIN_INPUT_MS;
+    }
 
     return left || right;
   }
@@ -480,7 +492,8 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     dedos.current = 0;
     entrada.current = 0;
     ultimoLado.current = 0;
-    latchEntrada.current = 0;
+    pulsoDir.current = 0;
+    pulsoHasta.current = 0;
     entradaEfectiva.current = 0;
     touchLog.current = [];
     setView(toView(g.current, false, ghostPoseAt(ghostRef.current, 0, ghostIdxRef)));
@@ -512,16 +525,20 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
         s.acc += dt;
         let guard = 0;
         const wasTouching = s.touching;
-        // Si el dedo sigue apoyado manda lo que hay; si no, aún puede quedar el
-        // latch de un toque que empezó y acabó dentro de este mismo frame.
-        entradaEfectiva.current = entrada.current !== 0 ? entrada.current : latchEntrada.current;
+        // Si el dedo sigue apoyado manda lo que hay. Si ya se levantó, sigue
+        // mandando el pulso mínimo hasta que se agote (ver applyTouches).
+        entradaEfectiva.current =
+          entrada.current !== 0
+            ? entrada.current
+            : t < pulsoHasta.current
+              ? pulsoDir.current
+              : 0;
         while (s.acc >= FIXED_DT && guard < 10) {
           stepSimulation(s, FIXED_DT, t, track, entradaEfectiva, weatherRef.current, ghostProgressRef.current, sectorBestsRef.current);
           s.acc -= FIXED_DT;
           guard++;
           if (s.phase !== 'running') break;
         }
-        latchEntrada.current = 0; // consumido: solo vale para un frame
         if (guard > s.stepsMax) s.stepsMax = guard;
         if (guard >= 10) s.stepsCapped++; // se descartó tiempo: el móvil no da más
         if (s.touching) s.contactMs += dt * 1000;

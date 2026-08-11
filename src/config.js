@@ -103,6 +103,17 @@ export const CONFIG = {
   STEER_EASE_IN: 0.1, // s
   STEER_EASE_OUT: 0.03, // s
 
+  // Duración MÍNIMA que se le concede a un toque, aunque el sistema diga que
+  // el dedo se levantó antes. En iOS, medido en grabaciones reales, la mitad
+  // de los toques llegan con "pulsar" y "soltar" en el mismo frame (menos de
+  // 16 ms): 18 de 37 en una sola vuelta. Sin esto, esos toques no giran nada
+  // y la sensación es que el juego no responde salvo apretando fuerte.
+  //
+  // 130 ms > STEER_EASE_IN (100 ms), así que un toque suelto llega a meter el
+  // volante a tope. Por debajo de eso el toque se nota a medias y no arregla
+  // la sensación. No alarga los toques normales: es solo un suelo.
+  MIN_INPUT_MS: 130,
+
   // --- Colisión con muros -------------------------------------------------
   // Fracción de velocidad que se PIERDE en el IMPACTO (0.6 = pierde el 60%).
   // Solo se aplica en el primer frame del choque, no mientras rozas la pared.
