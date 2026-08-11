@@ -62,16 +62,14 @@ import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft a
 import { PUSH_ENABLED, intentosTxt } from './src/features';
 import { CONFIG } from './src/config';
 import { initAds, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError } from './src/ads';
-import { isUnlimitedCached, restoreUnlimited, buyUnlimited, getUnlimitedPrice } from './src/iap';
 import {
   logOnboardingComplete, logRaceStart, logRaceFinish, logPaywallView,
-  logAdWatched, logPurchaseUnlimited, logGarageOpen,
+  logAdWatched, logGarageOpen,
 } from './src/analytics';
 import ShareCard from './src/ShareCard';
 import { shareCardImage } from './src/share';
 
 const PAD = 50; // hueco superior (barra de estado oculta)
-const UNLIMITED_FALLBACK_PRICE = '2,99 €'; // si la tienda no responde con el precio localizado
 const RECAP_SEEN_KEY = 'apexly_recap_seen_day'; // último día (todayKey) en que ya se mostró el pop-up de premios
 
 // Fecha corta "DD·MM" para tarjetas.
@@ -131,9 +129,11 @@ export default function App() {
   const [unlocking, setUnlocking] = useState(false);     // viendo el anuncio
   const [adMsg, setAdMsg] = useState('');                // aviso si el anuncio no sale
   const [privacyOptional, setPrivacyOptional] = useState(false); // ¿mostrar "Privacidad de anuncios"?
-  const [unlimited, setUnlimited] = useState(false);      // IAP "ilimitado para siempre"
-  const [unlimitedPrice, setUnlimitedPrice] = useState(null);
-  const [buying, setBuying] = useState(false);
+  // IAP "ilimitado para siempre": QUITADO en esta build de iOS (bug real de
+  // openiap con StoreKit, ver commit de la rama). `unlimited` se queda como
+  // estado (siempre false, nunca se activa) para no tocar cada sitio de la
+  // app que ya lo usa como "unlimited ? X : Y" — vuelve cuando se resuelva.
+  const [unlimited] = useState(false);
   const left = calcLeft(att);
   const total = FREE_ATTEMPTS + (att?.bonus || 0);
   const careerLeft = calcLeft(careerAtt);
@@ -192,28 +192,6 @@ export default function App() {
     if (gpActive == null || gpRoundIndex == null) return;
     loadAttempts('gp-' + gpActive.id + '-' + gpRoundIndex).then(setGpAtt).catch(() => {});
   }, [gpActive?.id, gpRoundIndex]);
-
-  // Ilimitado: valor guardado primero (rápido, sin red), luego se reconcilia
-  // con la tienda (por si se compró desde otro dispositivo/reinstalación).
-  useEffect(() => {
-    isUnlimitedCached().then(setUnlimited).catch(() => {});
-    restoreUnlimited().then(setUnlimited).catch(() => {});
-    getUnlimitedPrice().then(setUnlimitedPrice).catch(() => {});
-  }, []);
-
-  async function handleBuyUnlimited() {
-    if (buying || unlimited) return unlimited;
-    setBuying(true);
-    setAdMsg('');
-    try {
-      const ok = await buyUnlimited();
-      if (ok) { setUnlimited(true); logPurchaseUnlimited(); }
-      else setAdMsg('No se ha completado la compra.');
-      return ok;
-    } finally {
-      setBuying(false);
-    }
-  }
 
   // Consume un intento al empezar una vuelta (con ilimitado, no hace falta llevar la cuenta).
   function startAttempt() {
@@ -663,13 +641,10 @@ export default function App() {
         adBatch={isGp ? GP_AD_BATCH : isCareer ? CAREER_AD_BATCH : AD_BATCH}
         unlocking={unlocking}
         adMsg={adMsg}
-        unlimitedPrice={unlimitedPrice}
-        buying={buying}
         onWatchAd={async () => {
           const ok = isGp ? await watchAdForGpMore() : isCareer ? await watchAdForCareerMore() : await watchAdForMore();
           if (ok) setScreen(nomoreReturn);
         }}
-        onBuyUnlimited={async () => { const ok = await handleBuyUnlimited(); if (ok) setScreen('home'); }}
         onBack={() => { setAdMsg(''); setScreen(isGp ? 'group-home' : 'home'); }}
       />
     );
@@ -1320,7 +1295,7 @@ const rd = StyleSheet.create({
 // ---------------------------------------------------------------------------
 //  Sin intentos: ofrecer ver un anuncio para +3 (rewarded).
 // ---------------------------------------------------------------------------
-function NoMoreAttempts({ title = 'SIN INTENTOS POR HOY', adBatch = AD_BATCH, unlocking, adMsg, unlimitedPrice, buying, onWatchAd, onBuyUnlimited, onBack }) {
+function NoMoreAttempts({ title = 'SIN INTENTOS POR HOY', adBatch = AD_BATCH, unlocking, adMsg, onWatchAd, onBack }) {
   return (
     <ScrollView style={rd.screen} contentContainerStyle={{ flexGrow: 1 }}>
       <StatusBar hidden />
@@ -1339,24 +1314,6 @@ function NoMoreAttempts({ title = 'SIN INTENTOS POR HOY', adBatch = AD_BATCH, un
             <Text style={rd.ctaText}>{unlocking ? 'Cargando anuncio…' : `Ver anuncio · +${intentosTxt(adBatch)}`}</Text>
           </Pressable>
           {!!adMsg && !unlocking && <Text style={rd.noAttemptsMsg}>{adMsg}</Text>}
-        </View>
-
-        <Text style={rd.orDivider}>O BIEN</Text>
-
-        <View style={rd.panel}>
-          <Text style={rd.labelMono}>SIN LÍMITES</Text>
-          <Text style={rd.noAttemptsBody}>
-            Intentos ilimitados para siempre, sin ver anuncios. Compra única.
-          </Text>
-          <Pressable
-            style={[rd.secondaryBtnBig, buying && rd.ctaDisabled]}
-            disabled={buying}
-            onPress={onBuyUnlimited}
-          >
-            <Text style={rd.secondaryBtnBigText}>
-              {buying ? 'Procesando…' : `Ilimitado para siempre · ${unlimitedPrice || UNLIMITED_FALLBACK_PRICE}`}
-            </Text>
-          </Pressable>
         </View>
 
         <Pressable style={{ marginTop: 4 }} onPress={onBack}>
