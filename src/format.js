@@ -29,3 +29,20 @@ export function fmtTime(ms) {
 export function fmtSecs(ms) {
   return (Math.max(0, ms) / 1000).toFixed(3);
 }
+
+// Gap al líder, estilo pantalla de tiempos F1 ("+1.284"). Líder (o sin gap
+// todavía) -> "Líder", nunca un "+0.000" raro.
+export function fmtGap(ms) {
+  if (ms == null || ms <= 0) return 'Líder';
+  return `+${fmtSecs(ms)}`;
+}
+
+// Cuenta atrás legible ("2h 14min" / "38 min"). Compartida por
+// useMidnightCountdown (App.js) y useCountdownTo (GrandPrix.js) — mismo
+// formato para la cuenta atrás del diario y la del Grand Prix.
+export function fmtCountdown(ms) {
+  const totalMin = Math.max(0, Math.ceil(ms / 60000));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}min` : `${m} min`;
+}

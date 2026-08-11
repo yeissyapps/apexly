@@ -1058,7 +1058,8 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather, ghostPr
   s.steer = clamp(s.steer, -1, 1);
 
   const cap = C.MAX_SPEED * W.speedMul;
-  s.speed = Math.min(cap, s.speed + C.ACCEL * dt);
+  const turnBrake = C.TURN_SPEED_DRAG * Math.abs(s.steer);
+  s.speed = clamp(s.speed + (C.ACCEL - turnBrake) * dt, 0, cap);
 
   const stunned = t < s.stunUntil;
   if (!stunned) {

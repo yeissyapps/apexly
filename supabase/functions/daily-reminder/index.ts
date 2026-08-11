@@ -33,7 +33,17 @@ Deno.serve(async (_req) => {
     const { data: toks, error: etok } = await admin.from('push_tokens').select('user_id, token');
     if (etok) return json({ error: etok.message }, 500);
 
-    const pending = (toks ?? []).filter((t) => t.token && !playedIds.has(t.user_id));
+    // Un mismo dispositivo puede tener varias filas (una por cada identidad
+    // anónima que dejó atrás, p. ej. al reinstalar la app en pruebas) — todas
+    // con el mismo token físico. Deduplicar por token para no mandar el mismo
+    // aviso 2-3 veces al mismo móvil.
+    const seenTokens = new Set<string>();
+    const pending = (toks ?? []).filter((t) => {
+      if (!t.token || playedIds.has(t.user_id)) return false;
+      if (seenTokens.has(t.token)) return false;
+      seenTokens.add(t.token);
+      return true;
+    });
     if (pending.length === 0) return json({ sent: 0, debug: { tokens: (toks ?? []).length, played: playedIds.size } });
 
     const messages = pending.map((t) => ({

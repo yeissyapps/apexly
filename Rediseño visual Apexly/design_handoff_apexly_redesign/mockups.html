@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@500;600;700&family=Oswald:wght@500;600;700&family=Roboto+Mono:wght@500;700&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#e9e6df;font-family:Barlow Condensed,sans-serif}
+.dv-turn{padding:48px 48px 40px}
+.dv-thd{display:flex;align-items:baseline;gap:12px;margin:0 0 8px}
+.dv-tid{font:700 12px ui-monospace,Menlo,monospace;padding:4px 8px;background:#141414;color:#fff;border-radius:3px;text-decoration:none}
+.dv-tname{font:600 20px/1.2 Barlow Condensed,sans-serif;color:#141414;text-transform:uppercase;letter-spacing:0.02em}
+.dv-sub{font:400 14px/1.5 system-ui,sans-serif;color:rgba(20,20,20,.6);margin:0 0 28px;max-width:760px}
+.dv-opts{display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:16px}
+.dv-oid{font:700 12px ui-monospace,Menlo,monospace;padding:4px 9px;background:rgba(20,20,20,.1);color:#141414;border-radius:4px;text-decoration:none}
+.dv-ohead{display:flex;flex-direction:column;gap:4px}
+.dv-olabel{display:flex;align-items:baseline;gap:9px}
+.dv-oname{font:700 22px Barlow Condensed,sans-serif;text-transform:uppercase;letter-spacing:.01em;color:#141414}
+.dv-odesc{font:400 13px/1.5 system-ui,sans-serif;color:rgba(20,20,20,.6);max-width:600px}
+.dv-row{display:flex;gap:22px;align-items:flex-start}
+.dv-scrlabel{font:600 11px ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.08em;color:rgba(20,20,20,.45);margin:0 0 8px;text-align:center}
+.dv-next{margin:36px 0 0;font:13px/1.6 system-ui,sans-serif;color:rgba(20,20,20,.55)}
+.dv-opt:target{outline:2px solid #ff5a1f;outline-offset:8px}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t1">
+  <div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Apexly — 3 direcciones visuales</span></div>
+  <p class="dv-sub">Inicio, Juego, Resultado y Ranking en cada dirección. El ranking siempre muestra un tramo fijo de líderes (1-3) separado de tu entorno (tú + vecinos), visible sin importar tu posición. La barra de carrera incorpora progreso de circuito y delta contra el fantasma.</p>
+  <div class="dv-opts">
+
+    <!-- ================= OPTION 1a ================= -->
+    <div class="dv-opt" id="1a">
+      <div class="dv-ohead">
+        <div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a><span class="dv-oname">Parrilla — rally / timing tower</span></div>
+        <p class="dv-odesc">Cartón de notas de rally: negro casi puro, franjas de peligro naranja-negro, esquinas rectas, tipografía condensada muy pesada y monoespaciada tabular como panel de cronometraje.</p>
+      </div>
+      <div class="dv-row">
+
+        <!-- 1a INICIO -->
+        <div><div class="dv-scrlabel">Inicio</div>
+        <div style="width:300px;height:650px;background:#050505;border-radius:4px;padding:9px;box-shadow:0 18px 40px rgba(0,0,0,.25)">
+          <div style="width:100%;height:100%;background:#0b0b0c;border-radius:2px;padding:20px 18px;box-sizing:border-box;display:flex;flex-direction:column;gap:16px;font-family:'Barlow Condensed',sans-serif;color:#f2ede2;overflow:hidden">
+            <div style="height:6px;width:100%;background:repeating-linear-gradient(135deg,#ff5a1f 0 10px,#0b0b0c 10px 20px)"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div style="font-weight:800;font-size:26px;text-transform:uppercase;letter-spacing:.01em;white-space:nowrap">Hola, Pedro</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:#e8b23d;border:1px solid #e8b23d;padding:4px 7px;border-radius:2px;white-space:nowrap;flex-shrink:0">RACHA 6</div>
+            </div>
+            <div style="border:1px solid #2a2a2c;padding:14px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;color:#8c8c8c">CIRCUITO DE HOY</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;background:#eae4d6;color:#0b0b0c;padding:3px 6px">3/3</div>
+              </div>
+              <div style="font-size:28px;font-weight:800;text-transform:uppercase;color:#f2ede2;line-height:1">Estrecho · Chicanes</div>
+              <div style="font-size:13px;color:#a7a7a7;font-family:system-ui,sans-serif">Generado para hoy · ~41s limpio</div>
+              <div style="display:flex;gap:6px;align-items:center;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#eae4d6;border-top:1px solid #232324;padding-top:8px">
+                <div style="width:8px;height:8px;background:#eae4d6"></div>VIENTO · te empuja de lado
+              </div>
+            </div>
+            <div style="text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#8c8c8c">Próximo circuito en <span style="color:#f2ede2;font-weight:700">07:42:11</span></div>
+            <div style="background:#ff5a1f;color:#0b0b0c;text-align:center;padding:16px;font-weight:800;font-size:22px;text-transform:uppercase;letter-spacing:.04em">Jugar</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;color:#8c8c8c">RANKING DE HOY</div>
+            <div style="display:flex;gap:8px">
+              <div style="border:1px solid #eae4d6;color:#eae4d6;font-size:11px;font-weight:700;padding:5px 10px;font-family:'IBM Plex Mono',monospace">GLOBAL</div>
+              <div style="border:1px dashed #3a3a3a;color:#6f6f6f;font-size:11px;padding:5px 10px;font-family:'IBM Plex Mono',monospace">+ GRUPO</div>
+            </div>
+            <div style="display:flex;gap:1px;background:#232324">
+              <div style="flex:1;background:#0b0b0c;padding:9px;text-align:center">
+                <div style="width:22px;height:22px;margin:0 auto 5px;background:linear-gradient(135deg,#7c5cff 50%,#4b3aa8 50%);position:relative"><div style="position:absolute;top:50%;left:50%;width:8px;height:8px;background:#fff;transform:translate(-50%,-50%) rotate(45deg)"></div></div>
+                <div style="font-size:13px;font-weight:700">Tester1</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#e8e0d0">40.118</div>
+              </div>
+              <div style="flex:1;background:#0b0b0c;padding:9px;text-align:center">
+                <div style="width:22px;height:22px;margin:0 auto 5px;background:linear-gradient(135deg,#ff5c8a 50%,#c93463 50%);position:relative"><div style="position:absolute;top:50%;left:50%;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:7px solid #fff;transform:translate(-50%,-60%)"></div></div>
+                <div style="font-size:13px;font-weight:700">Tester 12</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#e8e0d0">40.798</div>
+              </div>
+              <div style="flex:1;background:#0b0b0c;padding:9px;text-align:center">
+                <div style="width:22px;height:22px;margin:0 auto 5px;background:linear-gradient(135deg,#2fbf71 50%,#1c8a52 50%);position:relative"><div style="position:absolute;top:50%;left:50%;width:7px;height:7px;background:#fff;border-radius:50%;transform:translate(-50%,-50%)"></div></div>
+                <div style="font-size:13px;font-weight:700">JM7</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#e8e0d0">41.409</div>
+              </div>
+            </div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;color:#6f6f6f;margin-top:2px">TU ENTORNO — SIEMPRE VISIBLE</div>
+            <div style="background:#1a1210;border:1px solid #d63384;padding:9px 12px;display:flex;justify-content:space-between;align-items:center">
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#d63384;font-weight:700">— · Juega para entrar</div>
+              <div style="font-size:11px;color:#8c8c8c;font-family:system-ui,sans-serif">tu puesto aparecerá aquí</div>
+            </div>
+          </div>
+        </div></div>
+
+        <!-- 1a JUEGO -->
+        <div><div class="dv-scrlabel">Juego</div>
+        <div style="width:300px;height:650px;background:#050505;border-radius:4px;padding:9px;box-shadow:0 18px 40px rgba(0,0,0,.25)">
+          <div style="width:100%;height:100%;background:#0b0b0c;border-radius:2px;padding:0;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Barlow Condensed',sans-serif;color:#f2ede2;overflow:hidden">
+            <div style="padding:14px 16px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid #232324">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#a7a7a7">‹ SALIR</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:700;letter-spacing:.02em">22.4<span style="font-size:16px;color:#8c8c8c">17</span></div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#eae4d6;border:1px solid #3a3a3a;padding:3px 6px">VIENTO</div>
+              </div>
+              <div style="display:flex;gap:2px">
+                <div style="flex:2;height:5px;background:#eae4d6"></div>
+                <div style="flex:1;height:5px;background:#ff5a1f"></div>
+                <div style="flex:3;height:5px;background:#2a2a2c"></div>
+                <div style="flex:2;height:5px;background:#2a2a2c"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:11px">
+                <div style="color:#6f6f6f">SECTOR 2/4</div>
+                <div style="color:#38d97a;font-weight:700">FANTASMA -0.31</div>
+              </div>
+            </div>
+            <div style="flex:1;position:relative;background:#0b0b0c;display:flex;align-items:flex-end;justify-content:center;overflow:hidden">
+              <div style="position:absolute;top:20px;bottom:0;left:70px;right:70px;background:#161616;clip-path:polygon(20% 0,80% 0,100% 60%,100% 100%,0 100%,0 60%)"></div>
+              <div style="position:absolute;top:20px;bottom:0;left:70px;width:5px;background:repeating-linear-gradient(#eae4d6 0 12px,#ff5a1f 12px 24px)"></div>
+              <div style="position:absolute;top:20px;bottom:0;right:70px;width:5px;background:repeating-linear-gradient(#eae4d6 0 12px,#ff5a1f 12px 24px)"></div>
+              <div style="position:absolute;top:60px;left:78px;width:120px;height:2px;background:rgba(255,255,255,.18);transform:rotate(-8deg)"></div>
+              <div style="position:absolute;top:140px;left:60px;width:150px;height:2px;background:rgba(255,255,255,.14);transform:rotate(-8deg)"></div>
+              <div style="position:absolute;top:230px;left:70px;width:130px;height:2px;background:rgba(255,255,255,.1);transform:rotate(-8deg)"></div>
+              <div style="position:absolute;bottom:30px;width:44px;height:74px">
+                <div style="position:absolute;bottom:0;left:-4px;right:-4px;height:7px;background:#1a1a1a;border-radius:1px"></div>
+                <div style="position:absolute;bottom:0;left:-4px;width:4px;height:14px;background:#ff5a1f"></div>
+                <div style="position:absolute;bottom:0;right:-4px;width:4px;height:14px;background:#ff5a1f"></div>
+                <div style="position:absolute;bottom:7px;left:6px;right:6px;height:3px;background:#000;opacity:.5"></div>
+                <div style="position:absolute;bottom:9px;left:2px;right:2px;top:6px;background:#eae4d6;clip-path:polygon(35% 0,65% 0,100% 22%,92% 100%,8% 100%,0 22%)"></div>
+                <div style="position:absolute;top:24px;left:-3px;width:5px;height:4px;background:#1a1a1a"></div>
+                <div style="position:absolute;top:24px;right:-3px;width:5px;height:4px;background:#1a1a1a"></div>
+                <div style="position:absolute;top:6px;left:8px;width:5px;height:3px;background:#fff;border-radius:1px"></div>
+                <div style="position:absolute;top:6px;right:8px;width:5px;height:3px;background:#fff;border-radius:1px"></div>
+              </div>
+            </div>
+            <div style="padding:14px 16px;border-top:1px solid #232324;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6f6f6f;text-align:center;letter-spacing:.08em">IZQUIERDA GIRA ‹ · DERECHA GIRA ›</div>
+          </div>
+        </div></div>
+
+        <!-- 1a RESULTADO -->
+        <div><div class="dv-scrlabel">Resultado</div>
+        <div style="width:300px;height:650px;background:#050505;border-radius:4px;padding:9px;box-shadow:0 18px 40px rgba(0,0,0,.25)">
+          <div style="width:100%;height:100%;background:#0b0b0c;border-radius:2px;padding:20px 18px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;font-family:'Barlow Condensed',sans-serif;color:#f2ede2;overflow:hidden">
+            <div style="background:#38d97a;color:#0b0b0c;text-align:center;font-family:'IBM Plex Mono',monospace;font-weight:800;font-size:12px;padding:6px;letter-spacing:.08em">NUEVO RÉCORD</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-weight:800;font-size:52px;color:#38d97a;text-align:center;line-height:1">41.567</div>
+            <div style="text-align:center;font-size:14px;color:#a7a7a7;font-family:system-ui,sans-serif">Estrecho · Chicanes — 4.º de 8 en el mundo</div>
+            <div style="background:#ff5a1f;color:#0b0b0c;text-align:center;padding:14px;font-weight:800;font-size:18px;text-transform:uppercase">Reintentar (2/3)</div>
+            <div style="display:flex;gap:8px">
+              <div style="flex:1;border:1px solid #3a3a3a;text-align:center;padding:11px;font-size:13px;font-weight:600">Compartir</div>
+              <div style="flex:1;border:1px solid #3a3a3a;text-align:center;padding:11px;font-size:13px;font-weight:600">Inicio</div>
+            </div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;color:#8c8c8c;margin-top:4px">RANKING DE HOY</div>
+            <div style="display:flex;gap:1px;background:#232324">
+              <div style="flex:1;background:#0b0b0c;padding:8px;text-align:center"><div style="width:18px;height:18px;margin:0 auto 4px;background:linear-gradient(135deg,#7c5cff 50%,#4b3aa8 50%)"></div><div style="font-size:12px;font-weight:700">Tester1</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px">40.118</div></div>
+              <div style="flex:1;background:#0b0b0c;padding:8px;text-align:center"><div style="width:18px;height:18px;margin:0 auto 4px;background:linear-gradient(135deg,#ff5c8a 50%,#c93463 50%)"></div><div style="font-size:12px;font-weight:700">Tester 12</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px">40.798</div></div>
+              <div style="flex:1;background:#0b0b0c;padding:8px;text-align:center"><div style="width:18px;height:18px;margin:0 auto 4px;background:linear-gradient(135deg,#2fbf71 50%,#1c8a52 50%)"></div><div style="font-size:12px;font-weight:700">JM7</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px">41.409</div></div>
+            </div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.1em;color:#6f6f6f">TU ENTORNO — 4º-5º-6º</div>
+            <div style="display:flex;gap:1px;background:#232324">
+              <div style="flex:1;background:#1a1210;border:1px solid #d63384;padding:8px;text-align:center;box-sizing:border-box"><div style="width:18px;height:18px;margin:0 auto 4px;background:linear-gradient(135deg,#d63384 50%,#8a2159 50%)"></div><div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#d63384">04</div><div style="font-size:12px;font-weight:700">Pedro (tú)</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px">41.567</div></div>
+              <div style="flex:1;background:#0b0b0c;padding:8px;text-align:center"><div style="width:18px;height:18px;margin:0 auto 4px;background:linear-gradient(135deg,#5c7a99 50%,#37506b 50%)"></div><div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6f6f6f">05</div><div style="font-size:12px">Test2</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px">42.399</div></div>
+              <div style="flex:1;background:#0b0b0c;padding:8px;text-align:center"><div style="width:18px;height:18px;margin:0 auto 4px;background:linear-gradient(135deg,#c9973a 50%,#8a6423 50%)"></div><div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6f6f6f">06</div><div style="font-size:12px">Rall_ie</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px">42.881</div></div>
+            </div>
+          </div>
+        </div></div>
+
+        <!-- 1a RANKING -->
+        <div><div class="dv-scrlabel">Ranking</div>
+        <div style="width:300px;height:650px;background:#050505;border-radius:4px;padding:9px;box-shadow:0 18px 40px rgba(0,0,0,.25)">
+          <div style="width:100%;height:100%;background:#0b0b0c;border-radius:2px;padding:18px 16px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;font-family:'Barlow Condensed',sans-serif;color:#f2ede2;overflow:hidden">
+            <div style="font-size:26px;font-weight:800;text-transform:uppercase">Ranking</div>
+            <div style="display:flex;gap:6px">
+              <div style="background:#eae4d6;color:#0b0b0c;font-size:11px;font-weight:700;padding:5px 10px;font-family:'IBM Plex Mono',monospace">GLOBAL</div>
+              <div style="border:1px solid #3a3a3a;color:#a7a7a7;font-size:11px;padding:5px 10px;font-family:'IBM Plex Mono',monospace">AMIGOS GT</div>
+            </div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;color:#8c8c8c;margin-top:4px">LÍDERES · FIJO</div>
+            <div style="display:flex;flex-direction:column;gap:1px;background:#232324">
+              <div style="background:#0b0b0c;padding:9px 12px;display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><span style="font-family:'IBM Plex Mono',monospace;color:#e8b23d;font-weight:800;font-size:16px">01</span><div style="width:20px;height:20px;background:linear-gradient(135deg,#7c5cff 50%,#4b3aa8 50%)"></div><span style="font-weight:700;font-size:14px">Tester1</span></div><span style="font-family:'IBM Plex Mono',monospace;font-size:13px">40.118</span></div>
+              <div style="background:#0b0b0c;padding:9px 12px;display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><span style="font-family:'IBM Plex Mono',monospace;color:#a7a7a7;font-weight:800;font-size:16px">02</span><div style="width:20px;height:20px;background:linear-gradient(135deg,#ff5c8a 50%,#c93463 50%)"></div><span style="font-weight:700;font-size:14px">Tester 12</span></div><span style="font-family:'IBM Plex Mono',monospace;font-size:13px">40.798</span></div>
+              <div style="background:#0b0b0c;padding:9px 12px;display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><span style="font-family:'IBM Plex Mono',monospace;color:#c07a3a;font-weight:800;font-size:16px">03</span><div style="width:20px;height:20px;background:linear-gradient(135deg,#2fbf71 50%,#1c8a52 50%)"></div><span style="font-weight:700;font-size:14px">JM7</span></div><span style="font-family:'IBM Plex Mono',monospace;font-size:13px">41.409</span></div>
+            </div>
+            <div style="height:6px;width:100%;background:repeating-linear-gradient(135deg,#ff5a1f 0 8px,#0b0b0c 8px 16px);margin:4px 0"></div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.12em;color:#8c8c8c">TU ENTORNO · 4º-5º-6º SIEMPRE VISIBLE</div>
+            <div style="display:flex;gap:1px;background:#232324">
+              <div style="flex:1;background:#1a1210;border:1px solid #d63384;padding:9px;text-align:center;box-sizing:border-box"><div style="width:20px;height:20px;margin:0 auto 5px;background:linear-gradient(135deg,#d63384 50%,#8a2159 50%)"></div><div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#d63384">04</div><div style="font-size:13px;font-weight:700">Pedro (tú)</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px">41.567</div></div>
+              <div style="flex:1;background:#141414;padding:9px;text-align:center"><div style="width:20px;height:20px;margin:0 auto 5px;background:linear-gradient(135deg,#5c7a99 50%,#37506b 50%)"></div><div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6f6f6f">05</div><div style="font-size:13px">Test2</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px">42.399</div></div>
+              <div style="flex:1;background:#141414;padding:9px;text-align:center"><div style="width:20px;height:20px;margin:0 auto 5px;background:linear-gradient(135deg,#c9973a 50%,#8a6423 50%)"></div><div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6f6f6f">06</div><div style="font-size:13px">Rall_ie</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px">42.881</div></div>
+            </div>
+          </div>
+        </div></div>
+
+      </div>
+    </div>
+
+    <!-- ================= OPTION 1b ================= -->
+    <div class="dv-opt" id="1b">
+      <div class="dv-ohead">
+        <div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a><span class="dv-oname">Clúster — panel de instrumentos analógico</span></div>
+        <p class="dv-odesc">Cuadro de mandos mecánico: gunmetal verdoso, remaches en las esquinas, diales circulares en vez de tarjetas redondeadas, dígitos tipo cuentakilómetros, agujas para indicar posición.</p>
+      </div>
+      <div class="dv-row">
+
+        <!-- 1b INICIO -->
+        <div><div class="dv-scrlabel">Inicio</div>
+        <div style="width:300px;height:650px;background:#1c1f18;border-radius:20px;padding:10px;box-shadow:0 18px 40px rgba(0,0,0,.25);position:relative">
+          <div style="position:absolute;top:16px;left:16px;width:6px;height:6px;border-radius:50%;background:#0c0e0a"></div>
+          <div style="position:absolute;top:16px;right:16px;width:6px;height:6px;border-radius:50%;background:#0c0e0a"></div>
+          <div style="width:100%;height:100%;background:#10130f;border-radius:12px;padding:20px 18px;box-sizing:border-box;display:flex;flex-direction:column;gap:14px;font-family:'Oswald',sans-serif;color:#efe9dc;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div style="font-weight:600;font-size:22px;text-transform:uppercase;white-space:nowrap">Hola, Pedro</div>
+              <div style="width:40px;height:40px;border-radius:50%;border:3px solid #ffab1a;display:flex;align-items:center;justify-content:center;font-family:'Roboto Mono',monospace;font-size:12px;font-weight:700;color:#ffab1a;flex-shrink:0">6d</div>
+            </div>
+            <div style="border:1px solid #35392c;border-radius:8px;padding:14px;background:#151810;display:flex;flex-direction:column;gap:6px">
+              <div style="font-family:'Roboto Mono',monospace;font-size:10px;letter-spacing:.1em;color:#8a9078">CIRCUITO DE HOY</div>
+              <div style="font-size:24px;font-weight:600;color:#ffab1a;text-transform:uppercase">Estrecho · Chicanes</div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+                <div style="font-size:12px;color:#8a9078;font-family:system-ui,sans-serif;white-space:nowrap">Intentos restantes</div>
+                <div style="display:flex;gap:4px;flex-shrink:0">
+                  <div style="width:8px;height:8px;border-radius:50%;background:#35d0a0"></div>
+                  <div style="width:8px;height:8px;border-radius:50%;background:#35d0a0"></div>
+                  <div style="width:8px;height:8px;border-radius:50%;background:#35d0a0"></div>
+                </div>
+              </div>
+              <div style="font-family:'Roboto Mono',monospace;font-size:11px;color:#ffab1a;margin-top:4px">☔ LLUVIA — asfalto mojado</div>
+            </div>
+            <div style="text-align:center;font-family:'Roboto Mono',monospace;font-size:11px;color:#8a9078">Próximo circuito en <span style="color:#efe9dc;font-weight:700">07:42:11</span></div>
+            <div style="background:#ffab1a;color:#10130f;text-align:center;padding:16px;border-radius:8px;font-weight:700;font-size:19px;text-transform:uppercase">Jugar</div>
+            <div style="font-family:'Roboto Mono',monospace;font-size:10px;letter-spacing:.1em;color:#8a9078">RANKING DE HOY</div>
+            <div style="display:flex;justify-content:center;gap:14px">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+                <div style="width:52px;height:52px;border-radius:50%;border:3px solid #cfcfcf;display:flex;align-items:center;justify-content:center;background:#151810;font-family:'Roboto Mono',monospace;font-weight:700;font-size:11px;position:relative">2º<div style="position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#ff5c8a 50%,#c93463 50%)"></div></div>
+                <div style="font-size:11px">Tester 12</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:4px;transform:translateY(-8px)">
+                <div style="width:64px;height:64px;border-radius:50%;border:3px solid #ffd166;display:flex;align-items:center;justify-content:center;background:#151810;font-family:'Roboto Mono',monospace;font-weight:700;font-size:13px;color:#ffd166;position:relative">1º<div style="position:absolute;top:3px;right:3px;width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#7c5cff 50%,#4b3aa8 50%)"></div></div>
+                <div style="font-size:11px">Tester1</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+                <div style="width:52px;height:52px;border-radius:50%;border:3px solid #c98a4d;display:flex;align-items:center;justify-content:center;background:#151810;font-family:'Roboto Mono',monospace;font-weight:700;font-size:11px;position:relative">3º<div style="position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#2fbf71 50%,#1c8a52 50%)"></div></div>
+                <div style="font-size:11px">JM7</div>
+              </div>
+            </div>
+            <div style="border:1px solid #35392c;border-radius:8px;padding:9px 12px;background:#151810;text-align:center;font-family:'Roboto Mono',monospace;font-size:11px;color:#8a9078">tu posición aparecerá aquí tras jugar</div>
+          </div>
+        </div></div>
+
+        <!-- 1b JUEGO -->
+        <div><div class="dv-scrlabel">Juego</div>
+        <div style="width:300px;height:650px;background:#1c1f18;border-radius:20px;padding:10px;box-shadow:0 18px 40px rgba(0,0,0,.25)">
+          <div style="width:100%;height:100%;background:#10130f;border-radius:12px;padding:0;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Oswald',sans-serif;color:#efe9dc;overflow:hidden">
+            <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid #262a1e;align-items:center">
+              <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+                <div style="font-family:'Oswald',sans-serif;font-size:11px;color:#8a9078">‹ SALIR</div>
+                <div style="font-family:'Roboto Mono',monospace;font-size:11px;color:#ffab1a">☔ LLUVIA</div>
+              </div>
+              <div style="position:relative;width:140px;height:70px;overflow:hidden">
+                <div style="position:absolute;top:0;left:0;width:140px;height:140px;border-radius:50%;border:8px solid #262a1e;box-sizing:border-box"></div>
+                <div style="position:absolute;top:0;left:0;width:140px;height:140px;border-radius:50%;border:8px solid transparent;border-top-color:#ffab1a;border-right-color:#ffab1a;box-sizing:border-box;transform:rotate(45deg)"></div>
+                <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);font-family:'Roboto Mono',monospace;font-size:24px;font-weight:700">22.41</div>
+              </div>
+              <div style="display:flex;justify-content:space-between;width:100%;font-family:'Roboto Mono',monospace;font-size:10px">
+                <div style="color:#8a9078">SECTOR 2/4</div>
+                <div style="color:#35d0a0;font-weight:700">FANTASMA -0.31</div>
+              </div>
+            </div>
+            <div style="flex:1;position:relative;background:#10130f;display:flex;align-items:flex-end;justify-content:center;overflow:hidden">
+              <div style="position:absolute;top:20px;bottom:0;left:70px;right:70px;background:#181c12;clip-path:polygon(20% 0,80% 0,100% 60%,100% 100%,0 100%,0 60%)"></div>
+              <div style="position:absolute;top:20px;bottom:0;left:70px;width:5px;background:repeating-linear-gradient(#efe9dc 0 12px,#ffab1a 12px 24px)"></div>
+              <div style="position:absolute;top:20px;bottom:0;right:70px;width:5px;background:repeating-linear-gradient(#efe9dc 0 12px,#ffab1a 12px 24px)"></div>
+              <div style="position:absolute;inset:20px 70px 0;background:rgba(120,170,220,.08)"></div>
+              <div style="position:absolute;top:30px;left:90px;width:1px;height:60px;background:rgba(200,225,255,.4);transform:rotate(12deg)"></div>
+              <div style="position:absolute;top:70px;left:130px;width:1px;height:60px;background:rgba(200,225,255,.3);transform:rotate(12deg)"></div>
+              <div style="position:absolute;top:120px;left:150px;width:1px;height:60px;background:rgba(200,225,255,.35);transform:rotate(12deg)"></div>
+              <div style="position:absolute;top:180px;left:110px;width:1px;height:60px;background:rgba(200,225,255,.25);transform:rotate(12deg)"></div>
+              <div style="position:absolute;bottom:30px;width:44px;height:74px">
+                <div style="position:absolute;bottom:0;left:-4px;right:-4px;height:7px;background:#262a1e;border-radius:1px"></div>
+                <div style="position:absolute;bottom:0;left:-4px;width:4px;height:14px;background:#efe9dc"></div>
+                <div style="position:absolute;bottom:0;right:-4px;width:4px;height:14px;background:#efe9dc"></div>
+                <div style="position:absolute;bottom:7px;left:6px;right:6px;height:3px;background:#000;opacity:.5"></div>
+                <div style="position:absolute;bottom:9px;left:2px;right:2px;top:6px;background:#ffab1a;clip-path:polygon(35% 0,65% 0,100% 22%,92% 100%,8% 100%,0 22%)"></div>
+                <div style="position:absolute;top:24px;left:-3px;width:5px;height:4px;background:#262a1e"></div>
+                <div style="position:absolute;top:24px;right:-3px;width:5px;height:4px;background:#262a1e"></div>
+                <div style="position:absolute;top:6px;left:8px;width:5px;height:3px;background:#fff;border-radius:1px"></div>
+                <div style="position:absolute;top:6px;right:8px;width:5px;height:3px;background:#fff;border-radius:1px"></div>
+              </div>
+            </div>
+            <div style="padding:14px 16px;border-top:1px solid #262a1e;font-family:'Roboto Mono',monospace;font-size:10px;color:#8a9078;text-align:center;letter-spacing:.06em">IZQUIERDA GIRA ‹ · DERECHA GIRA ›</div>
+          </div>
+        </div></div>
+
+        <!-- 1b RESULTADO -->
+        <div><div class="dv-scrlabel">Resultado</div>
+        <div style="width:300px;height:650px;background:#1c1f18;border-radius:20px;padding:10px;box-shadow:0 18px 40px rgba(0,0,0,.25)">
+          <div style="width:100%;height:100%;background:#10130f;border-radius:12px;padding:20px 18px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;font-family:'Oswald',sans-serif;color:#efe9dc;overflow:hidden;align-items:center">
+            <div style="background:#35d0a0;color:#10130f;text-align:center;font-family:'Roboto Mono',monospace;font-weight:700;font-size:11px;padding:6px 12px;border-radius:20px;letter-spacing:.06em">NUEVO RÉCORD</div>
+            <div style="position:relative;width:170px;height:100px">
+              <div style="position:absolute;top:0;left:0;width:170px;height:170px;border-radius:50%;border:10px solid #262a1e;box-sizing:border-box"></div>
+              <div style="position:absolute;top:0;left:0;width:170px;height:170px;border-radius:50%;border:10px solid transparent;border-top-color:#35d0a0;border-right-color:#35d0a0;border-left-color:#35d0a0;box-sizing:border-box;transform:rotate(30deg)"></div>
+              <div style="position:absolute;bottom:6px;left:50%;transform:translateX(-50%);font-family:'Roboto Mono',monospace;font-size:30px;font-weight:700;color:#35d0a0">41.567</div>
+            </div>
+            <div style="text-align:center;font-size:13px;color:#8a9078;font-family:system-ui,sans-serif">Estrecho · Chicanes — 4.º de 8 en el mundo</div>
+            <div style="width:100%;background:#ffab1a;color:#10130f;text-align:center;padding:14px;border-radius:8px;font-weight:700;font-size:17px;text-transform:uppercase">Reintentar (2/3)</div>
+            <div style="display:flex;gap:8px;width:100%">
+              <div style="flex:1;border:1px solid #35392c;border-radius:8px;text-align:center;padding:11px;font-size:13px">Compartir</div>
+              <div style="flex:1;border:1px solid #35392c;border-radius:8px;text-align:center;padding:11px;font-size:13px">Inicio</div>
+            </div>
+            <div style="width:100%;font-family:'Roboto Mono',monospace;font-size:10px;letter-spacing:.1em;color:#8a9078">TU ENTORNO — 4º-5º-6º</div>
+            <div style="display:flex;gap:8px;width:100%">
+              <div style="flex:1;background:#151810;border:2px solid #ffd166;border-radius:8px;padding:8px;text-align:center;box-sizing:border-box"><div style="font-family:'Roboto Mono',monospace;font-size:10px;color:#ffd166">4</div><div style="font-size:12px;font-weight:700">Pedro (tú)</div><div style="font-family:'Roboto Mono',monospace;font-size:11px">41.567</div></div>
+              <div style="flex:1;background:#151810;border-radius:8px;padding:8px;text-align:center"><div style="font-family:'Roboto Mono',monospace;font-size:10px;color:#8a9078">5</div><div style="font-size:12px">Test2</div><div style="font-family:'Roboto Mono',monospace;font-size:11px">42.399</div></div>
+              <div style="flex:1;background:#151810;border-radius:8px;padding:8px;text-align:center"><div style="font-family:'Roboto Mono',monospace;font-size:10px;color:#8a9078">6</div><div style="font-size:12px">Rall_ie</div><div style="font-family:'Roboto Mono',monospace;font-size:11px">42.881</div></div>
+            </div>
+          </div>
+        </div></div>
+
+        <!-- 1b RANKING -->
+        <div><div class="dv-scrlabel">Ranking</div>
+        <div style="width:300px;height:650px;background:#1c1f18;border-radius:20px;padding:10px;box-shadow:0 18px 40px rgba(0,0,0,.25)">
+          <div style="width:100%;height:100%;background:#10130f;border-radius:12px;padding:18px 16px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;font-family:'Oswald',sans-serif;color:#efe9dc;overflow:hidden">
+            <div style="font-size:22px;font-weight:600;text-transform:uppercase">Ranking</div>
+            <div style="display:flex;gap:6px">
+              <div style="background:#ffab1a;color:#10130f;font-size:11px;font-weight:700;padding:5px 12px;border-radius:20px">GLOBAL</div>
+              <div style="border:1px solid #35392c;color:#8a9078;font-size:11px;padding:5px 12px;border-radius:20px">AMIGOS GT</div>
+            </div>
+            <div style="font-family:'Roboto Mono',monospace;font-size:9px;letter-spacing:.1em;color:#8a9078;margin-top:2px">LÍDERES · FIJO</div>
+            <div style="display:flex;justify-content:center;gap:12px;padding:6px 0">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:46px;height:46px;border-radius:50%;border:3px solid #cfcfcf;background:#151810;display:flex;align-items:center;justify-content:center;font-family:'Roboto Mono',monospace;font-weight:700;font-size:11px">2</div><div style="font-size:10px">Tester 12</div><div style="font-family:'Roboto Mono',monospace;font-size:10px;color:#8a9078">40.798</div></div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:4px;transform:translateY(-6px)"><div style="width:56px;height:56px;border-radius:50%;border:3px solid #ffd166;background:#151810;display:flex;align-items:center;justify-content:center;font-family:'Roboto Mono',monospace;font-weight:700;font-size:13px;color:#ffd166">1</div><div style="font-size:10px">Tester1</div><div style="font-family:'Roboto Mono',monospace;font-size:10px;color:#8a9078">40.118</div></div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:46px;height:46px;border-radius:50%;border:3px solid #c98a4d;background:#151810;display:flex;align-items:center;justify-content:center;font-family:'Roboto Mono',monospace;font-weight:700;font-size:11px">3</div><div style="font-size:10px">JM7</div><div style="font-family:'Roboto Mono',monospace;font-size:10px;color:#8a9078">41.409</div></div>
+            </div>
+            <div style="font-family:'Roboto Mono',monospace;font-size:9px;letter-spacing:.1em;color:#8a9078">TU ENTORNO · 4º-5º-6º SIEMPRE VISIBLE</div>
+            <div style="display:flex;gap:8px">
+              <div style="flex:1;background:#1e2415;border:2px solid #ffd166;border-radius:8px;padding:8px;text-align:center;box-sizing:border-box"><div style="font-family:'Roboto Mono',monospace;font-size:9px;color:#ffd166">4</div><div style="font-size:12px;font-weight:700">Pedro (tú)</div><div style="font-family:'Roboto Mono',monospace;font-size:11px">41.567</div></div>
+              <div style="flex:1;background:#151810;border-radius:8px;padding:8px;text-align:center"><div style="font-family:'Roboto Mono',monospace;font-size:9px;color:#8a9078">5</div><div style="font-size:12px">Test2</div><div style="font-family:'Roboto Mono',monospace;font-size:11px">42.399</div></div>
+              <div style="flex:1;background:#151810;border-radius:8px;padding:8px;text-align:center"><div style="font-family:'Roboto Mono',monospace;font-size:9px;color:#8a9078">6</div><div style="font-size:12px">Rall_ie</div><div style="font-family:'Roboto Mono',monospace;font-size:11px">42.881</div></div>
+            </div>
+          </div>
+        </div></div>
+
+      </div>
+    </div>
+
+    <!-- ================= OPTION 1c ================= -->
+    <div class="dv-opt" id="1c">
+      <div class="dv-ohead">
+        <div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a><span class="dv-oname">Telemetría — plano de circuito / HUD</span></div>
+        <p class="dv-odesc">HUD de ingeniería: azul técnico casi negro, rejilla de plano, marcos con corchetes en vez de tarjetas, anotaciones en mayúsculas diminutas, acentos cian/lima como overlay de retransmisión.</p>
+      </div>
+      <div class="dv-row">
+
+        <!-- 1c INICIO -->
+        <div><div class="dv-scrlabel">Inicio</div>
+        <div style="width:300px;height:650px;background:#040609;border-radius:18px;padding:9px;box-shadow:0 18px 40px rgba(0,0,0,.3)">
+          <div style="width:100%;height:100%;background:#070c14;background-image:linear-gradient(rgba(79,216,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(79,216,255,.05) 1px,transparent 1px);background-size:22px 22px;border-radius:10px;padding:20px 18px;box-sizing:border-box;display:flex;flex-direction:column;gap:14px;font-family:'Rajdhani',sans-serif;color:#dcecf5;overflow:hidden">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div style="font-weight:700;font-size:24px;text-transform:uppercase;letter-spacing:.02em">Hola, Pedro</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#c6ff5e;border:1px solid #c6ff5e;padding:3px 6px">RACHA·06</div>
+            </div>
+            <div style="position:relative;border:1px solid #1c4a66;padding:14px">
+              <div style="position:absolute;top:-1px;left:-1px;width:8px;height:8px;border-top:2px solid #4fd8ff;border-left:2px solid #4fd8ff"></div>
+              <div style="position:absolute;bottom:-1px;right:-1px;width:8px;height:8px;border-bottom:2px solid #4fd8ff;border-right:2px solid #4fd8ff"></div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;color:#4fd8ff">// CIRCUITO_HOY</div>
+              <div style="font-size:26px;font-weight:700;color:#4fd8ff;text-transform:uppercase;margin-top:4px">Estrecho · Chicanes</div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#7fa0b3">
+                <span>INTENTOS 3/3</span><span style="color:#ff4fa3">SOL_INTENSO</span>
+              </div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7fa0b3;text-align:center">PRÓXIMO_CIRCUITO <span style="color:#dcecf5;font-weight:700">07:42:11</span></div>
+            <div style="background:#4fd8ff;color:#070c14;text-align:center;padding:15px;font-weight:700;font-size:19px;text-transform:uppercase;letter-spacing:.05em;clip-path:polygon(4% 0,100% 0,96% 100%,0 100%)">Jugar</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.14em;color:#4fd8ff">RANKING_HOY</div>
+            <div style="display:flex;gap:6px">
+              <div style="border:1px solid #4fd8ff;color:#4fd8ff;font-size:10px;padding:4px 8px;font-family:'JetBrains Mono',monospace">GLOBAL</div>
+              <div style="border:1px solid #1c4a66;color:#5c7d90;font-size:10px;padding:4px 8px;font-family:'JetBrains Mono',monospace">+GRUPO</div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <div style="flex:1;border:1px solid #1c4a66;padding:8px;text-align:center"><div style="width:16px;height:16px;margin:0 auto 4px;background:linear-gradient(135deg,#7c5cff 50%,#4b3aa8 50%)"></div><div style="font-size:12px;font-weight:600">Tester1</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7fa0b3">40.118</div></div>
+              <div style="flex:1;border:1px solid #1c4a66;padding:8px;text-align:center"><div style="width:16px;height:16px;margin:0 auto 4px;background:linear-gradient(135deg,#ff5c8a 50%,#c93463 50%)"></div><div style="font-size:12px;font-weight:600">Tester 12</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7fa0b3">40.798</div></div>
+              <div style="flex:1;border:1px solid #1c4a66;padding:8px;text-align:center"><div style="width:16px;height:16px;margin:0 auto 4px;background:linear-gradient(135deg,#2fbf71 50%,#1c8a52 50%)"></div><div style="font-size:12px;font-weight:600">JM7</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7fa0b3">41.409</div></div>
+            </div>
+            <div style="border:1px dashed #ff4fa3;padding:8px 12px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:10px;color:#ff4fa3">TU_ENTORNO → juega para calcular</div>
+          </div>
+        </div></div>
+
+        <!-- 1c JUEGO -->
+        <div><div class="dv-scrlabel">Juego</div>
+        <div style="width:300px;height:650px;background:#040609;border-radius:18px;padding:9px;box-shadow:0 18px 40px rgba(0,0,0,.3)">
+          <div style="width:100%;height:100%;background:#070c14;border-radius:10px;padding:0;box-sizing:border-box;display:flex;flex-direction:column;font-family:'Rajdhani',sans-serif;color:#dcecf5;overflow:hidden">
+            <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid #1c4a66">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7fa0b3">‹ SALIR</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;color:#4fd8ff">22.417</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#ff4fa3;border:1px solid #ff4fa3;padding:3px 5px">SOL</div>
+              </div>
+              <div style="position:relative;height:22px">
+                <div style="position:absolute;left:0;right:0;top:9px;height:2px;background:#1c4a66"></div>
+                <div style="position:absolute;left:0;top:9px;height:2px;width:55%;background:#4fd8ff"></div>
+                <div style="position:absolute;left:55%;top:3px;width:14px;height:14px;background:#4fd8ff;transform:translateX(-50%) rotate(45deg)"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:9px">
+                <span style="color:#7fa0b3">SECTOR_02/04</span>
+                <span style="color:#c6ff5e;font-weight:700">DELTA_FANTASMA −0.31</span>
+              </div>
+            </div>
+            <div style="flex:1;position:relative;background:#070c14;display:flex;align-items:flex-end;justify-content:center;overflow:hidden">
+              <div style="position:absolute;top:20px;bottom:0;left:70px;right:70px;border-left:2px solid #4fd8ff;border-right:2px solid #4fd8ff;clip-path:polygon(20% 0,80% 0,100% 60%,100% 100%,0 100%,0 60%)"></div>
+              <div style="position:absolute;top:16px;left:10px;font-family:'JetBrains Mono',monospace;font-size:8px;color:#4fd8ff">T2</div>
+              <div style="position:absolute;top:14px;right:20px;width:60px;height:60px;border-radius:50%;background:radial-gradient(circle,rgba(255,230,140,.35),transparent 70%)"></div>
+              <div style="position:absolute;top:26px;right:36px;width:20px;height:1px;background:rgba(255,230,140,.6);transform:rotate(20deg)"></div>
+              <div style="position:absolute;top:40px;right:28px;width:16px;height:1px;background:rgba(255,230,140,.5);transform:rotate(20deg)"></div>
+              <div style="position:absolute;bottom:30px;width:44px;height:74px">
+                <div style="position:absolute;bottom:0;left:-4px;right:-4px;height:7px;background:#0d1a26;border-radius:1px"></div>
+                <div style="position:absolute;bottom:0;left:-4px;width:4px;height:14px;background:#4fd8ff"></div>
+                <div style="position:absolute;bottom:0;right:-4px;width:4px;height:14px;background:#4fd8ff"></div>
+                <div style="position:absolute;bottom:7px;left:6px;right:6px;height:3px;background:#000;opacity:.5"></div>
+                <div style="position:absolute;bottom:9px;left:2px;right:2px;top:6px;background:#c6ff5e;clip-path:polygon(35% 0,65% 0,100% 22%,92% 100%,8% 100%,0 22%)"></div>
+                <div style="position:absolute;top:24px;left:-3px;width:5px;height:4px;background:#0d1a26"></div>
+                <div style="position:absolute;top:24px;right:-3px;width:5px;height:4px;background:#0d1a26"></div>
+                <div style="position:absolute;top:6px;left:8px;width:5px;height:3px;background:#4fd8ff;border-radius:1px"></div>
+                <div style="position:absolute;top:6px;right:8px;width:5px;height:3px;background:#4fd8ff;border-radius:1px"></div>
+              </div>
+            </div>
+            <div style="padding:12px 14px;border-top:1px solid #1c4a66;font-family:'JetBrains Mono',monospace;font-size:9px;color:#7fa0b3;text-align:center;letter-spacing:.08em">IZQUIERDA ‹ GIRA · GIRA › DERECHA</div>
+          </div>
+        </div></div>
+
+        <!-- 1c RESULTADO -->
+        <div><div class="dv-scrlabel">Resultado</div>
+        <div style="width:300px;height:650px;background:#040609;border-radius:18px;padding:9px;box-shadow:0 18px 40px rgba(0,0,0,.3)">
+          <div style="width:100%;height:100%;background:#070c14;border-radius:10px;padding:20px 18px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;font-family:'Rajdhani',sans-serif;color:#dcecf5;overflow:hidden">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#c6ff5e;border:1px solid #c6ff5e;text-align:center;padding:5px;letter-spacing:.1em">▲ NUEVO_RÉCORD</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:50px;color:#c6ff5e;text-align:center;line-height:1">41.567</div>
+            <div style="text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:#7fa0b3">ESTRECHO·CHICANES — P04/08 GLOBAL</div>
+            <div style="background:#4fd8ff;color:#070c14;text-align:center;padding:14px;font-weight:700;font-size:17px;text-transform:uppercase;clip-path:polygon(4% 0,100% 0,96% 100%,0 100%)">Reintentar (2/3)</div>
+            <div style="display:flex;gap:8px">
+              <div style="flex:1;border:1px solid #1c4a66;text-align:center;padding:11px;font-size:13px">Compartir</div>
+              <div style="flex:1;border:1px solid #1c4a66;text-align:center;padding:11px;font-size:13px">Inicio</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;color:#4fd8ff">RANKING_HOY</div>
+            <div style="display:flex;gap:6px">
+              <div style="flex:1;border:1px solid #1c4a66;padding:7px;text-align:center"><div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:#c6ff5e">01</div><div style="font-size:11px;font-weight:600">Tester1</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#7fa0b3">40.118</div></div>
+              <div style="flex:1;border:1px solid #1c4a66;padding:7px;text-align:center"><div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:#7fa0b3">02</div><div style="font-size:11px;font-weight:600">Tester 12</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#7fa0b3">40.798</div></div>
+              <div style="flex:1;border:1px solid #1c4a66;padding:7px;text-align:center"><div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:#7fa0b3">03</div><div style="font-size:11px;font-weight:600">JM7</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#7fa0b3">41.409</div></div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;color:#ff4fa3">TU_ENTORNO — 04/05/06</div>
+            <div style="display:flex;gap:6px">
+              <div style="flex:1;border:2px solid #ff4fa3;padding:7px;text-align:center;box-sizing:border-box"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#ff4fa3">04</div><div style="font-size:11px;font-weight:700">Pedro(tú)</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px">41.567</div></div>
+              <div style="flex:1;border:1px solid #1c4a66;padding:7px;text-align:center"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#7fa0b3">05</div><div style="font-size:11px">Test2</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px">42.399</div></div>
+              <div style="flex:1;border:1px solid #1c4a66;padding:7px;text-align:center"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#7fa0b3">06</div><div style="font-size:11px">Rall_ie</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px">42.881</div></div>
+            </div>
+          </div>
+        </div></div>
+
+        <!-- 1c RANKING -->
+        <div><div class="dv-scrlabel">Ranking</div>
+        <div style="width:300px;height:650px;background:#040609;border-radius:18px;padding:9px;box-shadow:0 18px 40px rgba(0,0,0,.3)">
+          <div style="width:100%;height:100%;background:#070c14;background-image:linear-gradient(rgba(79,216,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(79,216,255,.05) 1px,transparent 1px);background-size:22px 22px;border-radius:10px;padding:18px 16px;box-sizing:border-box;display:flex;flex-direction:column;gap:9px;font-family:'Rajdhani',sans-serif;color:#dcecf5;overflow:hidden">
+            <div style="font-size:22px;font-weight:700;text-transform:uppercase">Ranking</div>
+            <div style="display:flex;gap:6px">
+              <div style="background:#4fd8ff;color:#070c14;font-size:10px;font-weight:700;padding:4px 9px">GLOBAL</div>
+              <div style="border:1px solid #1c4a66;color:#7fa0b3;font-size:10px;padding:4px 9px">AMIGOS_GT</div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;color:#4fd8ff;margin-top:2px">LÍDERES // FIJO</div>
+            <div style="position:relative;border:1px solid #1c4a66;padding:8px">
+              <div style="position:absolute;top:-1px;left:-1px;width:7px;height:7px;border-top:2px solid #4fd8ff;border-left:2px solid #4fd8ff"></div>
+              <div style="position:absolute;top:-1px;right:-1px;width:7px;height:7px;border-top:2px solid #4fd8ff;border-right:2px solid #4fd8ff"></div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:8px;align-items:center"><span style="font-family:'JetBrains Mono',monospace;color:#c6ff5e;font-weight:700;font-size:14px">01</span><div style="width:16px;height:16px;background:linear-gradient(135deg,#7c5cff 50%,#4b3aa8 50%)"></div><span style="font-size:13px;font-weight:600">Tester1</span></div><span style="font-family:'JetBrains Mono',monospace;font-size:12px">40.118</span></div>
+                <div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:8px;align-items:center"><span style="font-family:'JetBrains Mono',monospace;color:#7fa0b3;font-weight:700;font-size:14px">02</span><div style="width:16px;height:16px;background:linear-gradient(135deg,#ff5c8a 50%,#c93463 50%)"></div><span style="font-size:13px;font-weight:600">Tester 12</span></div><span style="font-family:'JetBrains Mono',monospace;font-size:12px">40.798</span></div>
+                <div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:8px;align-items:center"><span style="font-family:'JetBrains Mono',monospace;color:#7fa0b3;font-weight:700;font-size:14px">03</span><div style="width:16px;height:16px;background:linear-gradient(135deg,#2fbf71 50%,#1c8a52 50%)"></div><span style="font-size:13px;font-weight:600">JM7</span></div><span style="font-family:'JetBrains Mono',monospace;font-size:12px">41.409</span></div>
+              </div>
+            </div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.12em;color:#ff4fa3">TU_ENTORNO // 04-05-06 SIEMPRE_VISIBLE</div>
+            <div style="position:relative;border:1px solid #ff4fa3;padding:8px">
+              <div style="position:absolute;bottom:-1px;left:-1px;width:7px;height:7px;border-bottom:2px solid #ff4fa3;border-left:2px solid #ff4fa3"></div>
+              <div style="position:absolute;bottom:-1px;right:-1px;width:7px;height:7px;border-bottom:2px solid #ff4fa3;border-right:2px solid #ff4fa3"></div>
+              <div style="display:flex;gap:8px">
+                <div style="flex:1;text-align:center"><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#ff4fa3;font-weight:700">04</div><div style="font-size:12px;font-weight:600">Pedro(tú)</div><div style="font-family:'JetBrains Mono',monospace;font-size:11px">41.567</div></div>
+                <div style="flex:1;text-align:center"><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#7fa0b3">05</div><div style="font-size:12px">Test2</div><div style="font-family:'JetBrains Mono',monospace;font-size:11px">42.399</div></div>
+                <div style="flex:1;text-align:center"><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#7fa0b3">06</div><div style="font-size:12px">Rall_ie</div><div style="font-family:'JetBrains Mono',monospace;font-size:11px">42.881</div></div>
+              </div>
+            </div>
+          </div>
+        </div></div>
+
+      </div>
+    </div>
+
+  </div>
+  <p class="dv-next">Prueba: "quiero una fusión entre <a href="#1a">1a</a> y <a href="#1c">1c</a>" · "haz el resultado de <a href="#1b">1b</a> más dramático" · "convierte <a href="#1a">1a</a> en prototipo interactivo"</p>
+</section>
+
+</x-dc>
+</body>
+</html>

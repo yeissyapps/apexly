@@ -39,15 +39,20 @@ export const NEUTRAL = {
 };
 
 // Condiciones posibles (con peso). Efectos sutiles a propósito.
+// Multiplicadores subidos respecto a la versión original (ver historial):
+// ahora que girar fuerte frena de verdad (TURN_SPEED_DRAG en config.js), el
+// clima que afecta al volante se nota mucho más que antes con los mismos
+// números — así que hace falta menos margen para que se sienta la diferencia
+// día a día, en vez de necesitar valores aún más agresivos.
 const CONDS = [
   { id: 'clear', w: 30, icon: '🌤️', label: 'Despejado', hint: 'condiciones neutras',
     steerMul: 1, speedMul: 1, wind: 0 },
   { id: 'dry',   w: 22, icon: '☀️', label: 'Seco',      hint: 'buen agarre · día rápido',
-    steerMul: 0.92, speedMul: 1.03, wind: 0 },
+    steerMul: 0.88, speedMul: 1.05, wind: 0 },
   { id: 'rain',  w: 26, icon: '🌧️', label: 'Lluvia',    hint: 'menos agarre · cuesta afinar',
-    steerMul: 1.35, speedMul: 0.96, wind: 0 },
+    steerMul: 1.5, speedMul: 0.9, wind: 0 },
   { id: 'wind',  w: 22, icon: '🌬️', label: 'Viento',    hint: 'te empuja de lado',
-    steerMul: 1, speedMul: 1, wind: 14 },
+    steerMul: 1, speedMul: 1, wind: 18 },
 ];
 
 // IDs de condiciones (para el selector de prueba), en orden.

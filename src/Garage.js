@@ -100,7 +100,7 @@ export default function Garage({ onBack }) {
           </Svg>
           {preview && (
             <View style={s.previewBadge}>
-              <Text style={s.previewBadgeText}>VISTA PREVIA — SE DESBLOQUEARÁ MÁS ADELANTE</Text>
+              <Text style={s.previewBadgeText}>VISTA PREVIA — ABRE SOBRES PARA DESBLOQUEAR</Text>
             </View>
           )}
         </View>
@@ -246,8 +246,8 @@ function ColorGrid({ field, category, options, selected, getValue = (o) => o.c, 
                 </View>
               )}
             </View>
-            <Text style={[s.swatchLabel, isPreviewing && s.swatchLabelPreviewing]} numberOfLines={1}>
-              {isPreviewing ? 'Mirando…' : isLocked ? 'Bloqueado' : (opt.label || '')}
+            <Text style={[s.swatchLabel, isPreviewing && s.swatchLabelPreviewing]} numberOfLines={2}>
+              {isPreviewing ? 'Mirando' : isLocked ? (opt.label || 'Bloqueado') : (opt.label || '')}
             </Text>
           </Pressable>
         );
@@ -287,14 +287,14 @@ const s = StyleSheet.create({
   tabActive: { borderColor: RD.brandOrange },
   tabText: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
   tabTextActive: { color: RD.textPrimary },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, justifyContent: 'center' },
-  swatchWrap: { width: 60, alignItems: 'center' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' },
+  swatchWrap: { width: 68, alignItems: 'center' },
   swatchStack: { width: 36, height: 36 },
   swatch: { width: 36, height: 36, borderRadius: 2, borderWidth: 2, borderColor: 'transparent' },
   swatchSelected: { borderColor: '#ffffff' },
   swatchPreviewing: { borderColor: RD.brandOrange },
   swatchLocked: { opacity: 0.3 },
   lockBadge: { position: 'absolute', top: 0, left: 0, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  swatchLabel: { color: RD.textTertiary, fontSize: 9, fontFamily: RD_FONT.mono, marginTop: 5, textAlign: 'center' },
+  swatchLabel: { color: RD.textTertiary, fontSize: 8.5, fontFamily: RD_FONT.mono, marginTop: 5, textAlign: 'center', lineHeight: 11 },
   swatchLabelPreviewing: { color: RD.brandOrange, fontFamily: RD_FONT.monoBold },
 });

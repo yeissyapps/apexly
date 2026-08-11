@@ -6,11 +6,14 @@
 //  El juego (física/cámara/colisión/piezas) vive en src/Game.js sin tocar.
 // ============================================================================
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Dimensions, Pressable, ScrollView, Share, StyleSheet, Text,
-  TextInput, View,
+  ActivityIndicator, Alert, Animated, Dimensions, Linking, Modal, Pressable, ScrollView,
+  StyleSheet, Text, TextInput, View,
 } from 'react-native';
+import Svg, { Circle, Line, Path } from 'react-native-svg';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import { useFonts } from 'expo-font';
@@ -22,20 +25,25 @@ import {
 } from '@expo-google-fonts/ibm-plex-mono';
 
 import Game from './src/Game';
-import { todayKey } from './src/daily';
+import { todayKey, dayOffset } from './src/daily';
 import { dailyCircuit } from './src/generator';
-import { dailyWeather, weatherById, WEATHER_IDS } from './src/weather';
+import { dailyWeather, weatherById, WEATHER_IDS, NEUTRAL } from './src/weather';
 
 // Modo de prueba: muestra un selector de clima en Inicio para ver los 4 efectos
 // sin esperar a la fecha. false = build de producción (capturas de tienda).
-const DEV_WEATHER = false;
-import { fmtTime, fmtSecs } from './src/format';
+const DEV_WEATHER = true;
+import { fmtTime, fmtSecs, fmtCountdown } from './src/format';
 import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS } from './src/theme';
 import DangerStripe from './src/DangerStripe';
 import MiniRanking from './src/MiniRanking';
 import MiniTrackMap from './src/MiniTrackMap';
 import Garage from './src/Garage';
 import Tienda from './src/Tienda';
+import Profile from './src/Profile';
+import CareerMode from './src/CareerMode';
+import { levelSpec, gapMsFor, weatherForLevel, CAREER_AD_BATCH } from './src/career';
+import { GroupHome, GrandPrixStandings } from './src/GrandPrix';
+import { gpCircuitSpec, gpWeather, GP_AD_BATCH } from './src/gpData';
 import ShineBadge from './src/ShineBadge';
 import { CAR_DEFAULTS } from './src/car';
 
@@ -44,7 +52,9 @@ import {
   ensureSession, ensureDailyTrack, getLocalNickname, saveNickname, submitTime,
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
   getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
-  getMyLoadout, getWallet, claimDailyReward,
+  getMyLoadout, getWallet, claimDailyReward, getRecentRewards, claimShareReward, claimCareerLevel,
+  devAdvanceStreakDay, devGrantCoins,
+  submitGpResult, notifyGpOvertake,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -62,6 +72,7 @@ import { shareCardImage } from './src/share';
 
 const PAD = 50; // hueco superior (barra de estado oculta)
 const UNLIMITED_FALLBACK_PRICE = '2,99 €'; // si la tienda no responde con el precio localizado
+const RECAP_SEEN_KEY = 'apexly_recap_seen_day'; // último día (todayKey) en que ya se mostró el pop-up de premios
 
 // Fecha corta "DD·MM" para tarjetas.
 function dayShort() {
@@ -76,12 +87,6 @@ function msUntilMidnight() {
   const now = new Date();
   const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
   return next.getTime() - now.getTime();
-}
-function fmtCountdown(ms) {
-  const totalMin = Math.max(0, Math.ceil(ms / 60000));
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return h > 0 ? `${h}h ${m}min` : `${m} min`;
 }
 function useMidnightCountdown() {
   const [label, setLabel] = useState(() => fmtCountdown(msUntilMidnight()));
@@ -104,12 +109,25 @@ export default function App() {
   const [retry, setRetry] = useState(0);
   const [myStreak, setMyStreak] = useState(null);
   const [wallet, setWallet] = useState({ balance: 0, pendingPacks: 0 }); // monedas + sobres pendientes
+  const [recap, setRecap] = useState(null); // { streak, ranking } premios de ayer, o null si no toca mostrar
+  const [homeStanding, setHomeStanding] = useState(null); // { rank, total, above } resumen de rivalidad para Diario
+  const [challenge, setChallenge] = useState(null); // { ms } reto recibido por deep link, si es de hoy
+  const [tab, setTab] = useState('diario'); // pestaña activa de Inicio: diario | amigos | carrera
+  const [careerLevel, setCareerLevel] = useState(null); // nivel de Modo Carrera en juego, o null
+  const [careerResult, setCareerResult] = useState(null); // { level, ms, passed, gapMs } del último intento
+  const [nomoreReturn, setNomoreReturn] = useState('playing'); // a qué screen volver tras ver el anuncio en 'nomore'
   const [ghost, setGhost] = useState(null); // { ms, trace } de tu mejor vuelta de hoy
   const [sectorBests, setSectorBests] = useState(null); // { [sector]: ms } mejor del mundo hoy
   const [loadout, setLoadout] = useState(CAR_DEFAULTS); // personalización del coche (garaje)
 
   const [forceWx, setForceWx] = useState(null); // id de clima forzado (modo prueba)
-  const [att, setAtt] = useState({ used: 0, bonus: 0 }); // intentos del día
+  const [att, setAtt] = useState({ used: 0, bonus: 0 }); // intentos del día (circuito diario)
+  const [careerAtt, setCareerAtt] = useState({ used: 0, bonus: 0 }); // intentos del nivel de Carrera en juego — cupo PROPIO, no comparte con el diario
+  const [gpGroup, setGpGroup] = useState(null); // { id, name } grupo cuyo Grand Prix se está viendo/jugando
+  const [gpActive, setGpActive] = useState(null); // fila grand_prix cargada (para jugar/ver clasificación)
+  const [gpRoundIndex, setGpRoundIndex] = useState(null); // ronda en juego dentro del GP
+  const [gpAtt, setGpAtt] = useState({ used: 0, bonus: 0 }); // intentos de ESTA ronda del GP — cupo propio, igual que Carrera
+  const [gpResult, setGpResult] = useState(null); // { dayIndex, ms, isPractice, isBest, error } del último intento
   const [unlocking, setUnlocking] = useState(false);     // viendo el anuncio
   const [adMsg, setAdMsg] = useState('');                // aviso si el anuncio no sale
   const [privacyOptional, setPrivacyOptional] = useState(false); // ¿mostrar "Privacidad de anuncios"?
@@ -118,7 +136,27 @@ export default function App() {
   const [buying, setBuying] = useState(false);
   const left = calcLeft(att);
   const total = FREE_ATTEMPTS + (att?.bonus || 0);
+  const careerLeft = calcLeft(careerAtt);
+  const gpLeft = calcLeft(gpAtt);
   const daily = useMemo(() => dailyCircuit(todayKey()), []);
+  // Igual que `daily`: memoizado por nivel, NO recalculado en cada render.
+  // Sin esto, `levelSpec()` devolvía un objeto `track` nuevo en cada
+  // re-render (p. ej. el que dispara `startAttempt` al consumir el intento),
+  // y el efecto de física de Game.js (dependiente de `[track]` por identidad)
+  // se reiniciaba a mitad de carrera -> el primer toque gastaba el intento y
+  // la vuelta se cortaba antes de arrancar de verdad.
+  const careerSpec = useMemo(() => (careerLevel != null ? levelSpec(careerLevel) : null), [careerLevel]);
+  const careerWeather = useMemo(() => (careerLevel != null ? weatherForLevel(careerLevel) : NEUTRAL), [careerLevel]);
+  // Mismo motivo que careerSpec: memoizado por [gp, ronda], no recalculado en
+  // cada render — si no, el mismo bug del intento que se corta a mitad.
+  const gpSpec = useMemo(
+    () => (gpActive && gpRoundIndex != null ? gpCircuitSpec(gpActive.id, gpRoundIndex, gpActive.circuit_count) : null),
+    [gpActive?.id, gpRoundIndex],
+  );
+  const gpWeatherVal = useMemo(
+    () => (gpActive && gpRoundIndex != null ? gpWeather(gpActive.id, gpRoundIndex) : NEUTRAL),
+    [gpActive?.id, gpRoundIndex],
+  );
   const midnightLabel = useMidnightCountdown();
   const weather = useMemo(
     () => (forceWx ? weatherById(forceWx) : dailyWeather(todayKey())),
@@ -138,6 +176,22 @@ export default function App() {
     loadAttempts(todayKey()).then(setAtt).catch(() => {});
     initAds().then(() => isPrivacyOptionsRequired()).then(setPrivacyOptional).catch(() => {});
   }, []);
+
+  // Intentos de Modo Carrera: cupo propio POR NIVEL (misma `attempts.js`,
+  // sembrada con 'career-N' en vez de la fecha) — no caduca al día siguiente,
+  // porque un nivel no es un reto diario, así que no hace falta resetearlo.
+  useEffect(() => {
+    if (careerLevel == null) return;
+    loadAttempts('career-' + careerLevel).then(setCareerAtt).catch(() => {});
+  }, [careerLevel]);
+
+  // Intentos del Grand Prix: cupo propio POR RONDA ('gp-<id>-<ronda>'), mismo
+  // patrón que Carrera. Los 2 primeros intentos son práctica (no se envían),
+  // desde el 3º clasifica — ver handleGpFinish.
+  useEffect(() => {
+    if (gpActive == null || gpRoundIndex == null) return;
+    loadAttempts('gp-' + gpActive.id + '-' + gpRoundIndex).then(setGpAtt).catch(() => {});
+  }, [gpActive?.id, gpRoundIndex]);
 
   // Ilimitado: valor guardado primero (rápido, sin red), luego se reconcilia
   // con la tienda (por si se compró desde otro dispositivo/reinstalación).
@@ -172,8 +226,19 @@ export default function App() {
     consumeAttempt(todayKey()).then(setAtt).catch(() => {});
   }
 
-  // Ver anuncio (stub) → concede un lote de +3 intentos. Devuelve si fue OK.
-  async function watchAdForMore() {
+  // Igual que startAttempt, pero contra el cupo PROPIO del nivel de Carrera
+  // en juego — no toca ni consulta los intentos del circuito diario.
+  function startCareerAttempt() {
+    logRaceStart();
+    if (unlimited) return;
+    consumeAttempt('career-' + careerLevel).then(setCareerAtt).catch(() => {});
+  }
+
+  // Ver anuncio → concede un lote de intentos en el cupo indicado por `day`
+  // (fecha de hoy para el diario, 'career-N' para un nivel) y lo aplica con
+  // `setter`. Un único flujo de anuncio para los dos modos; `amount` por
+  // defecto es AD_BATCH (grantBatch ya lo asume si no se pasa nada).
+  async function watchAd(day, setter, amount) {
     if (unlocking) return false;
     setUnlocking(true);
     setAdMsg('');
@@ -192,8 +257,8 @@ export default function App() {
         );
         return false;
       }
-      const a = await grantBatch(todayKey());
-      setAtt(a);
+      const a = await grantBatch(day, amount);
+      setter(a);
       logAdWatched();
       return true;
     } catch (_) {
@@ -203,11 +268,96 @@ export default function App() {
       setUnlocking(false);
     }
   }
+  const watchAdForMore = () => watchAd(todayKey(), setAtt);
+  const watchAdForCareerMore = () => watchAd('career-' + careerLevel, setCareerAtt, CAREER_AD_BATCH);
 
   // Intentar jugar: ilimitado o con intentos → a jugar; si no, ofrecer el anuncio/IAP.
   function tryPlay() {
     if (unlimited || left > 0) setScreen('playing');
-    else { logPaywallView(); setScreen('nomore'); }
+    else { logPaywallView(); setNomoreReturn('playing'); setScreen('nomore'); }
+  }
+
+  // Modo Carrera: cupo de intentos PROPIO por nivel (no el del circuito
+  // diario). Mismo patrón que tryPlay: se comprueba ANTES de entrar a la
+  // pantalla del nivel, no al primer toque una vez dentro — si ya no quedan
+  // intentos en ESE nivel, va directo al anuncio/IAP desde el listado.
+  async function playCareerLevel(n) {
+    setCareerLevel(n);
+    if (unlimited) { setScreen('career-playing'); return; }
+    const a = await loadAttempts('career-' + n);
+    if (calcLeft(a) > 0) setScreen('career-playing');
+    else { setNomoreReturn('career-playing'); setScreen('nomore'); }
+  }
+
+  async function handleCareerFinish(ms) {
+    const n = careerLevel;
+    const gapMs = gapMsFor(n, careerSpec.timeEstimate);
+    const passed = ms <= gapMs;
+    if (passed) {
+      try { await claimCareerLevel(n, Math.round(ms)); } catch (_) {}
+    }
+    setCareerResult({ level: n, ms, passed, gapMs });
+    setScreen('home');
+  }
+
+  // Abrir la pantalla de un grupo concreto (desde Amigos): si ya tiene GP
+  // activo se ve directamente, si no se ve el listado de miembros + arrancar.
+  function openGroupHome(group) {
+    setGpGroup(group);
+    setGpActive(null);
+    setGpRoundIndex(null);
+    setScreen('group-home');
+  }
+
+  // A diferencia de startCareerAttempt/startAttempt, aquí NO se salta con
+  // `unlimited`: en el GP `used` no es solo un contador de cupo, también
+  // decide práctica-vs-clasifica (gpAtt.used < 3). Si un usuario ilimitado
+  // se saltara esto, ese contador nunca avanzaría y NINGUNA vuelta suya
+  // llegaría a clasificar de verdad. Se sigue registrando (barato, un
+  // AsyncStorage local) aunque a él ya no le bloquee nada.
+  function startGpAttempt() {
+    logRaceStart();
+    consumeAttempt('gp-' + gpActive.id + '-' + gpRoundIndex).then(setGpAtt).catch(() => {});
+  }
+  const watchAdForGpMore = () => watchAd('gp-' + gpActive.id + '-' + gpRoundIndex, setGpAtt, GP_AD_BATCH);
+
+  // Entrar a jugar una ronda del GP: mismo patrón que playCareerLevel, se
+  // comprueba el cupo ANTES de entrar (no al primer toque dentro). Igual que
+  // arriba, SIEMPRE se recarga el cupo real de la ronda (aunque sea
+  // ilimitado) — si no, un ilimitado que ya jugó otra ronda arrastraría un
+  // `used` de esa ronda anterior y se saltaría sus 2 vueltas de práctica.
+  // `unlimited` solo se usa para no bloquear el acceso, no para saltarse la
+  // carga.
+  async function playGpRound(gp, dayIndex) {
+    setGpActive(gp);
+    setGpRoundIndex(dayIndex);
+    const a = await loadAttempts('gp-' + gp.id + '-' + dayIndex);
+    setGpAtt(a);
+    if (unlimited || calcLeft(a) > 0) setScreen('gp-playing');
+    else { setNomoreReturn('gp-playing'); setScreen('nomore'); }
+  }
+
+  // Las 2 primeras vueltas de cada ronda son práctica (no se mandan al
+  // servidor); desde la 3ª ('gpAtt.used' ya incluye el intento que se acaba
+  // de gastar en startGpAttempt) cada vuelta clasifica y el servidor se
+  // queda con tu mejor tiempo — igual que el resto de la app, mejor-de-N.
+  async function handleGpFinish(ms, trace, sectorSplits) {
+    const gp = gpActive;
+    const dayIndex = gpRoundIndex;
+    const isPractice = gpAtt.used < 3;
+    if (isPractice) {
+      setGpResult({ dayIndex, ms, isPractice: true });
+      setScreen('group-home');
+      return;
+    }
+    try {
+      const { isBest, prevMs } = await submitGpResult(gp.id, dayIndex, ms, sectorSplits);
+      setGpResult({ dayIndex, ms, isPractice: false, isBest, sectorMs: sectorSplits });
+      if (PUSH_ENABLED && isBest) notifyGpOvertake(gp.id, dayIndex, ms, prevMs);
+    } catch (_) {
+      setGpResult({ dayIndex, ms, isPractice: false, error: true });
+    }
+    setScreen('group-home');
   }
 
   // Racha propia (para Inicio): al tener nickname y tras cada partida.
@@ -221,6 +371,91 @@ export default function App() {
     if (!nickname) return;
     getWallet().then(setWallet).catch(() => {});
   }, [nickname, refreshKey]);
+
+  // Rivalidad de hoy (para el resumen de Diario — el ranking completo vive
+  // en la pestaña Amigos, esto es solo el titular). Null si aún no has
+  // jugado hoy (no hay puesto que mostrar). Misma llamada que ya usa
+  // Results para su propio "standing", por eso la forma coincide.
+  useEffect(() => {
+    if (!nickname) return;
+    let alive = true;
+    getGlobalBoard()
+      .then((b) => {
+        if (!alive) return;
+        if (!b.me) { setHomeStanding(null); return; }
+        const rival = b.aboveRows?.[0];
+        setHomeStanding({
+          rank: b.me.rank,
+          total: b.total,
+          above: rival ? { nickname: rival.nickname, gapMs: b.me.bestMs - rival.bestMs } : null,
+        });
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [nickname, refreshKey]);
+
+  // Pop-up de "premios de ayer": una vez por día local, la primera vez que
+  // hay nickname (primera entrada del día). Si no hubo nada que cobrar
+  // (racha rota, sin premio de ranking), no se muestra nada.
+  useEffect(() => {
+    if (!nickname) return;
+    let alive = true;
+    (async () => {
+      const today = todayKey();
+      const seen = await AsyncStorage.getItem(RECAP_SEEN_KEY).catch(() => null);
+      if (seen === today) return;
+      await AsyncStorage.setItem(RECAP_SEEN_KEY, today).catch(() => {});
+      const since = dayOffset(today, -2);
+      const rewards = await getRecentRewards(since).catch(() => null);
+      if (!alive || !rewards) return;
+      if (rewards.streak > 0 || rewards.ranking > 0) setRecap(rewards);
+    })();
+    return () => { alive = false; };
+  }, [nickname]);
+
+  // Reto recibido por deep link al compartir (circuitodiario://reto?ms=&day=).
+  // Solo tiene sentido si `day` es HOY — el circuito de otro día ya no existe
+  // en pantalla. Cubre apertura en frío (getInitialURL) y con la app abierta
+  // (evento 'url').
+  useEffect(() => {
+    function applyUrl(url) {
+      if (!url) return;
+      try {
+        // Parseo manual (sin URLSearchParams: no siempre está polyfilleado en
+        // Hermes) — la query es simple, dos claves conocidas, de sobra.
+        const q = url.split('?')[1] || '';
+        const params = {};
+        for (const pair of q.split('&')) {
+          const [k, v] = pair.split('=');
+          if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+        }
+        const ms = parseInt(params.ms, 10);
+        if (params.day === todayKey() && Number.isFinite(ms) && ms > 0) setChallenge({ ms });
+      } catch (_) {}
+    }
+    Linking.getInitialURL().then(applyUrl).catch(() => {});
+    const sub = Linking.addEventListener('url', ({ url }) => applyUrl(url));
+    return () => sub.remove();
+  }, []);
+
+  // DEV ONLY: probar racha/monedas sin esperar días reales (ver economy_dev.sql).
+  async function handleDevAdvanceDay() {
+    try {
+      await devAdvanceStreakDay();
+      Alert.alert('OK', 'Fecha adelantada 1 día — juega una vuelta AHORA para que la racha suba. Si le das otra vez sin jugar antes, no pasa nada (a propósito).');
+    } catch (e) {
+      Alert.alert('Error', String(e?.message || e));
+    }
+    setRefreshKey((k) => k + 1);
+  }
+  async function handleDevGrantCoins() {
+    try {
+      await devGrantCoins(200);
+    } catch (e) {
+      Alert.alert('Error', String(e?.message || e));
+    }
+    setRefreshKey((k) => k + 1);
+  }
 
   // Loadout del coche (garaje): al tener nickname, y al volver del garaje.
   useEffect(() => {
@@ -315,11 +550,26 @@ export default function App() {
 
   if (screen === 'onboarding') return <Onboarding onDone={onNicknameDone} />;
 
-  if (screen === 'groups') {
+  if (screen === 'group-home') {
     return (
-      <Groups
-        onBack={() => setScreen('home')}
-        onChanged={() => setRefreshKey((k) => k + 1)}
+      <GroupHome
+        group={gpGroup}
+        result={gpResult}
+        onDismissResult={() => setGpResult(null)}
+        onPlayRound={playGpRound}
+        onViewStandings={(gp) => { setGpActive(gp); setScreen('gp-standings'); }}
+        onBack={() => { setRefreshKey((k) => k + 1); setScreen('home'); }}
+        onLeave={() => { setRefreshKey((k) => k + 1); setScreen('home'); }}
+      />
+    );
+  }
+
+  if (screen === 'gp-standings') {
+    return (
+      <GrandPrixStandings
+        group={gpGroup}
+        gp={gpActive}
+        onBack={() => setScreen('group-home')}
       />
     );
   }
@@ -340,6 +590,19 @@ export default function App() {
     );
   }
 
+  if (screen === 'perfil') {
+    return (
+      <Profile
+        nickname={nickname}
+        myStreak={myStreak}
+        wallet={wallet}
+        onBack={() => setScreen('home')}
+        onOpenGarage={() => { logGarageOpen(); setScreen('garage'); }}
+        onOpenTienda={() => setScreen('tienda')}
+      />
+    );
+  }
+
   if (screen === 'playing') {
     return (
       <Game
@@ -350,24 +613,64 @@ export default function App() {
         loadout={loadout}
         attemptsLeft={unlimited ? Infinity : left}
         onAttemptStart={startAttempt}
-        onNeedMore={() => { logPaywallView(); setScreen('nomore'); }}
+        onNeedMore={() => { logPaywallView(); setNomoreReturn('playing'); setScreen('nomore'); }}
         onFinish={handleFinish}
         onExit={() => setScreen('home')}
       />
     );
   }
 
+  if (screen === 'career-playing') {
+    return (
+      <Game
+        track={careerSpec.track}
+        ghost={null}
+        weather={careerWeather}
+        sectorBests={null}
+        loadout={loadout}
+        attemptsLeft={unlimited ? Infinity : careerLeft}
+        onAttemptStart={startCareerAttempt}
+        onNeedMore={() => { setNomoreReturn('career-playing'); setScreen('nomore'); }}
+        onFinish={handleCareerFinish}
+        onExit={() => setScreen('home')}
+      />
+    );
+  }
+
+  if (screen === 'gp-playing') {
+    return (
+      <Game
+        track={gpSpec.track}
+        ghost={null}
+        weather={gpWeatherVal}
+        sectorBests={null}
+        loadout={loadout}
+        attemptsLeft={unlimited ? Infinity : gpLeft}
+        onAttemptStart={startGpAttempt}
+        onNeedMore={() => { setNomoreReturn('gp-playing'); setScreen('nomore'); }}
+        onFinish={handleGpFinish}
+        onExit={() => setScreen('group-home')}
+      />
+    );
+  }
+
   if (screen === 'nomore') {
+    const isCareer = nomoreReturn === 'career-playing';
+    const isGp = nomoreReturn === 'gp-playing';
     return (
       <NoMoreAttempts
-        left={left}
+        title={isGp ? 'SIN INTENTOS EN ESTA RONDA' : isCareer ? 'SIN INTENTOS EN ESTE NIVEL' : 'SIN INTENTOS POR HOY'}
+        adBatch={isGp ? GP_AD_BATCH : isCareer ? CAREER_AD_BATCH : AD_BATCH}
         unlocking={unlocking}
         adMsg={adMsg}
         unlimitedPrice={unlimitedPrice}
         buying={buying}
-        onWatchAd={async () => { const ok = await watchAdForMore(); if (ok) setScreen('playing'); }}
+        onWatchAd={async () => {
+          const ok = isGp ? await watchAdForGpMore() : isCareer ? await watchAdForCareerMore() : await watchAdForMore();
+          if (ok) setScreen(nomoreReturn);
+        }}
         onBuyUnlimited={async () => { const ok = await handleBuyUnlimited(); if (ok) setScreen('home'); }}
-        onBack={() => { setAdMsg(''); setScreen('home'); }}
+        onBack={() => { setAdMsg(''); setScreen(isGp ? 'group-home' : 'home'); }}
       />
     );
   }
@@ -392,53 +695,180 @@ export default function App() {
 
   // home
   return (
-    <HomeRD
-      nickname={nickname}
-      myStreak={myStreak}
-      wallet={wallet}
-      daily={daily}
-      weather={weather}
-      midnightLabel={midnightLabel}
-      left={left}
-      total={total}
-      unlimited={unlimited}
-      refreshKey={refreshKey}
-      tryPlay={tryPlay}
-      onManageGroups={() => setScreen('groups')}
-      onOpenGarage={() => { logGarageOpen(); setScreen('garage'); }}
-      onOpenTienda={() => setScreen('tienda')}
-      privacyOptional={privacyOptional}
-      forceWx={forceWx}
-      setForceWx={setForceWx}
-      setAtt={setAtt}
-    />
+    <AppShell tab={tab} setTab={setTab} nickname={nickname} wallet={wallet} onOpenProfile={() => setScreen('perfil')}>
+      {tab === 'diario' && (
+        <DiarioTab
+          refreshKey={refreshKey}
+          myStreak={myStreak}
+          wallet={wallet}
+          homeStanding={homeStanding}
+          recap={recap}
+          onCloseRecap={() => setRecap(null)}
+          challenge={challenge}
+          onCloseChallenge={() => setChallenge(null)}
+          daily={daily}
+          weather={weather}
+          midnightLabel={midnightLabel}
+          left={left}
+          total={total}
+          unlimited={unlimited}
+          tryPlay={tryPlay}
+          privacyOptional={privacyOptional}
+          forceWx={forceWx}
+          setForceWx={setForceWx}
+          setAtt={setAtt}
+          onDevAdvanceDay={handleDevAdvanceDay}
+          onDevGrantCoins={handleDevGrantCoins}
+        />
+      )}
+      {tab === 'amigos' && <AmigosTab refreshKey={refreshKey} onOpenGroup={openGroupHome} />}
+      {tab === 'carrera' && (
+        <CareerMode
+          unlimited={unlimited}
+          result={careerResult}
+          onPlayLevel={playCareerLevel}
+          onDismissResult={() => setCareerResult(null)}
+        />
+      )}
+    </AppShell>
+  );
+}
+
+// Camino de la racha semanal: 7 días, monedas por día (5/5/10/10/15/15/20 +
+// sobre el día 7), marcando qué días ya están "conseguidos" (hoy hacia
+// atrás) frente a los que faltan. Mismo cálculo de día-de-semana que
+// grant_daily_reward en economy.sql: ((racha-1) % 7) + 1.
+const STREAK_AMOUNTS = [5, 5, 10, 10, 15, 15, 20];
+
+function StreakPath({ current }) {
+  if (!current || current < 1) return null;
+  const pos = ((current - 1) % 7) + 1;
+  return (
+    <View style={rd.streakPath}>
+      <View style={rd.streakDotsRow}>
+        {STREAK_AMOUNTS.map((_, i) => {
+          const day = i + 1;
+          const done = day <= pos;
+          const isToday = day === pos;
+          return (
+            <Fragment key={day}>
+              <View style={rd.streakDotCol}>
+                <View style={[rd.streakDot, done && rd.streakDotDone, isToday && rd.streakDotToday]}>
+                  <Text style={[rd.streakDotText, done && rd.streakDotTextDone]}>{day}</Text>
+                </View>
+              </View>
+              {day < 7 && <View style={[rd.streakConnector, day < pos && rd.streakConnectorDone]} />}
+            </Fragment>
+          );
+        })}
+      </View>
+      <View style={rd.streakLabelsRow}>
+        {STREAK_AMOUNTS.map((amount, i) => {
+          const day = i + 1;
+          const done = day <= pos;
+          const isLast = day === 7;
+          return (
+            <Fragment key={day}>
+              <View style={[rd.streakLabelCol, isLast && rd.streakLabelColLast]}>
+                <Text
+                  style={[rd.streakAmount, isLast && rd.streakGiftText, done && (isLast ? rd.streakGiftDone : rd.streakAmountDone)]}
+                  numberOfLines={1}
+                >
+                  {isLast ? 'SOBRE' : amount}
+                </Text>
+              </View>
+              {day < 7 && <View style={rd.streakConnectorSpacer} />}
+            </Fragment>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+// Pop-up "premios de ayer": una vez por día, al abrir la app por primera
+// vez, resume lo que se cobró (racha + ranking) desde la última entrada.
+function RecapModal({ rewards, onClose }) {
+  const total = (rewards.streak || 0) + (rewards.ranking || 0);
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={rd.recapBackdrop}>
+        <View style={rd.recapCard}>
+          <Text style={rd.recapTitle}>PREMIOS DE AYER</Text>
+          <Text style={rd.recapTotal}>+{total}</Text>
+          <View style={rd.recapRows}>
+            {rewards.streak > 0 && (
+              <View style={rd.recapRow}>
+                <Text style={rd.recapRowLabel}>Racha diaria</Text>
+                <Text style={rd.recapRowValue}>+{rewards.streak}</Text>
+              </View>
+            )}
+            {rewards.ranking > 0 && (
+              <View style={rd.recapRow}>
+                <Text style={rd.recapRowLabel}>Posición en el ranking</Text>
+                <Text style={rd.recapRowValue}>+{rewards.ranking}</Text>
+              </View>
+            )}
+          </View>
+          <Pressable style={rd.recapBtn} onPress={onClose}>
+            <Text style={rd.recapBtnText}>GENIAL</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
 // ---------------------------------------------------------------------------
 //  Inicio — dirección "Parrilla" (rediseño, ver Rediseño visual Apexly/).
 // ---------------------------------------------------------------------------
-function HomeRD({
-  nickname, myStreak, wallet, daily, weather, midnightLabel, left, total, unlimited, refreshKey,
-  tryPlay, onManageGroups, onOpenGarage, onOpenTienda, privacyOptional, forceWx, setForceWx, setAtt,
+// Pestaña "Diario" — el circuito de hoy, tu racha, jugar. El saldo de
+// monedas y el acceso a Garaje/Tienda viven en la cabecera fija (AppShell)
+// y en Perfil, ya no aquí, para no duplicar info entre sitios.
+function DiarioTab({
+  refreshKey, myStreak, wallet, homeStanding, recap, onCloseRecap, challenge, onCloseChallenge, daily, weather, midnightLabel,
+  left, total, unlimited, tryPlay, privacyOptional, forceWx, setForceWx, setAtt, onDevAdvanceDay, onDevGrantCoins,
 }) {
   return (
-    <ScrollView style={rd.screen} contentContainerStyle={rd.screenContent}>
-      <StatusBar hidden />
-      <DangerStripe height={6} />
+    <>
+      {recap && <RecapModal rewards={recap} onClose={onCloseRecap} />}
 
-      {(myStreak?.current >= 1 || wallet?.balance > 0) && (
-        <View style={rd.headerRow}>
-          {wallet?.balance > 0 && (
-            <View style={rd.coinChip}>
-              <Text style={rd.coinChipText}>{wallet.balance}</Text>
-            </View>
-          )}
-          {myStreak?.current >= 1 && (
+      {challenge && (
+        <Pressable style={rd.challengeBanner} onPress={onCloseChallenge}>
+          <Text style={rd.challengeBannerText}>RETO · bate los {fmtTime(challenge.ms)}</Text>
+        </Pressable>
+      )}
+
+      {/* Titular de rivalidad — el ranking completo vive en la pestaña
+          Amigos, esto es solo el gancho: dónde vas y a quién persigues,
+          sin tener que salir de Diario para verlo. */}
+      {homeStanding && (
+        <View style={[rd.panel, rd.rivalryPanel]}>
+          <Text style={rd.labelMono}>TU PUESTO DE HOY</Text>
+          <Text style={rd.rivalryHeadline}>
+            {homeStanding.rank === 1 ? (
+              <>Vas <Text style={rd.rivalryStrong}>1.º</Text> de {homeStanding.total} — nadie te ha alcanzado hoy</>
+            ) : homeStanding.above ? (
+              <>
+                Vas <Text style={rd.rivalryStrong}>{homeStanding.rank}.º</Text> · a{' '}
+                <Text style={rd.rivalryStrong}>{(homeStanding.above.gapMs / 1000).toFixed(1)}s</Text> de {homeStanding.above.nickname}
+              </>
+            ) : (
+              <>Vas <Text style={rd.rivalryStrong}>{homeStanding.rank}.º</Text> de {homeStanding.total}</>
+            )}
+          </Text>
+        </View>
+      )}
+
+      {myStreak?.current >= 1 && (
+        <View style={rd.panel}>
+          <View style={rd.panelHeadRow}>
+            <Text style={rd.labelMono}>TU RACHA</Text>
             <View style={rd.streakChip}>
               <Text style={rd.streakChipText}>RACHA {myStreak.current}</Text>
             </View>
-          )}
+          </View>
+          <StreakPath current={myStreak?.current} />
         </View>
       )}
 
@@ -465,14 +895,10 @@ function HomeRD({
         <Text style={rd.ctaText}>{unlimited || left > 0 ? 'Jugar' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
       </Pressable>
 
-      <View style={rd.actionsRow}>
-        <Pressable style={[rd.garageBtn, rd.actionBtn]} onPress={onOpenGarage}>
-          <Text style={rd.garageBtnText}>GARAJE</Text>
-        </Pressable>
-        <Pressable style={[rd.garageBtn, rd.actionBtn]} onPress={onOpenTienda}>
-          <Text style={rd.garageBtnText}>TIENDA</Text>
-        </Pressable>
-      </View>
+      {/* Ranking GLOBAL completo — vive aquí (es el del reto diario), no en
+          Amigos (que ahora es solo grupos/Grand Prix). */}
+      <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING GLOBAL DE HOY</Text>
+      <MiniRanking refreshKey={refreshKey} showTabs={false} />
 
       {DEV_WEATHER && (
         <View style={styles.devRow}>
@@ -486,145 +912,30 @@ function HomeRD({
           <Pressable style={styles.devReset} onPress={() => resetAttempts(todayKey()).then(setAtt).catch(() => {})}>
             <Text style={styles.devResetText}>↺ Reiniciar intentos (ahora {left})</Text>
           </Pressable>
+          <Pressable style={styles.devReset} onPress={onDevAdvanceDay}>
+            <Text style={styles.devResetText}>📅 Avanzar racha 1 día</Text>
+          </Pressable>
+          <Pressable style={styles.devReset} onPress={onDevGrantCoins}>
+            <Text style={styles.devResetText}>🪙 +200 monedas</Text>
+          </Pressable>
         </View>
       )}
-
-      <Text style={rd.labelMono}>RANKING DE HOY</Text>
-      <MiniRanking refreshKey={refreshKey} onManageGroups={onManageGroups} />
 
       {privacyOptional && (
         <Pressable style={rd.privacyLink} onPress={() => showPrivacyOptions()} hitSlop={8}>
           <Text style={rd.privacyLinkText}>Privacidad de anuncios</Text>
         </Pressable>
       )}
-    </ScrollView>
+    </>
   );
 }
 
-const rd = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: RD.bg },
-  screenContent: { paddingHorizontal: 18, paddingTop: PAD, paddingBottom: 40, gap: 16 },
-
-  onboardWrap: { flex: 1, justifyContent: 'center', paddingHorizontal: 18, gap: 28 },
-  onboardBrand: { alignItems: 'center', gap: 6 },
-  onboardTitle: {
-    color: RD.textPrimary, fontSize: 44, fontFamily: RD_FONT.displayBlack,
-    textTransform: 'uppercase', letterSpacing: 1,
-  },
-  onboardTagline: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 3 },
-
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
-  coinChip: {
-    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 7, paddingVertical: 4,
-    backgroundColor: RD.gold1stShade,
-  },
-  coinChipText: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold },
-  streakChip: {
-    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 7, paddingVertical: 4,
-  },
-  streakChipText: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold },
-
-  panel: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 8 },
-  panelHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  labelMono: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1.4 },
-  attBadge: { backgroundColor: RD.cream, paddingHorizontal: 6, paddingVertical: 3 },
-  attBadgeText: { color: RD.bg, fontSize: 10, fontFamily: RD_FONT.monoBold },
-  trackName: {
-    color: RD.trackBlue, fontSize: 28, fontFamily: RD_FONT.displayBlack,
-    textTransform: 'uppercase', lineHeight: 30,
-  },
-  trackDesc: { color: RD.textSecondary, fontSize: 13 },
-  wxRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2,
-    borderTopWidth: 1, borderTopColor: RD.gridLine, paddingTop: 8,
-  },
-  wxDot: { width: 8, height: 8, backgroundColor: RD.cream },
-  wxText: { color: RD.cream, fontSize: 11, fontFamily: RD_FONT.mono, flex: 1 },
-
-  countdown: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, textAlign: 'center' },
-  countdownValue: { color: RD.textPrimary, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
-
-  cta: { backgroundColor: RD.brandOrange, borderRadius: 2, paddingVertical: 16, alignItems: 'center' },
-  ctaDisabled: { opacity: 0.4 },
-  ctaText: {
-    color: RD.bg, fontSize: 22, fontFamily: RD_FONT.displayBlack,
-    textTransform: 'uppercase', letterSpacing: 0.6,
-  },
-
-  privacyLink: { alignItems: 'center', marginTop: 4, paddingVertical: 6 },
-  privacyLinkText: { color: RD.textDisabled, fontSize: 12, fontFamily: RD_FONT.mono, textDecorationLine: 'underline' },
-
-  resultTop: { alignItems: 'center', paddingTop: 6, gap: 8 },
-  resultBadge: { borderRadius: 2, paddingHorizontal: 14, paddingVertical: 6 },
-  resultBadgeText: { fontFamily: RD_FONT.monoBold, fontSize: 12, letterSpacing: 1 },
-  resultNeutral: { color: RD.textSecondary, fontSize: 15, fontFamily: RD_FONT.mono },
-  resultTime: { fontFamily: RD_FONT.monoBold, fontSize: 52, fontVariant: ['tabular-nums'] },
-  trackMapBox: {
-    width: '100%', borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
-    alignItems: 'center', justifyContent: 'center', paddingVertical: 8,
-  },
-  sectorSplitsRow: { flexDirection: 'row', justifyContent: 'center', gap: 24 },
-  sectorSplitCol: { alignItems: 'center', gap: 2 },
-  sectorSplitDivider: { width: 1, alignSelf: 'stretch', backgroundColor: RD.panelBorder },
-  sectorSplitLabel: { color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1 },
-  sectorSplitValue: { fontSize: 14, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
-  resultDivider: { alignSelf: 'stretch', height: 1, backgroundColor: RD.gridLine, marginVertical: 2 },
-  resultRank: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.mono },
-  resultChase: {
-    color: RD.textPrimary, fontSize: 13, fontFamily: RD_FONT.monoBold,
-    textAlign: 'center', marginTop: 2,
-  },
-  resultChaseTime: { color: RD.trackBlue },
-  resultBtnsRow: { flexDirection: 'row', gap: 10 },
-  resultSecondaryBtn: {
-    flex: 1, borderWidth: 1, borderColor: '#3a3a3a', borderRadius: 2,
-    paddingVertical: 14, alignItems: 'center',
-  },
-  resultSecondaryBtnText: { color: RD.textPrimary, fontSize: 14, fontWeight: '700' },
-
-  backLink: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, marginBottom: 8 },
-  pageTitle: {
-    color: RD.textPrimary, fontSize: 28, fontFamily: RD_FONT.displayBlack,
-    textTransform: 'uppercase', marginBottom: 4,
-  },
-  msgOk: { color: RD.successGreen, fontSize: 13, fontFamily: RD_FONT.mono },
-  msgErr: { color: RD.dangerRed, fontSize: 13, fontFamily: RD_FONT.mono },
-  noAttemptsBody: { color: RD.textSecondary, fontSize: 14, lineHeight: 20, marginTop: 4 },
-  noAttemptsMsg: { color: RD.brandOrange, fontSize: 13, fontFamily: RD_FONT.mono, textAlign: 'center' },
-  noAttemptsSkip: { color: RD.textTertiary, fontSize: 13, fontFamily: RD_FONT.mono, textAlign: 'center' },
-  orDivider: {
-    color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono,
-    letterSpacing: 1.4, textAlign: 'center',
-  },
-  input: {
-    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
-    paddingHorizontal: 12, paddingVertical: 10, color: RD.textPrimary, fontSize: 15,
-    marginTop: 8, marginBottom: 10,
-  },
-  inputMono: { fontFamily: RD_FONT.mono, letterSpacing: 2, textTransform: 'uppercase' },
-  secondaryBtnBig: { borderWidth: 1, borderColor: '#3a3a3a', borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
-  secondaryBtnBigText: { color: RD.textPrimary, fontSize: 14, fontWeight: '700' },
-  actionsRow: { flexDirection: 'row', gap: 8 },
-  actionBtn: { flex: 1 },
-  garageBtn: { borderWidth: 1, borderColor: RD.trackBlue, borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
-  garageBtnText: { color: RD.trackBlue, fontSize: 14, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
-  muted: { color: RD.textTertiary, fontSize: 13, fontFamily: RD_FONT.mono, marginTop: 8 },
-
-  groupsList: { gap: 1, backgroundColor: RD.gridLine },
-  groupRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: RD.bg, paddingVertical: 10, paddingHorizontal: 12, gap: 10,
-  },
-  groupName: { color: RD.textPrimary, fontSize: 15, fontWeight: '700' },
-  groupCode: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, marginTop: 2 },
-  inviteBtn: { borderWidth: 1, borderColor: RD.brandOrange, paddingHorizontal: 10, paddingVertical: 6 },
-  inviteBtnText: { color: RD.brandOrange, fontSize: 11, fontFamily: RD_FONT.monoBold },
-});
-
-// ---------------------------------------------------------------------------
-//  Grupos: crear / unirse por código / ver los míos.
-// ---------------------------------------------------------------------------
-function Groups({ onBack, onChanged }) {
+// Pestaña "Amigos" — SOLO grupos (el ranking global vive en Diario, es el
+// del reto diario). Sin grupos todavía, esto ES la pantalla de crear/unirse
+// — no hace falta navegar a ningún otro sitio para verla. Tocar un grupo
+// abre su pantalla propia (GroupHome): miembros+arrancar si no hay GP, o el
+// GP directamente si ya lo hay.
+function AmigosTab({ refreshKey, onOpenGroup }) {
   const [groups, setGroups] = useState(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
@@ -634,7 +945,7 @@ function Groups({ onBack, onChanged }) {
   async function refresh() {
     try { setGroups(await listMyGroups()); } catch (e) { setGroups([]); }
   }
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(); }, [refreshKey]);
 
   async function doCreate() {
     if (!name.trim() || busy) return;
@@ -643,17 +954,10 @@ function Groups({ onBack, onChanged }) {
       const g = await createGroup(name.trim());
       setName('');
       setMsg({ type: 'ok', text: `Grupo "${g.name}" creado. Código: ${g.join_code}` });
-      await refresh(); onChanged && onChanged();
+      await refresh();
     } catch (e) {
       setMsg({ type: 'err', text: 'No se pudo crear el grupo.' });
     } finally { setBusy(false); }
-  }
-
-  async function shareInvite(g) {
-    const msg =
-      `Únete a mi grupo "${g.name}" en Apexly 🏁\n\n` +
-      `Abre la app → Grupos → "Unirse con código" e introduce:\n${g.join_code}`;
-    try { await Share.share({ message: msg }); } catch (_) {}
   }
 
   async function doJoin() {
@@ -663,23 +967,38 @@ function Groups({ onBack, onChanged }) {
       const g = await joinGroup(code.trim());
       setCode('');
       setMsg({ type: 'ok', text: `Te has unido a "${g.name}".` });
-      await refresh(); onChanged && onChanged();
+      await refresh();
     } catch (e) {
       const notFound = String(e?.message || '').includes('GROUP_NOT_FOUND');
       setMsg({ type: 'err', text: notFound ? 'Ese código no existe.' : 'No se pudo unir al grupo.' });
     } finally { setBusy(false); }
   }
 
-  return (
-    <ScrollView style={rd.screen} contentContainerStyle={rd.screenContent}>
-      <StatusBar hidden />
-      <Pressable onPress={onBack} hitSlop={12}>
-        <Text style={rd.backLink}>‹ INICIO</Text>
-      </Pressable>
-      <Text style={rd.pageTitle}>Grupos</Text>
+  if (groups == null) {
+    return <ActivityIndicator color={RD.brandOrange} style={{ marginTop: 24 }} />;
+  }
 
-      {msg && (
-        <Text style={msg.type === 'ok' ? rd.msgOk : rd.msgErr}>{msg.text}</Text>
+  return (
+    <View style={{ gap: 14 }}>
+      {msg && <Text style={msg.type === 'ok' ? rd.msgOk : rd.msgErr}>{msg.text}</Text>}
+
+      {groups.length > 0 && (
+        <>
+          <Text style={rd.labelMono}>TUS GRUPOS</Text>
+          <View style={rd.groupsList}>
+            {groups.map((g) => (
+              <Pressable key={g.id} style={rd.groupCard} onPress={() => onOpenGroup(g)}>
+                <View style={rd.groupRow}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={rd.groupName} numberOfLines={1}>{g.name}</Text>
+                    <Text style={rd.groupCode}>CÓDIGO {g.join_code}</Text>
+                  </View>
+                  <Text style={rd.groupOpenHint}>ABRIR ›</Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        </>
       )}
 
       <View style={rd.panel}>
@@ -712,51 +1031,312 @@ function Groups({ onBack, onChanged }) {
           <Text style={rd.secondaryBtnBigText}>Unirme</Text>
         </Pressable>
       </View>
-
-      <Text style={rd.labelMono}>TUS GRUPOS</Text>
-      {groups == null ? (
-        <ActivityIndicator color={RD.brandOrange} style={{ marginTop: 12 }} />
-      ) : groups.length === 0 ? (
-        <Text style={rd.muted}>Aún no estás en ningún grupo. Crea uno y comparte el código.</Text>
-      ) : (
-        <View style={rd.groupsList}>
-          {groups.map((g) => (
-            <View key={g.id} style={rd.groupRow}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={rd.groupName} numberOfLines={1}>{g.name}</Text>
-                <Text style={rd.groupCode}>CÓDIGO {g.join_code}</Text>
-              </View>
-              <Pressable style={rd.inviteBtn} onPress={() => shareInvite(g)} hitSlop={8}>
-                <Text style={rd.inviteBtnText}>INVITAR</Text>
-              </Pressable>
-            </View>
-          ))}
-        </View>
-      )}
-    </ScrollView>
+    </View>
   );
 }
 
+// Pestaña "Carrera" — Modo Carrera (niveles con gap). Placeholder hasta que
+// se construya (siguiente fase del plan).
+const TABS = [
+  { id: 'diario', label: 'DIARIO' },
+  { id: 'amigos', label: 'AMIGOS' },
+  { id: 'carrera', label: 'CARRERA' },
+];
+
+// Icono de perfil (cabeza + hombros) — se probó con la inicial del nombre en
+// un círculo y no se entendía qué era; esto se lee como "perfil" a simple
+// vista, mismo lenguaje SVG a mano que el resto de iconos de la app.
+function ProfileIcon({ color }) {
+  return (
+    <Svg width={16} height={16} viewBox="0 0 24 24">
+      <Circle cx="12" cy="8" r="4" fill="none" stroke={color} strokeWidth={1.8} />
+      <Path d="M4,20.5 C4,15.8 7.6,13 12,13 C16.4,13 20,15.8 20,20.5" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+// Icono de moneda — el número solo del saldo no se entendía qué era.
+function CoinIcon({ color }) {
+  return (
+    <Svg width={11} height={11} viewBox="0 0 24 24">
+      <Circle cx="12" cy="12" r="9" fill="none" stroke={color} strokeWidth={2.2} />
+      <Circle cx="12" cy="12" r="4" fill="none" stroke={color} strokeWidth={1.4} />
+    </Svg>
+  );
+}
+
+// Cabecera fija + barra de pestañas — envuelve las 3 pestañas de arriba.
+// Perfil (stats + Garaje + Tienda) vive fuera, es pantalla completa aparte.
+function AppShell({ tab, setTab, nickname, wallet, onOpenProfile, children }) {
+  return (
+    <View style={rd.shell}>
+      <StatusBar hidden />
+      <DangerStripe height={6} />
+
+      <View style={rd.appHeader}>
+        <Pressable style={rd.profileBtn} onPress={onOpenProfile} hitSlop={6}>
+          <ProfileIcon color={RD.textPrimary} />
+          {wallet?.pendingPacks > 0 && <View style={rd.profileBadge} />}
+        </Pressable>
+        <View style={rd.coinChip}>
+          <CoinIcon color={RD.gold1st} />
+          <Text style={rd.coinChipText}>{wallet?.balance ?? 0}</Text>
+        </View>
+      </View>
+
+      <ScrollView style={rd.screen} contentContainerStyle={rd.tabScreenContent}>
+        {children}
+      </ScrollView>
+
+      {/* SafeAreaView con edges=['bottom']: deja el hueco real de la barra
+          de navegación del sistema (antes calculábamos el margen a mano con
+          useSafeAreaInsets() y no se aplicaba bien — esto es el patrón
+          estándar de RN para exactamente este problema, más fiable). */}
+      <SafeAreaView edges={['bottom']} style={rd.tabBar}>
+        {TABS.map((t) => (
+          <Pressable key={t.id} style={rd.tabBarBtn} onPress={() => setTab(t.id)} hitSlop={4}>
+            <Text style={[rd.tabBarBtnText, tab === t.id && rd.tabBarBtnTextActive]}>{t.label}</Text>
+            {tab === t.id && <View style={rd.tabBarIndicator} />}
+          </Pressable>
+        ))}
+      </SafeAreaView>
+    </View>
+  );
+}
+
+const rd = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: RD.bg },
+  screenContent: { paddingHorizontal: 18, paddingTop: PAD, paddingBottom: 40, gap: 16 },
+
+  onboardWrap: { flex: 1, justifyContent: 'center', paddingHorizontal: 18, gap: 28 },
+  onboardBrand: { alignItems: 'center', gap: 6 },
+  onboardTitle: {
+    color: RD.textPrimary, fontSize: 44, fontFamily: RD_FONT.displayBlack,
+    textTransform: 'uppercase', letterSpacing: 1,
+  },
+  onboardTagline: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 3 },
+
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
+  coinChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 7, paddingVertical: 4,
+    backgroundColor: RD.gold1stShade,
+  },
+  coinChipText: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold },
+
+  // Cabecera fija + barra de pestañas (AppShell) — envuelve Diario/Amigos/Carrera.
+  shell: { flex: 1, backgroundColor: RD.bg },
+  appHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 18, paddingTop: PAD, paddingBottom: 10,
+  },
+  profileBtn: {
+    width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: RD.panelBorder,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  profileBtnText: { color: RD.textPrimary, fontSize: 14, fontFamily: RD_FONT.monoBold },
+  profileBadge: {
+    position: 'absolute', top: -1, right: -1, width: 9, height: 9, borderRadius: 5,
+    backgroundColor: RD.brandOrange, borderWidth: 1.5, borderColor: RD.bg,
+  },
+  tabScreenContent: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 24, gap: 16 },
+  tabBar: {
+    flexDirection: 'row', borderTopWidth: 1, borderTopColor: RD.panelBorder,
+    paddingBottom: 10, paddingTop: 8, backgroundColor: RD.bg,
+  },
+  tabBarBtn: { flex: 1, alignItems: 'center', gap: 6, paddingVertical: 4 },
+  tabBarBtnText: { color: RD.textDisabled, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
+  tabBarBtnTextActive: { color: RD.textPrimary },
+  tabBarIndicator: { width: 18, height: 2, backgroundColor: RD.brandOrange },
+  streakChip: {
+    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 7, paddingVertical: 4,
+  },
+  streakChipText: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold },
+
+  challengeBanner: {
+    borderWidth: 1, borderColor: RD.brandOrange, borderRadius: 2,
+    paddingVertical: 8, alignItems: 'center', backgroundColor: 'rgba(255,90,31,0.1)',
+  },
+  challengeBannerText: { color: RD.brandOrange, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
+
+  streakPath: { marginTop: 4 },
+  streakDotsRow: { flexDirection: 'row', alignItems: 'center' },
+  streakDotCol: { alignItems: 'center' },
+  streakConnector: { flex: 1, height: 2, backgroundColor: RD.panelBorder, marginHorizontal: 2 },
+  streakConnectorDone: { backgroundColor: RD.gold1st },
+  streakDot: {
+    width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: RD.panelBorder,
+    backgroundColor: RD.bg, alignItems: 'center', justifyContent: 'center',
+  },
+  streakDotDone: { borderColor: RD.gold1st, backgroundColor: RD.gold1stShade },
+  streakDotToday: { borderColor: RD.brandOrange, borderWidth: 2 },
+  streakDotText: { color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.monoBold },
+  streakDotTextDone: { color: RD.gold1st },
+  streakLabelsRow: { flexDirection: 'row', marginTop: 4 },
+  // Columna del día 7 igual de ancha que las demás (22, para no desalinear el
+  // resto vía el reparto de los spacers flexibles) — "SOBRE" se renderiza
+  // ABSOLUTO por encima, más ancho, centrado sobre esa misma columna, así
+  // desborda sin arrastrar a los días 1-6 fuera de sitio.
+  streakLabelCol: { width: 22, alignItems: 'center' },
+  streakLabelColLast: { width: 22, alignItems: 'center', position: 'relative' },
+  streakConnectorSpacer: { flex: 1, marginHorizontal: 2 },
+  streakAmount: { color: RD.textDisabled, fontSize: 9, fontFamily: RD_FONT.mono },
+  streakAmountDone: { color: RD.textSecondary },
+  streakGiftText: {
+    position: 'absolute', width: 44, left: -11, textAlign: 'center', fontSize: 7.5, letterSpacing: 0.3,
+  },
+  streakGiftDone: { color: RD.brandOrange, fontFamily: RD_FONT.monoBold },
+
+  recapBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center', padding: 24,
+  },
+  recapCard: {
+    width: '100%', maxWidth: 320, backgroundColor: RD.bg, borderWidth: 1, borderColor: RD.gold1st,
+    borderRadius: 2, padding: 22, alignItems: 'center', gap: 10,
+  },
+  recapTitle: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 1.4 },
+  recapTotal: { color: RD.gold1st, fontSize: 40, fontFamily: RD_FONT.displayBlack },
+  recapRows: { alignSelf: 'stretch', gap: 6, marginTop: 4 },
+  recapRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  recapRowLabel: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono },
+  recapRowValue: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.monoBold },
+  recapBtn: {
+    alignSelf: 'stretch', backgroundColor: RD.brandOrange, borderRadius: 2,
+    paddingVertical: 12, alignItems: 'center', marginTop: 6,
+  },
+  recapBtnText: {
+    color: RD.bg, fontSize: 14, fontFamily: RD_FONT.displayBlack, textTransform: 'uppercase', letterSpacing: 0.6,
+  },
+
+  panel: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 8 },
+  rivalryPanel: { borderColor: RD.trackBlue },
+  rivalryHeadline: { color: RD.textPrimary, fontSize: 15, fontFamily: RD_FONT.mono, lineHeight: 21 },
+  rivalryStrong: { color: RD.trackBlue, fontFamily: RD_FONT.monoBold },
+  panelHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  labelMono: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1.4 },
+  attBadge: { backgroundColor: RD.cream, paddingHorizontal: 6, paddingVertical: 3 },
+  attBadgeText: { color: RD.bg, fontSize: 10, fontFamily: RD_FONT.monoBold },
+  trackName: {
+    color: RD.trackBlue, fontSize: 28, fontFamily: RD_FONT.displayBlack,
+    textTransform: 'uppercase', lineHeight: 30,
+  },
+  trackDesc: { color: RD.textSecondary, fontSize: 13 },
+  wxRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2,
+    borderTopWidth: 1, borderTopColor: RD.gridLine, paddingTop: 8,
+  },
+  wxDot: { width: 8, height: 8, backgroundColor: RD.cream },
+  wxText: { color: RD.cream, fontSize: 11, fontFamily: RD_FONT.mono, flex: 1 },
+
+  countdown: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, textAlign: 'center' },
+  countdownValue: { color: RD.textPrimary, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
+
+  cta: { backgroundColor: RD.brandOrange, borderRadius: 2, paddingVertical: 16, alignItems: 'center' },
+  ctaDisabled: { opacity: 0.4 },
+  ctaText: {
+    color: RD.bg, fontSize: 22, fontFamily: RD_FONT.displayBlack,
+    textTransform: 'uppercase', letterSpacing: 0.6,
+  },
+
+  privacyLink: { alignItems: 'center', marginTop: 4, paddingVertical: 6 },
+  privacyLinkText: { color: RD.textDisabled, fontSize: 12, fontFamily: RD_FONT.mono, textDecorationLine: 'underline' },
+
+  resultTop: {
+    alignItems: 'center', paddingTop: 20, paddingHorizontal: 8, paddingBottom: 14, gap: 8, position: 'relative',
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+  },
+  resultBadge: { borderRadius: 2, paddingHorizontal: 14, paddingVertical: 6 },
+  resultBadgeText: { fontFamily: RD_FONT.monoBold, fontSize: 12, letterSpacing: 1 },
+  resultNeutral: { color: RD.textSecondary, fontSize: 15, fontFamily: RD_FONT.mono },
+  resultTime: { fontFamily: RD_FONT.monoBold, fontSize: 52, fontVariant: ['tabular-nums'] },
+  trackMapBox: {
+    width: '100%', borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    alignItems: 'center', justifyContent: 'center', paddingVertical: 8,
+  },
+  sectorSplitsRow: { flexDirection: 'row', justifyContent: 'center', gap: 14 },
+  sectorSplitCol: { alignItems: 'center', gap: 2 },
+  sectorSplitDivider: { width: 1, alignSelf: 'stretch', backgroundColor: RD.panelBorder },
+  sectorSplitLabel: { color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1 },
+  sectorSplitValue: { fontSize: 14, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
+  resultDivider: { alignSelf: 'stretch', height: 1, backgroundColor: RD.gridLine, marginVertical: 2 },
+  resultRank: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.mono },
+  resultChase: {
+    color: RD.textPrimary, fontSize: 13, fontFamily: RD_FONT.monoBold,
+    textAlign: 'center', marginTop: 2,
+  },
+  resultChaseTime: { color: RD.trackBlue },
+  resultBtnsRow: { flexDirection: 'row', gap: 10 },
+  resultSecondaryBtn: {
+    flex: 1, borderWidth: 1, borderColor: '#3a3a3a', borderRadius: 2,
+    paddingVertical: 14, alignItems: 'center',
+  },
+  resultSecondaryBtnText: { color: RD.textPrimary, fontSize: 14, fontWeight: '700' },
+  shareIconBtn: {
+    position: 'absolute', top: 8, right: 8, width: 34, height: 34, borderRadius: 17,
+    borderWidth: 1, borderColor: RD.panelBorder, backgroundColor: RD.bg, alignItems: 'center', justifyContent: 'center',
+  },
+
+  backLink: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, marginBottom: 8 },
+  pageTitle: {
+    color: RD.textPrimary, fontSize: 28, fontFamily: RD_FONT.displayBlack,
+    textTransform: 'uppercase', marginBottom: 4,
+  },
+  msgOk: { color: RD.successGreen, fontSize: 13, fontFamily: RD_FONT.mono },
+  msgErr: { color: RD.dangerRed, fontSize: 13, fontFamily: RD_FONT.mono },
+  noAttemptsBody: { color: RD.textSecondary, fontSize: 14, lineHeight: 20, marginTop: 4 },
+  noAttemptsMsg: { color: RD.brandOrange, fontSize: 13, fontFamily: RD_FONT.mono, textAlign: 'center' },
+  noAttemptsSkip: { color: RD.textTertiary, fontSize: 13, fontFamily: RD_FONT.mono, textAlign: 'center' },
+  orDivider: {
+    color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono,
+    letterSpacing: 1.4, textAlign: 'center',
+  },
+  input: {
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    paddingHorizontal: 12, paddingVertical: 10, color: RD.textPrimary, fontSize: 15,
+    marginTop: 8, marginBottom: 10,
+  },
+  inputMono: { fontFamily: RD_FONT.mono, letterSpacing: 2, textTransform: 'uppercase' },
+  secondaryBtnBig: { borderWidth: 1, borderColor: '#3a3a3a', borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
+  secondaryBtnBigText: { color: RD.textPrimary, fontSize: 14, fontWeight: '700' },
+  actionsRow: { flexDirection: 'row', gap: 8 },
+  actionBtn: { flex: 1 },
+  garageBtn: { borderWidth: 1, borderColor: RD.trackBlue, borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
+  garageBtnText: { color: RD.trackBlue, fontSize: 14, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
+  muted: { color: RD.textTertiary, fontSize: 13, fontFamily: RD_FONT.mono, marginTop: 8 },
+
+  groupsList: { gap: 6 },
+  groupCard: { backgroundColor: RD.bg, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 12 },
+  groupRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+  },
+  groupName: { color: RD.textPrimary, fontSize: 15, fontWeight: '700' },
+  groupCode: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, marginTop: 2 },
+  groupOpenHint: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.monoBold },
+});
+
+// ---------------------------------------------------------------------------
+//  Grupos: crear / unirse por código / ver los míos.
+// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 //  Sin intentos: ofrecer ver un anuncio para +3 (rewarded).
 // ---------------------------------------------------------------------------
-function NoMoreAttempts({ left, unlocking, adMsg, unlimitedPrice, buying, onWatchAd, onBuyUnlimited, onBack }) {
+function NoMoreAttempts({ title = 'SIN INTENTOS POR HOY', adBatch = AD_BATCH, unlocking, adMsg, unlimitedPrice, buying, onWatchAd, onBuyUnlimited, onBack }) {
   return (
     <ScrollView style={rd.screen} contentContainerStyle={{ flexGrow: 1 }}>
       <StatusBar hidden />
       <DangerStripe height={6} />
       <View style={rd.onboardWrap}>
         <View style={rd.panel}>
-          <Text style={rd.labelMono}>SIN INTENTOS POR HOY</Text>
+          <Text style={rd.labelMono}>{title}</Text>
           <Text style={rd.noAttemptsBody}>
-            Has usado tus intentos gratis. Mira un anuncio y sigue intentando bajar tu tiempo — te da {intentosTxt(AD_BATCH)} más.
+            Has usado tus intentos gratis. Mira un anuncio y sigue intentando bajar tu tiempo — te da {intentosTxt(adBatch)} más.
           </Text>
           <Pressable
             style={[rd.cta, unlocking && rd.ctaDisabled]}
             disabled={unlocking}
             onPress={onWatchAd}
           >
-            <Text style={rd.ctaText}>{unlocking ? 'Cargando anuncio…' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
+            <Text style={rd.ctaText}>{unlocking ? 'Cargando anuncio…' : `Ver anuncio · +${intentosTxt(adBatch)}`}</Text>
           </Pressable>
           {!!adMsg && !unlocking && <Text style={rd.noAttemptsMsg}>{adMsg}</Text>}
         </View>
@@ -861,6 +1441,23 @@ const LEADER_LINES = [
   (sectorNum) => <>El líder de hoy te saca la diferencia sobre todo en el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text>. Iguálalo ahí y el podio es tuyo.</>,
   (sectorNum) => <>Marcado en rojo: el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> es tu única barrera para el podio de hoy.</>,
 ];
+
+// Icono de compartir (nodo + 2 enlaces, mismo lenguaje visual que LockIcon en
+// Garage.js: SVG a mano, sin librería de iconos).
+function ShareIcon({ color }) {
+  return (
+    <Svg width={16} height={16} viewBox="0 0 24 24">
+      <Line x1="8.6" y1="10.6" x2="15.4" y2="6.4" stroke={color} strokeWidth={1.8} />
+      <Line x1="8.6" y1="13.4" x2="15.4" y2="17.6" stroke={color} strokeWidth={1.8} />
+      <Circle cx="6" cy="12" r="2.6" fill="none" stroke={color} strokeWidth={1.8} />
+      <Circle cx="18" cy="5" r="2.6" fill="none" stroke={color} strokeWidth={1.8} />
+      <Circle cx="18" cy="19" r="2.6" fill="none" stroke={color} strokeWidth={1.8} />
+    </Svg>
+  );
+}
+
+// Variantes del texto de reto (rotan al azar para no repetirse siempre igual).
+const SHARE_TAGLINES = ['¿Me superas?', 'No creo que la superes.', 'A ver si la bates.'];
 
 // ---------------------------------------------------------------------------
 //  Resultado: tiempo + stats + tarjeta para compartir. Micro-recompensa si récord.
@@ -969,12 +1566,21 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
 
   const rankText = standing ? `${standing.rank}.º de ${standing.total} en el mundo` : null;
 
+  const [tagline] = useState(() => SHARE_TAGLINES[Math.floor(Math.random() * SHARE_TAGLINES.length)]);
+
   async function shareResult() {
+    // Deep link al reto: si quien lo abre lo hace HOY, ve un banner para batir
+    // este tiempo concreto en Inicio (ver efecto de Linking en App()).
+    const challengeUrl = `circuitodiario://reto?ms=${result.ms}&day=${todayKey()}`;
     const parts = [`Apexly · ${dayShort()} ${wx.icon}`.trim(), fmtTime(result.ms)];
     if (standing) parts.push(`${standing.rank}.º de ${standing.total} · +${fmtSecs(standing.gapToLeaderMs)}s al líder`);
-    parts.push('¿Me superas?');
+    parts.push(tagline, challengeUrl);
     // Genera la imagen y la comparte (con vista previa); si no puede, texto.
     await shareCardImage(cardRef, parts.join('\n'));
+    // +5 monedas por compartir (1 vez/día, idempotente en servidor) — se
+    // concede al usar el flujo de compartir, no hace falta confirmar que el
+    // receptor lo vio (los share sheets nativos no dan esa señal fiable).
+    claimShareReward().catch(() => {});
   }
 
   const banner =
@@ -990,6 +1596,9 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
       <StatusBar hidden />
 
       <View style={rd.resultTop}>
+        <Pressable style={rd.shareIconBtn} onPress={shareResult} hitSlop={8}>
+          <ShareIcon color={RD.textSecondary} />
+        </Pressable>
         {banner ? (
           vibe === 'global' ? (
             <Animated.View style={{ opacity, transform: [{ scale }] }}>
@@ -1057,9 +1666,6 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
       </Pressable>
 
       <View style={rd.resultBtnsRow}>
-        <Pressable style={rd.resultSecondaryBtn} onPress={shareResult}>
-          <Text style={rd.resultSecondaryBtnText}>Compartir</Text>
-        </Pressable>
         <Pressable style={rd.resultSecondaryBtn} onPress={onHome}>
           <Text style={rd.resultSecondaryBtnText}>Inicio</Text>
         </Pressable>
@@ -1079,6 +1685,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
           nickname={nickname}
           day={dayShort()}
           accent={timeColor}
+          tagline={tagline}
         />
       </View>
     </ScrollView>

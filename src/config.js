@@ -24,6 +24,19 @@ export const CONFIG = {
   ACCEL: 150, // u/s^2  (sube despacio: da tiempo a controlar)
   MAX_SPEED: 250, // u/s  (techo alto: conducir limpio se vuelve rápido y exigente)
 
+  // Frenada integrada en el propio volante (sin botón nuevo, sigue siendo
+  // solo izquierda/derecha): cuanto más fuerte gires, más frena el coche
+  // solo, proporcional a |steer| (0..1). Convierte cada curva en una
+  // decisión real — girar fuerte = más lento pero más cerrado, girar suave
+  // = más rápido pero más ancho — en vez de que todo el mundo llegue a tope
+  // de velocidad (MAX_SPEED) y solo importe la precisión del volante.
+  // A volante a tope (steer=1) y velocidad máxima, el ritmo neto es
+  // ACCEL - TURN_SPEED_DRAG = 150-350 = -200 u/s² (frena de verdad y se
+  // nota). El primer valor (220 -> -70 u/s²) resultó demasiado sutil en
+  // pista: en 0,4s de curva apenas perdías un 11% de velocidad. Subido tras
+  // ese feedback — sigue siendo una cifra a falta de sentirla otra vez.
+  TURN_SPEED_DRAG: 350, // u/s^2 de frenado extra a volante a tope
+
   // --- Giro ---------------------------------------------------------------
   // Grados por segundo que puede girar el coche a velocidad ~0 (giro máximo).
   TURN_RATE_MAX_DEG: 220,

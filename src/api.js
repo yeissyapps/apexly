@@ -188,6 +188,40 @@ export async function getWallet() {
   return { balance: data?.balance ?? 0, pendingPacks: data?.pending_packs ?? 0 };
 }
 
+// Recompensas de racha/ranking desde `sinceDay` (para el pop-up de "premios
+// de ayer" al abrir la app). `day` se guarda en UTC en wallet_transactions,
+// así que el llamador pasa un margen de un par de días hacia atrás para no
+// perder nada por el desfase con la fecha local (mismo desfase ya aceptado
+// en el resto de la economía).
+export async function getRecentRewards(sinceDay) {
+  const user = await ensureSession();
+  const { data, error } = await supabase
+    .from('wallet_transactions')
+    .select('reason, amount')
+    .eq('user_id', user.id)
+    .in('reason', ['streak', 'ranking'])
+    .gte('day', sinceDay);
+  if (error) return { streak: 0, ranking: 0 };
+  const out = { streak: 0, ranking: 0 };
+  for (const row of data || []) out[row.reason] = (out[row.reason] || 0) + row.amount;
+  return out;
+}
+
+// Recompensa por compartir el resultado (+5 monedas, 1 vez al día — idempotente
+// server-side igual que claimDailyReward). Se llama tras compartir con éxito.
+export async function claimShareReward() {
+  await ensureSession();
+  try {
+    const { data, error } = await supabase.rpc('claim_share_reward');
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+    return { granted: row.granted, newBalance: row.new_balance };
+  } catch (_) {
+    return null;
+  }
+}
+
 // Reclama la recompensa diaria de racha (idempotente server-side: si ya se
 // reclamó hoy, granted vuelve false). Fire-and-forget: no debe bloquear el
 // flujo de Inicio si falla.
@@ -236,6 +270,42 @@ export async function getInventory() {
   return (data || []).map((r) => ({ category: r.category, pieceId: r.piece_id }));
 }
 
+// ---- Modo Carrera (niveles con gap) -----------------------------------------
+// Nivel más alto ya superado (0 = ninguno todavía).
+export async function getCareerProgress() {
+  const user = await ensureSession();
+  const { data } = await supabase
+    .from('career_progress')
+    .select('cleared')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  return data?.cleared ?? 0;
+}
+
+// Reclama un nivel superado. El servidor recalcula que sea el siguiente en
+// la escalera (WRONG_LEVEL si no) — lanza si falla, lo llama CareerMode tras
+// comprobar el gap-time en cliente.
+export async function claimCareerLevel(level, ms) {
+  await ensureSession();
+  const { data, error } = await supabase.rpc('claim_career_level', { p_level: level, p_ms: ms });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return row?.cleared ?? level;
+}
+
+// ---- DEV ONLY (ver economy_dev.sql) — probar racha/monedas sin esperar
+// días reales. Detrás del flag DEV_WEATHER en App.js; quitar las funciones
+// de Supabase antes de que la economía llegue a jugadores reales.
+export async function devAdvanceStreakDay() {
+  await ensureSession();
+  await supabase.rpc('dev_advance_streak_day');
+}
+
+export async function devGrantCoins(amount = 200) {
+  await ensureSession();
+  await supabase.rpc('dev_grant_coins', { p_amount: amount });
+}
+
 // ---- Grupos ----------------------------------------------------------------
 // Lista los grupos del usuario (a los que pertenece).
 export async function listMyGroups() {
@@ -262,6 +332,108 @@ export async function joinGroup(code) {
   const { data, error } = await supabase.rpc('join_group', { p_code: code });
   if (error) throw error;
   return data;
+}
+
+// Sale de un grupo (sin restricciones, aunque tenga GP activo). Tu historial
+// de resultados ya clasificados en ese GP no desaparece.
+export async function leaveGroup(groupId) {
+  await ensureSession();
+  const { error } = await supabase.rpc('leave_group', { p_group_id: groupId });
+  if (error) throw error;
+}
+
+// ---- Grand Prix (ver supabase/grandprix.sql) --------------------------------
+// GP activo de un grupo, o null si no hay ninguno arrancado. Lectura directa
+// (RLS ya limita a tus grupos) — no hace falta RPC solo para leer.
+export async function getActiveGrandPrix(groupId) {
+  await ensureSession();
+  const { data, error } = await supabase
+    .from('grand_prix')
+    .select('id, group_id, started_at, circuit_count, status')
+    .eq('group_id', groupId)
+    .eq('status', 'active')
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+// Arranca un GP para el grupo. Lanza 'GP_ALREADY_ACTIVE' si ya hay uno.
+export async function startGrandPrix(groupId) {
+  await ensureSession();
+  const { data, error } = await supabase.rpc('start_grand_prix', { p_group_id: groupId });
+  if (error) throw error;
+  return Array.isArray(data) ? data[0] : data;
+}
+
+// Miembros del grupo (todos, aunque no hayan corrido nada aún) — para que la
+// general del GP los muestre con 0 puntos en vez de solo a quien ya jugó.
+export async function getGroupMembers(groupId) {
+  await ensureSession();
+  const { data, error } = await supabase
+    .from('group_members')
+    .select('user_id, users(nickname)')
+    .eq('group_id', groupId);
+  if (error) throw error;
+  return (data || []).map((m) => ({ userId: m.user_id, nickname: m.users?.nickname ?? '—' }));
+}
+
+// Todos los resultados clasificados de un GP (todas las rondas, todo el
+// grupo) — de aquí sale la general completa, se agrega en cliente
+// (computeStandings, en src/grandprix.js) igual que getLeaderboard.
+export async function getGpResults(gpId) {
+  await ensureSession();
+  const { data, error } = await supabase
+    .from('gp_results')
+    .select('day_index, user_id, ms, sector_ms, users(nickname)')
+    .eq('gp_id', gpId);
+  if (error) throw error;
+  return (data || []).map((r) => ({
+    dayIndex: r.day_index,
+    userId: r.user_id,
+    nickname: r.users?.nickname ?? '—',
+    ms: r.ms,
+    sectorMs: r.sector_ms ?? null,
+  }));
+}
+
+// El mejor tiempo de una ronda del GP (con sus splits) — para la "batalla de
+// sectores": comparar tu vuelta recién clasificada contra la del líder.
+export async function getGpRoundLeader(gpId, dayIndex) {
+  await ensureSession();
+  const { data, error } = await supabase
+    .from('gp_results')
+    .select('user_id, ms, sector_ms, users(nickname)')
+    .eq('gp_id', gpId).eq('day_index', dayIndex)
+    .order('ms', { ascending: true }).limit(1).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return { userId: data.user_id, nickname: data.users?.nickname ?? '—', ms: data.ms, sectorMs: data.sector_ms ?? null };
+}
+
+// Clasifica un tiempo (solo se llama desde la 3ª vuelta en adelante — las 2
+// de práctica no pasan por aquí, ver App.js). `sectorMs` (opcional, array de
+// 3) es para la "batalla de sectores" en la clasificación. Lanza si el
+// servidor rechaza (ronda aún no abierta, GP ya cerrado, etc.) — el llamador
+// decide qué mostrar, igual que submitTime.
+export async function submitGpResult(gpId, dayIndex, ms, sectorMs) {
+  await ensureSession();
+  const { data, error } = await supabase.rpc('submit_gp_result', {
+    p_gp_id: gpId, p_day_index: dayIndex, p_ms: Math.round(ms),
+    p_sector_ms: sectorMs ? sectorMs.map((x) => Math.round(x)) : null,
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return { isBest: !!row?.is_best, prevMs: row?.prev_ms ?? null };
+}
+
+// Avisa (push) a tu grupo que les has adelantado EN EL GP. Fire-and-forget,
+// mismo contrato que notifyOvertakes.
+export async function notifyGpOvertake(gpId, dayIndex, newMs, prevMs) {
+  try {
+    await supabase.functions.invoke('notify-gp-overtake', { body: { gpId, dayIndex, newMs, prevMs } });
+  } catch (_) {
+    // sin conexión / función no desplegada -> se ignora
+  }
 }
 
 // Leaderboard GLOBAL escalable (miles de tiempos): NO baja todas las filas.

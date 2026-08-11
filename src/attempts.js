@@ -37,10 +37,12 @@ export async function consumeAttempt(day) {
   return a;
 }
 
-// Concede un lote (tras ver un anuncio). Devuelve el estado nuevo.
-export async function grantBatch(day) {
+// Concede un lote (tras ver un anuncio). Devuelve el estado nuevo. `amount`
+// por defecto es AD_BATCH (circuito diario); Modo Carrera pasa el suyo
+// propio (CAREER_AD_BATCH, en career.js) porque un anuncio ahí vale más.
+export async function grantBatch(day, amount = AD_BATCH) {
   const a = await loadAttempts(day);
-  a.bonus += AD_BATCH;
+  a.bonus += amount;
   await save(day, a);
   return a;
 }

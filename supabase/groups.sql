@@ -99,6 +99,26 @@ begin
 end;
 $$;
 
+-- ---- Salir de un grupo ------------------------------------------------------
+-- Sin restricciones (aunque el grupo tenga un Grand Prix activo): quien se
+-- va, se va. El historial de resultados que ya haya clasificado en ese GP
+-- NO desaparece (computeStandings en gpData.js sigue mostrándolo aunque ya
+-- no esté en group_members) — solo deja de ver el grupo y de poder entrar en
+-- futuras rondas. Si el grupo se queda sin nadie, simplemente queda huérfano
+-- (gp-tick ya lo salta si no tiene miembros); no hace falta borrarlo.
+create or replace function public.leave_group(p_group_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then raise exception 'NOT_AUTHENTICATED'; end if;
+  delete from public.group_members where group_id = p_group_id and user_id = auth.uid();
+end;
+$$;
+
 grant execute on function public.create_group(text) to authenticated;
 grant execute on function public.join_group(text)   to authenticated;
 grant execute on function public.my_group_ids()      to authenticated;
+grant execute on function public.leave_group(uuid)   to authenticated;

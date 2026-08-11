@@ -43,7 +43,7 @@ function MiniTrack({ track, w, h, pad = 70 }) {
 
 // time = "43.094s" ya formateado. rankText = "12.º de 1500 en el mundo" (o null).
 const ShareCard = forwardRef(function ShareCard(
-  { track, time, rankText, weather, nickname, day, accent = C.gold },
+  { track, time, rankText, weather, nickname, day, accent = C.gold, tagline = '¿Me superas?' },
   ref,
 ) {
   const wx = weather || { icon: '', label: '' };
@@ -64,7 +64,7 @@ const ShareCard = forwardRef(function ShareCard(
 
       <View style={styles.foot}>
         <Text style={styles.nick} numberOfLines={1}>{nickname}</Text>
-        <Text style={styles.cta}>¿Me superas?</Text>
+        <Text style={styles.cta}>{tagline}</Text>
       </View>
     </View>
   );

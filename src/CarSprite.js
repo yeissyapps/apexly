@@ -13,7 +13,7 @@
 //  del juego), así que el degradado se recalcula gratis en cada frame.
 // ============================================================================
 
-import { Defs, G, LinearGradient, Path, Polygon, Rect, Circle, Stop, Text as SvgText } from 'react-native-svg';
+import { Defs, Ellipse, G, LinearGradient, Path, Polygon, Rect, Circle, Stop, Text as SvgText } from 'react-native-svg';
 import { CAR_DEFAULTS, findColorEntry } from './car';
 
 const CAR_BODY =
@@ -29,38 +29,52 @@ function holoPhase() {
 }
 
 // Resuelve un color de catálogo (ver `findColorEntry` en car.js) al `fill`
-// real de SVG: un hex plano, o `url(#id)` de un degradado ya declarado en
-// <Defs>. `id` identifica el <LinearGradient> (uno por pieza pintable, para
+// real de SVG. `id` identifica el degradado (uno por pieza pintable, para
 // que carrocería/alerón/franja no compartan degradado aunque sean el mismo
 // color).
+//
+// Metalizado/cromado: el cuerpo se queda en color PLANO (nunca un degradado
+// de esquina a esquina sobre la silueta — en una carrocería larga y
+// estrecha eso se lee como rayas diagonales cruzando el coche, no como un
+// material, porque un degradado lineal no respeta la curva de la
+// carrocería). El efecto de metal va aparte, en una veta de brillo angosta
+// (ver `highlight` más abajo) que sí usa los `stops` pero confinada a una
+// franja pequeña, donde una elipse ya aporta el estrechamiento en los
+// extremos sin necesitar más matemática.
+//
+// Holográfico: sí cubre el cuerpo entero con degradado (el material real
+// cambia de color en toda la superficie, no en una veta) y ese SÍ anima con
+// el tiempo — ver GradientDef.
 function resolveFill(hex, id) {
   const entry = findColorEntry(hex);
-  if (entry.finish === 'flat' || !entry.stops) return { fill: entry.c, gradient: null };
-  return { fill: `url(#${id})`, gradient: { id, stops: entry.stops, finish: entry.finish } };
+  if (entry.finish === 'flat' || !entry.stops) return { fill: entry.c, gradient: null, highlight: null };
+  if (entry.finish === 'holografico') {
+    return { fill: `url(#${id})`, gradient: { id, stops: entry.stops, finish: entry.finish }, highlight: null };
+  }
+  return { fill: entry.c, gradient: null, highlight: { id, stops: entry.stops, finish: entry.finish } };
 }
 
-function GradientDef({ id, stops, finish }) {
+// Degradado del cuerpo holográfico: el punto central se desliza con el
+// tiempo manteniendo siempre un vano de 100 puntos, para que "recorra" el
+// coche sin saltos (nada de módulo con el vano completo, que colapsaría
+// x1=x2).
+function GradientDef({ id, stops }) {
   const n = stops.length;
-  const animated = finish === 'holografico';
-  // Estático (metalizado): degradado fijo de esquina a esquina, un único
-  // barrido suave — acabado satinado.
-  // Animado (holográfico): el punto central se desliza con el tiempo
-  // manteniendo siempre un vano de 100 puntos, para que "recorra" el coche
-  // sin saltos (nada de módulo con el vano completo, que colapsaría x1=x2).
-  const center = animated ? holoPhase() * 100 : 50;
-  if (finish === 'cromado') {
-    // Metal pulido/espejo: vano MUY estrecho + spreadMethod="reflect" hace
-    // que los mismos stops reboten y se repitan en 2-3 franjas de luz/sombra
-    // a lo largo del coche, en vez de un único barrido — así se lee como
-    // metal pulido y no como "el mismo satinado con otro tinte".
-    return (
-      <LinearGradient id={id} x1={`${center - 15}%`} y1="0%" x2={`${center + 15}%`} y2="100%" spreadMethod="reflect">
-        {stops.map((c, i) => <Stop key={i} offset={i / (n - 1)} stopColor={c} />)}
-      </LinearGradient>
-    );
-  }
+  const center = holoPhase() * 100;
   return (
     <LinearGradient id={id} x1={`${center - 50}%`} y1="0%" x2={`${center + 50}%`} y2="100%">
+      {stops.map((c, i) => <Stop key={i} offset={i / (n - 1)} stopColor={c} />)}
+    </LinearGradient>
+  );
+}
+
+// Degradado HORIZONTAL (a lo largo del coche, morro a cola) para la veta de
+// brillo de metalizado/cromado — nada de diagonal, así no vuelve a leerse
+// como raya cruzando la carrocería.
+function HighlightGradientDef({ id, stops }) {
+  const n = stops.length;
+  return (
+    <LinearGradient id={id} x1="0%" y1="0%" x2="100%" y2="0%">
       {stops.map((c, i) => <Stop key={i} offset={i / (n - 1)} stopColor={c} />)}
     </LinearGradient>
   );
@@ -131,20 +145,36 @@ export default function CarSprite({ x, y, deg, scale = 1, loadout }) {
   const body = resolveFill(lo.bodyColor, 'body');
   const wing = resolveFill(lo.wingColor, 'wing');
   const gradients = [body.gradient, wing.gradient].filter(Boolean);
+  const highlights = [body.highlight].filter(Boolean); // solo el cuerpo (las piezas del alerón son pequeñas, no lo necesitan)
 
   return (
     <G transform={`translate(${x} ${y}) rotate(${deg}) scale(${scale})`}>
-      {gradients.length > 0 && (
+      {(gradients.length > 0 || highlights.length > 0) && (
         <Defs>
           {gradients.map((g) => <GradientDef key={g.id} {...g} />)}
+          {highlights.map((h) => <HighlightGradientDef key={h.id} {...h} />)}
         </Defs>
       )}
       {/* Alerón trasero (forma y color personalizables) */}
       {wingRects(lo.wingShape, lo.wingColor).map((r, i) => (
         <Rect key={i} {...r} fill={wing.fill} />
       ))}
-      {/* Carrocería */}
+      {/* Carrocería (color plano) */}
       <Path d={CAR_BODY} fill={body.fill} />
+      {/* Veta de brillo (metalizado/cromado): elipse angosta a lo largo del
+          morro-cola, ya se estrecha sola en los extremos sin más cálculo.
+          Cromado añade una segunda veta más fina abajo, más nítida (menos
+          opacidad de por medio) — simula el reflejo duro del metal pulido
+          frente al satinado más suave del metalizado. */}
+      {body.highlight && (
+        <Ellipse
+          cx={-1} cy={-4.6} rx={13.5} ry={body.highlight.finish === 'cromado' ? 1.1 : 1.7}
+          fill={`url(#${body.highlight.id})`} opacity={body.highlight.finish === 'cromado' ? 0.8 : 0.5}
+        />
+      )}
+      {body.highlight?.finish === 'cromado' && (
+        <Ellipse cx={-1} cy={4.4} rx={12} ry={0.8} fill={`url(#${body.highlight.id})`} opacity={0.45} />
+      )}
       {/* Franja/librea sobre el cuerpo (patrón + color, por separado) */}
       {lo.livery && <LiveryShape pattern={lo.liveryPattern} color={lo.livery} />}
       {/* Rejilla del motor (trasera) */}
