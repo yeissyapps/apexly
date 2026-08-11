@@ -91,6 +91,15 @@ export const CONFIG = {
   //   0.15 ->  408 ms pegado, se despega en 0,99 s, recupera los 250 u/s
   //   0.40 -> 3208 ms pegado (pinball), se queda en 59 u/s
   CRASH_BOUNCE: 0.15,
+  // Tope de cuánto puede girarte el RUMBO un solo rebote (el rumbo del
+  // rebote, sin tope, es el de la velocidad reflejada tipo billar — en un
+  // impacto muy de frente eso puede girarte 100-150° de golpe). Grabación
+  // real en iOS: 124° en un frame, seguido de salir disparado sin control
+  // hacia la pared de ENFRENTE (efecto pinball) porque nada limitaba cuánto
+  // podía girarte un rebote. 60° sigue siendo un golpe real (pierdes
+  // velocidad y el aturdimiento sigue igual), pero no te manda a una
+  // dirección casi opuesta a ciegas.
+  CRASH_MAX_TURN: (60 * Math.PI) / 180, // rad
   // Cuánto hay que separarse del muro (unidades de mundo) para que el
   // siguiente toque cuente como un choque NUEVO. Mientras sigues pegado,
   // deslizas sin castigo en vez de encadenar choques.
