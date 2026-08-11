@@ -152,7 +152,7 @@ function ghostTimeAtIdx(progress, idx) {
 // segundos, más soltar, más los "latigazos" que describe JC, más su tiempo de
 // reacción hasta pulsar el botón. Mejor sobrar margen que perder el disparo.
 const REC_N = 2400;
-const REC_FIELDS = 8;    // t, entrada, volante, velocidad, rumbo, muro, dt, dedos
+const REC_FIELDS = 9;    // t, entrada, volante, velocidad, rumbo, muro, dt, dedos, ambos
 
 const SCREEN = Dimensions.get('window');
 
@@ -167,6 +167,11 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   const pressLeft = useRef(false);
   const pressRight = useRef(false);
   const dedos = useRef(0); // nº de dedos apoyados en el último evento (diagnóstico)
+  // Orden final que recibe la física: -1 izq, 0 nada, 1 der. Se calcula UNA vez
+  // por evento táctil (no en la física) para que "izq+der a la vez" se resuelva
+  // en un solo sitio. Ver applyTouches.
+  const entrada = useRef(0);
+  const ultimoLado = useRef(0); // último lado que pasó de suelto a pulsado
   const rec = useRef(new Float64Array(REC_N * REC_FIELDS)); // grabadora (beta)
   const recAt = useRef(0); // nº total de frames escritos (el índice va en módulo)
   const onFinishRef = useRef(onFinish);
@@ -222,6 +227,21 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   // El matiz de iOS: en un evento de levantar, `touches` puede seguir
   // incluyendo el dedo que se acaba de soltar (Android lo excluye), así que se
   // descuenta explícitamente lo que venga en `changedTouches`.
+  //
+  // POR QUÉ ESTO FALLA EN iOS Y NO EN ANDROID (la asimetría de fondo):
+  // el volante no tiene estado propio, se recalcula en cada evento. Pero
+  // ANDROID manda `onResponderMove` continuamente (reporta hasta el micro-
+  // temblor del dedo), así que si un evento deja el estado mal, el siguiente
+  // lo corrige a los milisegundos y no lo llegas a notar. iOS NO manda nada
+  // mientras el dedo está quieto: si un evento deja el estado mal, se queda
+  // mal HASTA QUE LEVANTES EL DEDO. Y "dedo quieto mucho rato" es exactamente
+  // una horquilla hecha del tirón — de ahí que falle justo ahí y solo en iOS.
+  //
+  // El estado malo que más duele es "izq y der pulsadas a la vez": la física
+  // hacía -1+1 = 0, o sea VOLANTE MUERTO. Con un dedo fantasma en un lado y el
+  // dedo real en el otro, el coche se va recto toda la horquilla por mucho que
+  // aprietes. Por eso aquí gana EL ÚLTIMO LADO PULSADO en vez de anularse:
+  // un fantasma ya no puede dejarte sin volante.
   function applyTouches(evt, esFinDeToque) {
     const ne = evt.nativeEvent;
     const activos = ne.touches || [];
@@ -243,9 +263,21 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
       if (tq.pageX < playW / 2) left = true;
       else right = true;
     }
+    // ¿Qué lado acaba de pasar de suelto a pulsado? (comparar ANTES de asignar)
+    if (left && !pressLeft.current) ultimoLado.current = -1;
+    if (right && !pressRight.current) ultimoLado.current = 1;
+
     pressLeft.current = left;
     pressRight.current = right;
     dedos.current = n;
+
+    // Resolución del volante. El caso "los dos a la vez" NO se anula: manda el
+    // último lado que pulsaste, que es el que de verdad estás pidiendo.
+    if (left && right) entrada.current = ultimoLado.current || -1;
+    else if (left) entrada.current = -1;
+    else if (right) entrada.current = 1;
+    else entrada.current = 0;
+
     return left || right;
   }
 
@@ -265,6 +297,8 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     pressLeft.current = false;
     pressRight.current = false;
     dedos.current = 0;
+    entrada.current = 0;
+    ultimoLado.current = 0;
   }
 
   // --- Marcar anomalía (solo beta) -----------------------------------------
@@ -312,6 +346,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     let prevMuro = null;
     let prevRumbo = null;
     let prevFantasma = false;
+    let prevAmbos = 0;
     const nombreIn = (v) => (v === -1 ? 'IZQ' : v === 1 ? 'DER' : 'suelta');
 
     for (let k = 0; k < n; k++) {
@@ -321,12 +356,19 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
       const muro = b[o + 5] ? 1 : 0;
       const rumbo = b[o + 4];
       const nDedos = b[o + 7];
+      const ambos = b[o + 8] ? 1 : 0;
 
       // EL CASO DELATOR: el coche recibe orden de girar con CERO dedos en
       // pantalla. Si esto aparece, el bug es del táctil, no de la física.
       const fantasma = nDedos === 0 && inp !== 0;
       if (fantasma && !prevFantasma) eventos.push(`${t.toFixed(2)}s  *** GIRO FANTASMA (0 dedos, orden ${nombreIn(inp)}) ***`);
       prevFantasma = fantasma;
+
+      // EL OTRO CASO DELATOR (invisible hasta ahora): izq y der marcadas a la
+      // vez. Con un solo dedo en pantalla, significa dedo fantasma en el otro
+      // lado — la causa candidata de "aprieto y no gira" en las horquillas.
+      if (ambos && !prevAmbos) eventos.push(`${t.toFixed(2)}s  *** IZQ+DER A LA VEZ (dedos ${nDedos}) ***`);
+      prevAmbos = ambos;
 
       if (prevIn !== null && inp !== prevIn) {
         eventos.push(`${t.toFixed(2)}s  ${nombreIn(prevIn)} -> ${nombreIn(inp)}  (dedos ${nDedos})`);
@@ -352,6 +394,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
           muro ? 'MURO' : '-',             // contacto
           b[o + 6].toFixed(1),             // dt del frame (ms)
           nDedos,                          // dedos apoyados
+          ambos ? 'AMBOS' : '-',           // izq y der marcadas a la vez
         ].join('\t'),
       );
     }
@@ -366,7 +409,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
       `EVENTOS (${eventos.length}):`,
       eventos.length ? eventos.join('\n') : '  (ninguno)',
       '',
-      't\tpulsa\tvolante\tvel\trumbo\tmuro\tdt\tdedos',
+      't\tpulsa\tvolante\tvel\trumbo\tmuro\tdt\tdedos\tambos',
     ].join('\n');
     Share.share({ message: `${cab}\n${filas.join('\n')}` }).catch(() => {});
   }
@@ -377,6 +420,8 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     pressLeft.current = false;
     pressRight.current = false;
     dedos.current = 0;
+    entrada.current = 0;
+    ultimoLado.current = 0;
     setView(toView(g.current, false, ghostPoseAt(ghostRef.current, 0, ghostIdxRef)));
 
     let raf;
@@ -407,7 +452,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
         let guard = 0;
         const wasTouching = s.touching;
         while (s.acc >= FIXED_DT && guard < 10) {
-          stepSimulation(s, FIXED_DT, t, track, pressLeft, pressRight, weatherRef.current, ghostProgressRef.current, sectorBestsRef.current);
+          stepSimulation(s, FIXED_DT, t, track, entrada, weatherRef.current, ghostProgressRef.current, sectorBestsRef.current);
           s.acc -= FIXED_DT;
           guard++;
           if (s.phase !== 'running') break;
@@ -451,13 +496,18 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
         const o = (recAt.current % REC_N) * REC_FIELDS;
         const b = rec.current;
         b[o] = s.elapsed;
-        b[o + 1] = (pressRight.current ? 1 : 0) - (pressLeft.current ? 1 : 0);
+        // OJO: aquí antes se guardaba der(1) - izq(1), así que "las dos a la
+        // vez" se grababa como 0, IDÉNTICO a "no estoy tocando" — el bug más
+        // probable era justo el invisible en la grabación. Ahora va la orden
+        // real y un flag aparte de si había dos lados pulsados.
+        b[o + 1] = entrada.current;
         b[o + 2] = s.steer;
         b[o + 3] = s.speed;
         b[o + 4] = (s.heading * 180) / Math.PI;
         b[o + 5] = s.touching ? 1 : 0;
         b[o + 6] = dt * 1000;
         b[o + 7] = dedos.current;
+        b[o + 8] = pressLeft.current && pressRight.current ? 1 : 0;
         recAt.current++;
       }
 
@@ -1005,7 +1055,7 @@ function ghostPoseAt(trace, e, idxRef) {
 // --- Un paso de simulación (feel del coche; no tocar) ----------------------
 //  El clima entra SOLO como modificadores (steerMul/speedMul/viento) encima de
 //  las constantes; con NEUTRAL el comportamiento es idéntico al de siempre.
-function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather, ghostProgress, sectorBests) {
+function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sectorBests) {
   const C = CONFIG;
   const W = weather || NEUTRAL;
 
@@ -1049,9 +1099,9 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather, ghostPr
     for (let i = 0; i < remaining; i++) closeSector(s.lastSectorElapsed + per);
   }
 
-  let target = 0;
-  if (pressLeft.current) target -= 1;
-  if (pressRight.current) target += 1;
+  // Ya viene resuelto desde applyTouches (-1 / 0 / 1). Antes se sumaba aquí
+  // izq(-1) + der(+1), y "las dos a la vez" daba 0: volante muerto.
+  const target = entrada.current;
 
   const easeTime = (target !== 0 ? C.STEER_EASE_IN : C.STEER_EASE_OUT) * W.steerMul;
   const maxDelta = dt / Math.max(0.001, easeTime);
