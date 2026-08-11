@@ -1060,17 +1060,7 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather, ghostPr
 
   const cap = C.MAX_SPEED * W.speedMul;
   const turnBrake = C.TURN_SPEED_DRAG * Math.abs(s.steer);
-  // El frenado por volante nunca se probó contra un giro TAN largo como una
-  // horquilla (175°, muy por encima de una curva normal ≤90°): a volante a
-  // tope y velocidad máxima frena a -200 u/s², así que mantener el volante a
-  // tope más de ~1,25s (justo lo que pide una horquilla entera) para el
-  // coche del todo A MITAD DE GIRO — y a esa velocidad casi nula, cualquier
-  // roce con el muro se vuelve errático (rebota de pared a pared en vez de
-  // deslizar). El suelo (MIN_TURN_SPEED) solo actúa MIENTRAS giras: sigue
-  // siendo un frenazo real (has perdido el 76% de MAX_SPEED), pero no un
-  // parón total que te deja indefenso en medio de la curva más cerrada.
-  const floor = Math.abs(s.steer) > 0.01 ? C.MIN_TURN_SPEED : 0;
-  s.speed = clamp(s.speed + (C.ACCEL - turnBrake) * dt, floor, cap);
+  s.speed = clamp(s.speed + (C.ACCEL - turnBrake) * dt, 0, cap);
 
   const stunned = t < s.stunUntil;
   if (!stunned) {
