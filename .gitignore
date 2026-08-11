@@ -47,3 +47,6 @@ supabase/.temp/
 /ios
 /android
 keystore.properties
+
+# Credenciales de firma (NUNCA subir)
+credentials.json
