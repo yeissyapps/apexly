@@ -153,6 +153,7 @@ function ghostTimeAtIdx(progress, idx) {
 // reacción hasta pulsar el botón. Mejor sobrar margen que perder el disparo.
 const REC_N = 2400;
 const REC_FIELDS = 9;    // t, entrada, volante, velocidad, rumbo, muro, dt, dedos, ambos
+const TOUCH_LOG_N = 150; // últimos eventos táctiles en crudo (solo con DIAG)
 
 const SCREEN = Dimensions.get('window');
 
@@ -281,24 +282,62 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     return left || right;
   }
 
-  function onTouchDown(evt) {
+  // --- Registro EN CRUDO de lo que entrega el sistema táctil -----------------
+  // Lo que nunca hemos podido ver: qué manda iOS de verdad en cada evento.
+  // Todo el volante se deduce de `nativeEvent.touches`, y si ese array llega
+  // vacío o incompleto en algún evento, en iOS el estado se queda ASÍ hasta que
+  // levantes el dedo (iOS no manda nada mientras el dedo está quieto, Android
+  // manda `move` sin parar y lo corrige solo). Esto lo deja por escrito.
+  const touchLog = useRef([]);
+  function logTouch(tipo, ne) {
+    if (!CONFIG.DIAG) return;
+    const fmt = (arr) =>
+      arr && arr.length
+        ? Array.from(arr).map((x) => `${x.identifier}@${Math.round(x.pageX)}`).join(' ')
+        : 'VACIO';
+    const ms = (g.current && g.current.elapsed) || 0;
+    const l = touchLog.current;
+    l.push(
+      `${(ms / 1000).toFixed(2)}s ${tipo}` +
+        ` | touches(${(ne.touches || []).length}): ${fmt(ne.touches)}` +
+        ` | changed(${(ne.changedTouches || []).length}): ${fmt(ne.changedTouches)}` +
+        ` | -> izq:${pressLeft.current ? 1 : 0} der:${pressRight.current ? 1 : 0} orden:${entrada.current}`,
+    );
+    if (l.length > TOUCH_LOG_N) l.shift();
+  }
+
+  function onTouchGrant(evt) {
     if (applyTouches(evt, false)) startRun();
+    logTouch('GRANT ', evt.nativeEvent);
+  }
+
+  function onTouchStart(evt) {
+    if (applyTouches(evt, false)) startRun();
+    logTouch('START ', evt.nativeEvent);
   }
 
   function onTouchMove(evt) {
     applyTouches(evt, false);
+    logTouch('MOVE  ', evt.nativeEvent);
   }
 
-  function onTouchUp(evt) {
+  function onTouchEnd(evt) {
     applyTouches(evt, true);
+    logTouch('END   ', evt.nativeEvent);
   }
 
-  function onTouchCancel() {
+  function onTouchRelease(evt) {
+    applyTouches(evt, true);
+    logTouch('RELEAS', evt.nativeEvent);
+  }
+
+  function onTouchCancel(evt) {
     pressLeft.current = false;
     pressRight.current = false;
     dedos.current = 0;
     entrada.current = 0;
     ultimoLado.current = 0;
+    if (evt && evt.nativeEvent) logTouch('TERMIN', evt.nativeEvent);
   }
 
   // --- Marcar anomalía (solo beta) -----------------------------------------
@@ -411,7 +450,14 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
       '',
       't\tpulsa\tvolante\tvel\trumbo\tmuro\tdt\tdedos\tambos',
     ].join('\n');
-    Share.share({ message: `${cab}\n${filas.join('\n')}` }).catch(() => {});
+    // Lo que entregó el sistema táctil en crudo. Es la pieza que nos faltaba:
+    // dice si el problema entra ya mal por la puerta (touches vacío/incompleto)
+    // o si el táctil está bien y el fallo es de la física.
+    const tl = touchLog.current;
+    const cola = tl.length
+      ? `\n\nEVENTOS TÁCTILES EN CRUDO (${tl.length}):\n${tl.join('\n')}`
+      : '';
+    Share.share({ message: `${cab}\n${filas.join('\n')}${cola}` }).catch(() => {});
   }
 
   useEffect(() => {
@@ -422,6 +468,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     dedos.current = 0;
     entrada.current = 0;
     ultimoLado.current = 0;
+    touchLog.current = [];
     setView(toView(g.current, false, ghostPoseAt(ghostRef.current, 0, ghostIdxRef)));
 
     let raf;
@@ -599,11 +646,11 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
           onStartShouldSetResponder={() => true}
           onMoveShouldSetResponder={() => true}
           onResponderTerminationRequest={() => false}
-          onResponderGrant={onTouchDown}
-          onResponderStart={onTouchDown}
+          onResponderGrant={onTouchGrant}
+          onResponderStart={onTouchStart}
           onResponderMove={onTouchMove}
-          onResponderEnd={onTouchUp}
-          onResponderRelease={onTouchUp}
+          onResponderEnd={onTouchEnd}
+          onResponderRelease={onTouchRelease}
           onResponderTerminate={onTouchCancel}
         >
           {CONFIG.SHOW_TOUCH_HINTS && (
