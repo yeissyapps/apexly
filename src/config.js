@@ -56,11 +56,13 @@ export const CONFIG = {
   // lento seguiría pudiendo llevarte a 0, y a 0 el coche pirueta parado.
   //
   // 110 = 44% de MAX_SPEED. El primer intento fue 60 (24%) y se quedó corto:
-  // a 60 u/s el coche va arrastrándose y aun así gira a ~200°/s, o sea sigue
-  // dando vueltas sobre sí mismo, solo que despacio en vez de parado. A 110
-  // el giro baja a ~186°/s y, sobre todo, el coche SE MUEVE: describe un arco
-  // de radio ~34 unidades, que cabe de sobra en un carril de 104. Una
-  // horquilla se hace del tirón sin quedarte clavado.
+  // a 60 u/s el coche se arrastra y la curva se eterniza.
+  //
+  // Con el giro por radio (ver TURN_RADIUS_*), este suelo ya NO es lo que
+  // impide la pirueta — eso lo resuelve que omega sea proporcional a la
+  // velocidad. Aquí solo marca el ritmo mínimo en curva: a 110 u/s el coche
+  // traza radio 80, que pasa por la curva más cerrada de todos los circuitos
+  // generados (la peor medida: 72, y el carril da 43 de margen extra).
   MIN_TURN_SPEED: 110, // u/s
 
   // --- Giro ---------------------------------------------------------------
