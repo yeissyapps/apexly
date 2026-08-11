@@ -128,7 +128,7 @@ export const CONFIG = {
   // búfer preasignado, no cuesta nada), así que si el volantazo fantasma vuelve
   // a aparecer basta con poner esto en true y generar build: no hay que volver
   // a escribir nada del instrumental.
-  DIAG: false,
+  DIAG: true, // TEMPORAL: build de diagnóstico para el volantazo fantasma en iOS — volver a false antes de la build final
 
   // --- Debug / ayudas visuales -------------------------------------------
   // true => dibuja una flecha sutil en cada zona táctil (para comparar el
