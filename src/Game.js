@@ -1120,23 +1120,7 @@ function stepSimulation(s, dt, t, track, pressLeft, pressRight, weather, ghostPr
         const rvx = vx - k * nx;
         const rvy = vy - k * ny;
         s.speed = Math.hypot(rvx, rvy) * (1 - C.CRASH_SPEED_LOSS);
-        if (rvx !== 0 || rvy !== 0) {
-          // El rumbo del rebote es el de la velocidad reflejada (billar) SIN
-          // tope — en un impacto muy de frente (head cerca de 1, típico en
-          // una horquilla estrecha) eso puede girar el rumbo 100-150° de
-          // golpe. Grabación real de JC en iOS: 124° en un frame, seguido de
-          // salir disparado sin control hacia la pared de ENFRENTE (pinball)
-          // porque nada limita CUÁNTO puede girarte un solo rebote. Se acota
-          // el giro máximo por impacto — sigue siendo un golpe real (pierdes
-          // velocidad y control durante el aturdimiento), pero no te manda a
-          // una dirección casi opuesta a ciegas.
-          const bounceHeading = Math.atan2(rvy, rvx);
-          let dh = bounceHeading - s.heading;
-          while (dh > Math.PI) dh -= 2 * Math.PI;
-          while (dh < -Math.PI) dh += 2 * Math.PI;
-          dh = clamp(dh, -C.CRASH_MAX_TURN, C.CRASH_MAX_TURN);
-          s.heading += dh;
-        }
+        if (rvx !== 0 || rvy !== 0) s.heading = Math.atan2(rvy, rvx);
         s.stunUntil = t + C.CRASH_STUN_MS;
         s.flashUntil = t + 140;
         s.lastImpact = t;
