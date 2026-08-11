@@ -31,7 +31,7 @@ import { dailyWeather, weatherById, WEATHER_IDS, NEUTRAL } from './src/weather';
 
 // Modo de prueba: muestra un selector de clima en Inicio para ver los 4 efectos
 // sin esperar a la fecha. false = build de producción (capturas de tienda).
-const DEV_WEATHER = true;
+const DEV_WEATHER = false;
 import { fmtTime, fmtSecs, fmtCountdown } from './src/format';
 import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS } from './src/theme';
 import DangerStripe from './src/DangerStripe';
