@@ -173,6 +173,9 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   // en un solo sitio. Ver applyTouches.
   const entrada = useRef(0);
   const ultimoLado = useRef(0); // último lado que pasó de suelto a pulsado
+  // Red de seguridad para toques más cortos que un frame (ver applyTouches).
+  const latchEntrada = useRef(0);
+  const entradaEfectiva = useRef(0); // lo que realmente lee la física
   const rec = useRef(new Float64Array(REC_N * REC_FIELDS)); // grabadora (beta)
   const recAt = useRef(0); // nº total de frames escritos (el índice va en módulo)
   const onFinishRef = useRef(onFinish);
@@ -278,6 +281,15 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     else if (left) entrada.current = -1;
     else if (right) entrada.current = 1;
     else entrada.current = 0;
+
+    // Toque corto que empieza Y acaba entre dos frames: la física solo mira la
+    // entrada una vez por frame (16 ms), así que ese toque no existiría para el
+    // coche. Medido en una grabación real: 9 de 23 toques llegaban con GRANT y
+    // END en el mismo frame y no producían NINGÚN giro — de ahí lo de "los
+    // toques no hacen nada, solo si aprieto fuerte" (apretando, el toque dura
+    // más y sobrevive al frame). El latch guarda la dirección de cualquier
+    // toque nuevo para que el siguiente frame la vea sí o sí.
+    if (entrada.current !== 0) latchEntrada.current = entrada.current;
 
     return left || right;
   }
@@ -468,6 +480,8 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     dedos.current = 0;
     entrada.current = 0;
     ultimoLado.current = 0;
+    latchEntrada.current = 0;
+    entradaEfectiva.current = 0;
     touchLog.current = [];
     setView(toView(g.current, false, ghostPoseAt(ghostRef.current, 0, ghostIdxRef)));
 
@@ -498,12 +512,16 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
         s.acc += dt;
         let guard = 0;
         const wasTouching = s.touching;
+        // Si el dedo sigue apoyado manda lo que hay; si no, aún puede quedar el
+        // latch de un toque que empezó y acabó dentro de este mismo frame.
+        entradaEfectiva.current = entrada.current !== 0 ? entrada.current : latchEntrada.current;
         while (s.acc >= FIXED_DT && guard < 10) {
-          stepSimulation(s, FIXED_DT, t, track, entrada, weatherRef.current, ghostProgressRef.current, sectorBestsRef.current);
+          stepSimulation(s, FIXED_DT, t, track, entradaEfectiva, weatherRef.current, ghostProgressRef.current, sectorBestsRef.current);
           s.acc -= FIXED_DT;
           guard++;
           if (s.phase !== 'running') break;
         }
+        latchEntrada.current = 0; // consumido: solo vale para un frame
         if (guard > s.stepsMax) s.stepsMax = guard;
         if (guard >= 10) s.stepsCapped++; // se descartó tiempo: el móvil no da más
         if (s.touching) s.contactMs += dt * 1000;
@@ -547,7 +565,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
         // vez" se grababa como 0, IDÉNTICO a "no estoy tocando" — el bug más
         // probable era justo el invisible en la grabación. Ahora va la orden
         // real y un flag aparte de si había dos lados pulsados.
-        b[o + 1] = entrada.current;
+        b[o + 1] = entradaEfectiva.current;
         b[o + 2] = s.steer;
         b[o + 3] = s.speed;
         b[o + 4] = (s.heading * 180) / Math.PI;
@@ -1173,9 +1191,19 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
 
   const stunned = t < s.stunUntil;
   if (!stunned) {
+    // El giro se define por el RADIO del arco, no por grados/segundo. Antes era
+    // al revés (grados/segundo fijos, y encima MÁS altos cuanto más lento ibas),
+    // así que al bajar la velocidad el radio se desplomaba y el coche trompeaba:
+    // a 110 u/s daba un radio de 34, cuando la curva más cerrada del generador
+    // tiene radio 72. Giraba tres veces más de lo que ninguna curva pide.
+    //
+    // Con omega = velocidad / radio, el coche describe SIEMPRE el mismo arco
+    // vaya como vaya, y a velocidad 0 sencillamente no gira (no puede piruetear
+    // sobre sí mismo, que era el otro fallo). A tope de velocidad da 143°/s,
+    // exactamente lo mismo que la versión que iba bien.
     const speedFrac = cap > 0 ? s.speed / cap : 0;
-    const turnFactor = 1 + (C.TURN_RATE_AT_MAX_SPEED - 1) * speedFrac;
-    const turnRateRad = ((C.TURN_RATE_MAX_DEG * Math.PI) / 180) * turnFactor;
+    const radioGiro = C.TURN_RADIUS_SLOW + (C.TURN_RADIUS_FAST - C.TURN_RADIUS_SLOW) * speedFrac;
+    const turnRateRad = s.speed / radioGiro; // rad/s
     s.heading += turnRateRad * s.steer * dt;
   }
 

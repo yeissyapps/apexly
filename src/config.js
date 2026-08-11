@@ -64,12 +64,28 @@ export const CONFIG = {
   MIN_TURN_SPEED: 110, // u/s
 
   // --- Giro ---------------------------------------------------------------
-  // Grados por segundo que puede girar el coche a velocidad ~0 (giro máximo).
-  TURN_RATE_MAX_DEG: 220,
-  // A velocidad máxima el giro se reduce a este factor del máximo (0..1).
-  // Ej: 0.65 => a tope de velocidad todavía gira el 65% que gira lento.
-  // Esto es lo que hace que "a más velocidad, gire menos" (pero sin pasarse).
-  TURN_RATE_AT_MAX_SPEED: 0.65,
+  // El giro se define por el RADIO del arco que describe el coche a volante a
+  // tope, en unidades de mundo. La velocidad de giro sale de ahí:
+  //     omega = velocidad / radio     (rad/s)
+  //
+  // Antes esto eran grados/segundo fijos (220), y encima MÁS giro cuanto MÁS
+  // lento ibas. Mientras el coche iba siempre a tope (no existía la frenada al
+  // girar) eso daba un radio de ~100 y funcionaba. En cuanto la frenada bajó la
+  // velocidad de crucero, el radio se desplomó: a 110 u/s el coche giraba con
+  // radio 34 y hacía trompos. Medido en el propio generador, LA CURVA MÁS
+  // CERRADA QUE EXISTE tiene radio 72 (mediana 180-320), o sea que el coche
+  // giraba tres veces más de lo que ninguna curva llega a pedir.
+  //
+  // Con el radio fijado, el coche traza siempre el mismo arco vaya rápido o
+  // lento, y a velocidad 0 no gira nada — desaparece de raíz la pirueta sobre
+  // sí mismo.
+  //
+  //   FAST (100) a velocidad máxima => 143°/s, calcado a la versión que iba
+  //     bien, y encaja con las curvas medias del circuito.
+  //   SLOW (65) a velocidad ~0 => permite cerrar una horquilla de radio 72
+  //     apurando, sin llegar a poder trompear.
+  TURN_RADIUS_FAST: 100, // unidades de mundo, a MAX_SPEED
+  TURN_RADIUS_SLOW: 65, // unidades de mundo, a velocidad ~0
 
   // Ease del volante (no es giro instantáneo):
   // segundos que tarda el volante en ir de 0 a full al PULSAR (in) y de full
