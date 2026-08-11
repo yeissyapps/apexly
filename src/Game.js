@@ -87,15 +87,6 @@ const CAM_TURN_LERP = 3.5; // suavizado del giro de cámara (menor = más suave)
 // se acumula el tiempo real y se resuelven pasos de este tamaño.
 const FIXED_DT = 1 / 120;
 
-// Red de seguridad: si el volante lleva más de esto sin recibir NINGÚN
-// evento de toque (mover/soltar/cancelar) pero sigue marcando izq/der, se
-// suelta solo. El sistema "responder" de RN en iOS a veces se lleva el
-// toque por un gesto del sistema (borde de pantalla, Centro de Control) sin
-// que llegue a disparar onResponderTerminate — sin esto, el volante se queda
-// pegado "para siempre" (JC: "gira solo"). 400ms es mucho más que cualquier
-// intervalo real entre eventos de toque durante un giro sostenido.
-const TOUCH_WATCHDOG_MS = 400;
-
 // Tramos de la línea central que se miran alrededor del último conocido para
 // localizar el coche. A tope de velocidad avanza ~2 unidades por sub-paso y los
 // puntos están a ~35 de media, así que el índice se mueve como mucho de 1 en 1:
@@ -175,7 +166,6 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   const pressLeft = useRef(false);
   const pressRight = useRef(false);
   const dedos = useRef(0); // nº de dedos apoyados en el último evento (diagnóstico)
-  const lastTouchEventAt = useRef(0); // red de seguridad, ver TOUCH_WATCHDOG_MS más abajo
   const rec = useRef(new Float64Array(REC_N * REC_FIELDS)); // grabadora (beta)
   const recAt = useRef(0); // nº total de frames escritos (el índice va en módulo)
   const onFinishRef = useRef(onFinish);
@@ -255,7 +245,6 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     pressLeft.current = left;
     pressRight.current = right;
     dedos.current = n;
-    lastTouchEventAt.current = now();
     return left || right;
   }
 
@@ -275,7 +264,6 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     pressLeft.current = false;
     pressRight.current = false;
     dedos.current = 0;
-    lastTouchEventAt.current = now();
   }
 
   // --- Marcar anomalía (solo beta) -----------------------------------------
@@ -407,14 +395,6 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
       // se notaba mucho; ahora los sub-pasos de FIXED_DT evitan que un dt
       // grande atraviese muros, así que se puede subir a 1/15.
       dt = clamp(dt, 0, 1 / 15);
-
-      // Ver TOUCH_WATCHDOG_MS: si no llega NINGÚN evento de toque en un
-      // rato pero el volante sigue marcando izq/der, se fuerza a soltar.
-      if ((pressLeft.current || pressRight.current) && t - lastTouchEventAt.current > TOUCH_WATCHDOG_MS) {
-        pressLeft.current = false;
-        pressRight.current = false;
-        dedos.current = 0;
-      }
 
       if (s.phase === 'running') {
         // Física a PASO FIJO, desacoplada de los FPS de pantalla. Antes se
