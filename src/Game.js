@@ -173,9 +173,11 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   // en un solo sitio. Ver applyTouches.
   const entrada = useRef(0);
   const ultimoLado = useRef(0); // último lado que pasó de suelto a pulsado
-  // Pulso mínimo garantizado por toque (ver applyTouches).
+  // Pulso: reconstrucción de la duración REAL del toque (ver applyTouches).
   const pulsoDir = useRef(0);
   const pulsoHasta = useRef(0);
+  const tsAbajo = useRef(0); // timestamp NATIVO del evento de pulsar
+  const relojAbajo = useRef(0); // Date.now() cuando lo procesó el JS
   const entradaEfectiva = useRef(0); // lo que realmente lee la física
   const rec = useRef(new Float64Array(REC_N * REC_FIELDS)); // grabadora (beta)
   const recAt = useRef(0); // nº total de frames escritos (el índice va en módulo)
@@ -283,24 +285,45 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     else if (right) entrada.current = 1;
     else entrada.current = 0;
 
-    // PULSO MÍNIMO POR TOQUE.
-    // Medido en grabaciones reales de iOS: la MITAD de los toques llegan con
-    // GRANT y END en el mismo frame, o sea que el sistema dice que el dedo
-    // estuvo apoyado menos de 16 ms. 18 de 37 toques en una vuelta. Eso es lo
-    // de "toco y el coche no responde, solo si aprieto fuerte" — apretando, el
-    // toque dura más y sobrevive.
+    // RECONSTRUIR LA DURACIÓN REAL DEL TOQUE.
     //
-    // No sabemos POR QUÉ iOS los reporta así (la dirección siempre llega bien,
-    // eso está comprobado), pero da igual: si el jugador ha tocado, la orden
-    // tiene que valer. Aquí se garantiza que todo toque mande durante al menos
-    // MIN_INPUT_MS aunque el dedo ya se haya levantado.
+    // El problema, medido: en iOS la MITAD de los toques llegan con "pulsar" y
+    // "soltar" en el mismo instante (0 ms). Comprobado que es MENTIRA leyendo
+    // el táctil por hardware en Android: 41 toques reales de JC, el más corto
+    // 55 ms, mediana 125 ms, NINGUNO por debajo de 20 ms. El dedo está ahí; iOS
+    // entrega los dos eventos juntos.
     //
-    // Un solo frame NO basta: el volante tarda STEER_EASE_IN (0,1 s) en meterse
-    // del todo, así que en un frame se queda en 0,17 de 1,00 y no gira nada.
-    // Con 130 ms el volante llega a tope y el toque se nota de verdad.
+    // El primer parche daba MIN_INPUT_MS fijo a todos esos toques, y eso ROMPE
+    // la proporción, que es justo lo que el jugador nota. Según JC, la duración
+    // del toque ES la intención: toques de ~55 ms para abrirse en recta, ~125 ms
+    // para ajustar en chicane, 300-900 ms para una horquilla. Dar 130 ms a
+    // todos convierte un toquecito de 55 ms en más del doble de giro ("gira
+    // muchísimo") y una horquilla de 600 ms en una quinta parte ("no gira").
+    //
+    // Solución: usar el timestamp NATIVO del evento, que iOS sí rellena bien
+    // aunque entregue los eventos tarde o en bloque. Con él se sabe cuánto duró
+    // el dedo DE VERDAD y se alarga el pulso solo lo que falte. Si el sistema
+    // no da timestamps usables, se cae al suelo de MIN_INPUT_MS de antes.
+    const tsNat = ne.timestamp || 0;
     if (entrada.current !== 0) {
+      // Empieza (o continúa) un toque.
+      if (pulsoDir.current !== entrada.current || relojAbajo.current === 0) {
+        tsAbajo.current = tsNat;
+        relojAbajo.current = now();
+      }
       pulsoDir.current = entrada.current;
       pulsoHasta.current = now() + CONFIG.MIN_INPUT_MS;
+    } else if (relojAbajo.current !== 0) {
+      // Se soltó. ¿Cuánto duró de verdad, según el sistema?
+      const yaAplicado = now() - relojAbajo.current; // lo que el coche ya giró
+      const realNat = tsNat && tsAbajo.current ? tsNat - tsAbajo.current : 0;
+      const duracionReal = realNat > 0 && realNat < 3000 ? realNat : CONFIG.MIN_INPUT_MS;
+      const queFalta = duracionReal - yaAplicado;
+      // Solo se alarga si el coche giró MENOS de lo que duró el dedo. Un toque
+      // entregado bien (dedo abajo 600 ms, coche girando 600 ms) no se toca.
+      pulsoHasta.current = queFalta > 0 ? now() + queFalta : 0;
+      relojAbajo.current = 0;
+      tsAbajo.current = 0;
     }
 
     return left || right;
@@ -325,6 +348,11 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
       `${(ms / 1000).toFixed(2)}s ${tipo}` +
         ` | touches(${(ne.touches || []).length}): ${fmt(ne.touches)}` +
         ` | changed(${(ne.changedTouches || []).length}): ${fmt(ne.changedTouches)}` +
+        // tsNat = timestamp que pone el SISTEMA al evento; reloj = cuándo lo
+        // procesó el JS. Si el sistema dice que dos eventos van separados 125 ms
+        // pero el JS los ve en el mismo instante, es entrega en bloque, no un
+        // toque corto de verdad.
+        ` | tsNat:${Math.round(ne.timestamp || 0)} reloj:${now() % 100000}` +
         ` | -> izq:${pressLeft.current ? 1 : 0} der:${pressRight.current ? 1 : 0} orden:${entrada.current}`,
     );
     if (l.length > TOUCH_LOG_N) l.shift();
@@ -361,6 +389,11 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     dedos.current = 0;
     entrada.current = 0;
     ultimoLado.current = 0;
+    // Cancelado por el sistema: no hay soltar de verdad, así que no se
+    // reconstruye duración ninguna — se corta el pulso y se limpia.
+    pulsoHasta.current = 0;
+    tsAbajo.current = 0;
+    relojAbajo.current = 0;
     if (evt && evt.nativeEvent) logTouch('TERMIN', evt.nativeEvent);
   }
 
@@ -494,6 +527,8 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     ultimoLado.current = 0;
     pulsoDir.current = 0;
     pulsoHasta.current = 0;
+    tsAbajo.current = 0;
+    relojAbajo.current = 0;
     entradaEfectiva.current = 0;
     touchLog.current = [];
     setView(toView(g.current, false, ghostPoseAt(ghostRef.current, 0, ghostIdxRef)));

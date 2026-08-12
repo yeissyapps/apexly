@@ -73,15 +73,19 @@ export const CONFIG = {
   STEER_EASE_IN: 0.1, // s
   STEER_EASE_OUT: 0.03, // s
 
-  // Duración MÍNIMA que se le concede a un toque, aunque el sistema diga que
-  // el dedo se levantó antes. En iOS, medido en grabaciones reales, la mitad
-  // de los toques llegan con "pulsar" y "soltar" en el mismo frame (menos de
-  // 16 ms): 18 de 37 en una sola vuelta. Sin esto, esos toques no giran nada
-  // y la sensación es que el juego no responde salvo apretando fuerte.
+  // SOLO como respaldo: duración que se le concede a un toque cuando el
+  // sistema no da un timestamp nativo usable. Lo normal es reconstruir la
+  // duración REAL del dedo desde `nativeEvent.timestamp` (ver applyTouches en
+  // Game.js) — que es lo que de verdad importa, porque la duración del toque
+  // ES la intención del jugador: ~55 ms para abrirse en recta, ~125 ms para
+  // ajustar en una chicane, 300-900 ms para una horquilla (medido leyendo el
+  // táctil por hardware en el Android de JC: 41 toques, mínimo 55 ms, mediana
+  // 125 ms, ninguno por debajo de 20 ms).
   //
-  // 130 ms > STEER_EASE_IN (100 ms), así que un toque suelto llega a meter el
-  // volante a tope. Por debajo de eso el toque se nota a medias y no arregla
-  // la sensación. No alarga los toques normales: es solo un suelo.
+  // En iOS la mitad de los toques llegan con "pulsar" y "soltar" en el mismo
+  // instante, lo cual es falso. Darles a todos un valor fijo (como hacía la
+  // versión anterior de esto) rompe la proporción: un toque de 55 ms recibía
+  // más del doble de giro y una horquilla de 600 ms una quinta parte.
   MIN_INPUT_MS: 130,
 
   // --- Colisión con muros -------------------------------------------------
