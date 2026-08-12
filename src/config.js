@@ -35,20 +35,20 @@ export const CONFIG = {
   // nota). El primer valor (220 -> -70 u/s²) resultó demasiado sutil en
   // pista: en 0,4s de curva apenas perdías un 11% de velocidad.
   //
-  // REVERTIDO a este valor (y todo el bloque de --- Giro --- de abajo) tras
-  // media noche entera intentando "arreglar" la física de las horquillas en
-  // iOS con un modelo nuevo (suelo de velocidad, giro por radio, tope de
-  // rebote, empuje pasivo al rozar). Todo eso PARECÍA necesario porque el
-  // coche se comportaba mal en iOS — pero JC confirmó que su referencia de
-  // "en Android va perfecto" es la build de PRODUCCIÓN ya publicada
-  // (versionCode 7, commit 61de5b0), que YA llevaba este mismo
-  // TURN_SPEED_DRAG=350 y el modelo de giro de grados fijos de más abajo, sin
-  // ningún suelo de velocidad ni tope de rebote ni empuje pasivo. Esa build
-  // va bien en Android CON esta física exacta. Así que la física nunca fue
-  // el problema — es la entrega de eventos táctiles en iOS (más escasa/por
-  // lotes que en Android), que sí se ha arreglado por separado (ver
-  // MIN_INPUT_MS y applyTouches en Game.js). Tocar la física para compensar
-  // un problema de toques solo creaba un juego distinto al que ya funcionaba.
+  // Historia, porque costó cara: durante una sesión larga se intentó arreglar
+  // el comportamiento en horquillas con un modelo de giro nuevo (giro por
+  // radio, tope de rebote, empuje pasivo al rozar) y se revirtió todo, porque
+  // la referencia de "en Android va perfecto" es la build de producción
+  // (versionCode 7, commit 61de5b0) que lleva ESTE mismo valor y el modelo de
+  // giro de grados fijos de abajo. Lección: el grueso del problema no era la
+  // física sino la entrega de eventos táctiles en iOS (ver MIN_INPUT_MS y
+  // applyTouches en Game.js); cambiar la física para compensar un problema de
+  // toques solo creaba un juego distinto al que ya funcionaba.
+  //
+  // Lo único de física que SÍ hizo falta es el suelo de aquí abajo
+  // (MIN_TURN_SPEED), y por un motivo propio y medible: -200 u/s² netos dejan
+  // el coche a 0 en una horquilla. Eso no se notaba en los circuitos de
+  // chicanes pero rompe los de horquillas.
   TURN_SPEED_DRAG: 350, // u/s^2 de frenado extra a volante a tope
 
   // Suelo del frenado por volante (u/s). NO es un mínimo absoluto: si ya vas
