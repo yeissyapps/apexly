@@ -1082,7 +1082,6 @@ function initialState(track) {
     lastImpact: -9999,
     trackIdx: 0,     // último tramo conocido de la línea central (búsqueda local)
     touching: false, // ¿pegado al muro ahora mismo? (para no recontar el choque)
-    wallNx: 0, wallNy: 0, // normal hacia dentro del último contacto (ver empuje pasivo)
     stunUntil: 0,
     flashUntil: 0,
     startTime: 0,
@@ -1193,46 +1192,23 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
 
   const cap = C.MAX_SPEED * W.speedMul;
   const turnBrake = C.TURN_SPEED_DRAG * Math.abs(s.steer);
-  // El suelo solo actúa MIENTRAS giras: el frenado por volante nunca puede
-  // dejarte parado a mitad de curva (a 0 u/s el coche pirueta sobre sí mismo).
-  // Chocar y rozar sí siguen pudiendo bajarte de aquí: eso se aplica más abajo
-  // y no pasa por este clamp.
-  const floor = Math.abs(s.steer) > 0.01 ? Math.min(C.MIN_TURN_SPEED, cap) : 0;
-  s.speed = clamp(s.speed + (C.ACCEL - turnBrake) * dt, floor, cap);
+  s.speed = clamp(s.speed + (C.ACCEL - turnBrake) * dt, 0, cap);
 
+  // REVERTIDO al modelo de producción (grados/segundo, más giro cuanto más
+  // lento vas) tras confirmar que la build de Android que JC llama "perfecta"
+  // (versionCode 7, ya en la Play Store) usa EXACTAMENTE esta fórmula y este
+  // TURN_SPEED_DRAG — sin suelo de velocidad, sin giro por radio, sin tope de
+  // rebote, sin empuje pasivo al rozar. Esa build funciona bien en Android, así
+  // que la física nunca fue el problema. El bug era de entrega de eventos
+  // táctiles en iOS, ya corregido aparte (ver MIN_INPUT_MS más arriba y
+  // applyTouches). Ver también el historial de este archivo si hace falta
+  // recuperar el modelo por radio para otra cosa.
   const stunned = t < s.stunUntil;
   if (!stunned) {
-    // El giro se define por el RADIO del arco, no por grados/segundo. Antes era
-    // al revés (grados/segundo fijos, y encima MÁS altos cuanto más lento ibas),
-    // así que al bajar la velocidad el radio se desplomaba y el coche trompeaba:
-    // a 110 u/s daba un radio de 34, cuando la curva más cerrada del generador
-    // tiene radio 72. Giraba tres veces más de lo que ninguna curva pide.
-    //
-    // Con omega = velocidad / radio, el coche describe SIEMPRE el mismo arco
-    // vaya como vaya, y a velocidad 0 sencillamente no gira (no puede piruetear
-    // sobre sí mismo, que era el otro fallo). A tope de velocidad da 143°/s,
-    // exactamente lo mismo que la versión que iba bien.
     const speedFrac = cap > 0 ? s.speed / cap : 0;
-    const radioGiro = C.TURN_RADIUS_SLOW + (C.TURN_RADIUS_FAST - C.TURN_RADIUS_SLOW) * speedFrac;
-    const turnRateRad = s.speed / radioGiro; // rad/s
+    const turnFactor = 1 + (C.TURN_RATE_AT_MAX_SPEED - 1) * speedFrac;
+    const turnRateRad = ((C.TURN_RATE_MAX_DEG * Math.PI) / 180) * turnFactor;
     s.heading += turnRateRad * s.steer * dt;
-
-    // EMPUJE PASIVO al rozar sin volante activo. Sin esto, el rumbo NUNCA
-    // cambia si no tocas la pantalla — y "rozar en paralelo" es un equilibrio
-    // estable: la física no te separa sola. Reproducido con el circuito real
-    // del nivel 1: sueltas el dedo tras chocar y el coche se queda pegado al
-    // muro EL RESTO DE LA VUELTA, con el rumbo congelado. Este empuje corrige
-    // el rumbo hacia dentro poco a poco mientras estás pegado y no estás
-    // forzando el volante (|steer| bajo) — no compite con tu control activo,
-    // solo evita el atasco cuando sueltas.
-    if (s.touching && Math.abs(s.steer) < 0.3 && (s.wallNx !== 0 || s.wallNy !== 0)) {
-      const inwardHeading = Math.atan2(s.wallNy, s.wallNx);
-      let dh = inwardHeading - s.heading;
-      while (dh > Math.PI) dh -= 2 * Math.PI;
-      while (dh < -Math.PI) dh += 2 * Math.PI;
-      const maxPush = ((C.WALL_PASSIVE_TURN_DEG * Math.PI) / 180) * dt;
-      s.heading += clamp(dh, -maxPush, maxPush);
-    }
   }
 
   const vx = Math.cos(s.heading) * s.speed;
@@ -1256,8 +1232,6 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
     const inv = near.dist || 1;
     const nx = (near.x - s.x) / inv;
     const ny = (near.y - s.y) / inv;
-    s.wallNx = nx;
-    s.wallNy = ny;
     s.x = near.x - nx * radius;
     s.y = near.y - ny * radius;
     const vn = vx * nx + vy * ny;
@@ -1277,18 +1251,7 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
         const rvx = vx - k * nx;
         const rvy = vy - k * ny;
         s.speed = Math.hypot(rvx, rvy) * (1 - C.CRASH_SPEED_LOSS);
-        // El rumbo del rebote (billar, sin tope) puede girar 100-150° de golpe
-        // en un impacto casi de frente — grabación real: +147° y -102° en un
-        // solo frame, sin que el jugador tocara nada. Se tapa a CRASH_MAX_TURN
-        // por rebote en vez de aplicar el ángulo de billar entero.
-        if (rvx !== 0 || rvy !== 0) {
-          const bounceHeading = Math.atan2(rvy, rvx);
-          let dh = bounceHeading - s.heading;
-          while (dh > Math.PI) dh -= 2 * Math.PI;
-          while (dh < -Math.PI) dh += 2 * Math.PI;
-          dh = Math.max(-C.CRASH_MAX_TURN, Math.min(C.CRASH_MAX_TURN, dh));
-          s.heading += dh;
-        }
+        if (rvx !== 0 || rvy !== 0) s.heading = Math.atan2(rvy, rvx);
         s.stunUntil = t + C.CRASH_STUN_MS;
         s.flashUntil = t + 140;
         s.lastImpact = t;

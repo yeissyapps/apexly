@@ -30,64 +30,34 @@ export const CONFIG = {
   // decisión real — girar fuerte = más lento pero más cerrado, girar suave
   // = más rápido pero más ancho — en vez de que todo el mundo llegue a tope
   // de velocidad (MAX_SPEED) y solo importe la precisión del volante.
-  // A volante a tope (steer=1) el ritmo neto es ACCEL - TURN_SPEED_DRAG.
-  // El primer valor (220 -> -70 u/s²) resultó demasiado sutil en pista: en
-  // 0,4s de curva apenas perdías un 11% de velocidad. Se subió a 350
-  // (-200 u/s²) y ESO FUE EL ERROR: se subió a ojo, sin volver a pisar
-  // pista ("a falta de sentirla otra vez", decía este mismo comentario).
+  // A volante a tope (steer=1) y velocidad máxima, el ritmo neto es
+  // ACCEL - TURN_SPEED_DRAG = 150-350 = -200 u/s² (frena de verdad y se
+  // nota). El primer valor (220 -> -70 u/s²) resultó demasiado sutil en
+  // pista: en 0,4s de curva apenas perdías un 11% de velocidad.
   //
-  // Medido en una grabación real (iOS, build 31, 22,9s de vuelta): a -200
-  // u/s² el coche llega a CERO en 0,3-0,6s en cuanto mantienes el volante,
-  // y a 0 u/s el giro va a su máximo (TURN_RATE_MAX_DEG), así que pirueta
-  // parado en mitad de la curva. Pasó 20 veces en una sola vuelta:
-  //   4,02s  64 u/s -> 4,40s  0 u/s, y de ahí girando solo -117° -> -143°
-  //   6,14s  71 u/s -> 6,55s  0 u/s, girando 34° -> 108° sin avanzar
-  // No era un fallo de iOS: el Android que iba bien es la versión anterior,
-  // que no tenía esta frenada. Eran dos juegos distintos.
-  //
-  // 240 => -90 u/s² netos: desde 250 u/s, un segundo de volante a tope te
-  // deja en 160 (pierdes el 36%, se nota y sigue siendo una decisión), pero
-  // no te para. El suelo MIN_TURN_SPEED remata el caso extremo.
-  TURN_SPEED_DRAG: 240, // u/s^2 de frenado extra a volante a tope
-
-  // Suelo de velocidad MIENTRAS giras (no se aplica si no tocas el volante,
-  // ni en un choque — solo limita el frenado POR VOLANTE). Es la segunda mitad
-  // del arreglo: aunque bajemos TURN_SPEED_DRAG, entrar a una horquilla ya
-  // lento seguiría pudiendo llevarte a 0, y a 0 el coche pirueta parado.
-  //
-  // 110 = 44% de MAX_SPEED. El primer intento fue 60 (24%) y se quedó corto:
-  // a 60 u/s el coche se arrastra y la curva se eterniza.
-  //
-  // Con el giro por radio (ver TURN_RADIUS_*), este suelo ya NO es lo que
-  // impide la pirueta — eso lo resuelve que omega sea proporcional a la
-  // velocidad. Aquí solo marca el ritmo mínimo en curva: a 110 u/s el coche
-  // traza radio 80, que pasa por la curva más cerrada de todos los circuitos
-  // generados (la peor medida: 72, y el carril da 43 de margen extra).
-  MIN_TURN_SPEED: 110, // u/s
+  // REVERTIDO a este valor (y todo el bloque de --- Giro --- de abajo) tras
+  // media noche entera intentando "arreglar" la física de las horquillas en
+  // iOS con un modelo nuevo (suelo de velocidad, giro por radio, tope de
+  // rebote, empuje pasivo al rozar). Todo eso PARECÍA necesario porque el
+  // coche se comportaba mal en iOS — pero JC confirmó que su referencia de
+  // "en Android va perfecto" es la build de PRODUCCIÓN ya publicada
+  // (versionCode 7, commit 61de5b0), que YA llevaba este mismo
+  // TURN_SPEED_DRAG=350 y el modelo de giro de grados fijos de más abajo, sin
+  // ningún suelo de velocidad ni tope de rebote ni empuje pasivo. Esa build
+  // va bien en Android CON esta física exacta. Así que la física nunca fue
+  // el problema — es la entrega de eventos táctiles en iOS (más escasa/por
+  // lotes que en Android), que sí se ha arreglado por separado (ver
+  // MIN_INPUT_MS y applyTouches en Game.js). Tocar la física para compensar
+  // un problema de toques solo creaba un juego distinto al que ya funcionaba.
+  TURN_SPEED_DRAG: 350, // u/s^2 de frenado extra a volante a tope
 
   // --- Giro ---------------------------------------------------------------
-  // El giro se define por el RADIO del arco que describe el coche a volante a
-  // tope, en unidades de mundo. La velocidad de giro sale de ahí:
-  //     omega = velocidad / radio     (rad/s)
-  //
-  // Antes esto eran grados/segundo fijos (220), y encima MÁS giro cuanto MÁS
-  // lento ibas. Mientras el coche iba siempre a tope (no existía la frenada al
-  // girar) eso daba un radio de ~100 y funcionaba. En cuanto la frenada bajó la
-  // velocidad de crucero, el radio se desplomó: a 110 u/s el coche giraba con
-  // radio 34 y hacía trompos. Medido en el propio generador, LA CURVA MÁS
-  // CERRADA QUE EXISTE tiene radio 72 (mediana 180-320), o sea que el coche
-  // giraba tres veces más de lo que ninguna curva llega a pedir.
-  //
-  // Con el radio fijado, el coche traza siempre el mismo arco vaya rápido o
-  // lento, y a velocidad 0 no gira nada — desaparece de raíz la pirueta sobre
-  // sí mismo.
-  //
-  //   FAST (100) a velocidad máxima => 143°/s, calcado a la versión que iba
-  //     bien, y encaja con las curvas medias del circuito.
-  //   SLOW (65) a velocidad ~0 => permite cerrar una horquilla de radio 72
-  //     apurando, sin llegar a poder trompear.
-  TURN_RADIUS_FAST: 100, // unidades de mundo, a MAX_SPEED
-  TURN_RADIUS_SLOW: 65, // unidades de mundo, a velocidad ~0
+  // Grados por segundo que puede girar el coche a velocidad ~0 (giro máximo).
+  TURN_RATE_MAX_DEG: 220,
+  // A velocidad máxima el giro se reduce a este factor del máximo (0..1).
+  // Ej: 0.65 => a tope de velocidad todavía gira el 65% que gira lento.
+  // Esto es lo que hace que "a más velocidad, gire menos" (pero sin pasarse).
+  TURN_RATE_AT_MAX_SPEED: 0.65,
 
   // Ease del volante (no es giro instantáneo):
   // segundos que tarda el volante en ir de 0 a full al PULSAR (in) y de full
@@ -137,16 +107,6 @@ export const CONFIG = {
   //   0.15 ->  408 ms pegado, se despega en 0,99 s, recupera los 250 u/s
   //   0.40 -> 3208 ms pegado (pinball), se queda en 59 u/s
   CRASH_BOUNCE: 0.15,
-  // Tope de cuánto puede girarte el RUMBO un solo rebote (el rumbo del
-  // rebote, sin tope, es el de la velocidad reflejada tipo billar — en un
-  // impacto muy de frente eso puede girarte 100-150° de golpe, SIN que el
-  // jugador toque nada). Grabación real en iOS: +147° y -102° en un solo
-  // frame — esto es lo que se siente como "gira muchísimo" de forma que no
-  // encaja con lo que estás tocando, porque no tiene nada que ver con el
-  // volante. 60° sigue siendo un golpe real (pierdes velocidad y el
-  // aturdimiento sigue igual), pero no te lanza a una dirección casi opuesta
-  // a ciegas.
-  CRASH_MAX_TURN: (60 * Math.PI) / 180, // rad
   // Cuánto hay que separarse del muro (unidades de mundo) para que el
   // siguiente toque cuente como un choque NUEVO. Mientras sigues pegado,
   // deslizas sin castigo en vez de encadenar choques.
@@ -167,17 +127,6 @@ export const CONFIG = {
   // A 2.2/s, un segundo pegado te deja al 11% de velocidad: apoyarte castiga,
   // pero conservas el control (a diferencia de encadenar choques).
   WALL_DRAG: 2.2,
-  // Empuje pasivo hacia dentro (grados/s) mientras rozas SIN forzar el
-  // volante (|steer| < 0.3). Es el arreglo del bug más grave encontrado en
-  // toda la sesión: sin esto, "rozar en paralelo" es un equilibrio estable —
-  // el rumbo no cambia solo, así que si sueltas el dedo pegado al muro (algo
-  // completamente normal, "para replantear") te quedas ahí para siempre. Lo
-  // reproduje con el circuito real del nivel 1 de Carrera (semilla fija):
-  // soltar tras chocar dejaba el coche pegado el RESTO de la vuelta, rumbo
-  // congelado. Con 80°/s, en el mismo escenario, el tiempo pegado al muro
-  // baja de 89% a 52% en 12s simulados. No compite con tu volante activo (por
-  // debajo de |steer| 0.3 apenas se nota si estás corrigiendo tú).
-  WALL_PASSIVE_TURN_DEG: 80,
 
   // --- Coche (tamaño de la caja de colisión, en unidades de mundo) --------
   CAR_LENGTH: 32,
