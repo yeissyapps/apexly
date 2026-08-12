@@ -51,6 +51,21 @@ export const CONFIG = {
   // un problema de toques solo creaba un juego distinto al que ya funcionaba.
   TURN_SPEED_DRAG: 350, // u/s^2 de frenado extra a volante a tope
 
+  // Suelo del frenado por volante (u/s). NO es un mínimo absoluto: si ya vas
+  // más lento (por un choque) el volante simplemente deja de frenarte, nunca
+  // te empuja. Ver el detalle en stepSimulation, Game.js.
+  //
+  // Existe porque una horquilla pide más de un segundo de volante mantenido, y
+  // a -200 u/s² netos eso te deja en 0 a mitad de curva. A 0 el coche gira
+  // sobre sí mismo sin avanzar y se queda clavado al muro — es lo que rompe el
+  // nivel 2 (Horquillas) y no se nota en el 1 (Chicanes), donde no hace falta
+  // mantener el volante tanto tiempo.
+  //
+  // 110 = 44% de MAX_SPEED: girar a tope sigue costando más de la mitad de tu
+  // velocidad, que era la intención de TURN_SPEED_DRAG, pero deja de ser un
+  // parón total.
+  MIN_TURN_SPEED: 110, // u/s
+
   // --- Giro ---------------------------------------------------------------
   // Grados por segundo que puede girar el coche a velocidad ~0 (giro máximo).
   TURN_RATE_MAX_DEG: 220,

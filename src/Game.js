@@ -1227,7 +1227,20 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
 
   const cap = C.MAX_SPEED * W.speedMul;
   const turnBrake = C.TURN_SPEED_DRAG * Math.abs(s.steer);
-  s.speed = clamp(s.speed + (C.ACCEL - turnBrake) * dt, 0, cap);
+  // Suelo del FRENADO POR VOLANTE. Una horquilla necesita más de un segundo de
+  // volante mantenido, y a -200 u/s² eso te deja en 0 a mitad de curva; a 0 el
+  // coche gira sobre sí mismo sin avanzar y se queda clavado al muro. Visto en
+  // la traza del nivel 2 (Horquillas): choque a 54 u/s, sigues girando porque
+  // la curva lo pide, 0 u/s en 0,28 s y luego 100° de giro parado contra la
+  // pared.
+  //
+  // OJO con la forma de escribirlo: un `Math.max(suelo, ...)` a secas SUBE la
+  // velocidad de golpe si venías más lento (medido: 63 -> 110 u/s en un frame
+  // justo después de un choque). Por eso el suelo se limita a `s.speed`: si ya
+  // vas por debajo, el volante deja de frenarte pero no te empuja. Chocar y
+  // rozar siguen pudiendo bajarte de aquí, se aplican más abajo.
+  const sueloGiro = Math.abs(s.steer) > 0.01 ? Math.min(C.MIN_TURN_SPEED, cap, s.speed) : 0;
+  s.speed = clamp(s.speed + (C.ACCEL - turnBrake) * dt, sueloGiro, cap);
 
   // REVERTIDO al modelo de producción (grados/segundo, más giro cuanto más
   // lento vas) tras confirmar que la build de Android que JC llama "perfecta"
