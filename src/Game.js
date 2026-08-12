@@ -1082,6 +1082,7 @@ function initialState(track) {
     lastImpact: -9999,
     trackIdx: 0,     // último tramo conocido de la línea central (búsqueda local)
     touching: false, // ¿pegado al muro ahora mismo? (para no recontar el choque)
+    wallNx: 0, wallNy: 0, // normal hacia dentro del último contacto (ver empuje pasivo)
     stunUntil: 0,
     flashUntil: 0,
     startTime: 0,
@@ -1222,6 +1223,23 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
     const radioGiro = C.TURN_RADIUS_SLOW + (C.TURN_RADIUS_FAST - C.TURN_RADIUS_SLOW) * speedFrac;
     const turnRateRad = s.speed / radioGiro; // rad/s
     s.heading += turnRateRad * s.steer * dt;
+
+    // EMPUJE PASIVO al rozar sin volante activo. Sin esto, el rumbo NUNCA
+    // cambia si no tocas la pantalla — y "rozar en paralelo" es un equilibrio
+    // estable: la física no te separa sola. Reproducido con el circuito real
+    // del nivel 1: sueltas el dedo tras chocar y el coche se queda pegado al
+    // muro EL RESTO DE LA VUELTA, con el rumbo congelado. Este empuje corrige
+    // el rumbo hacia dentro poco a poco mientras estás pegado y no estás
+    // forzando el volante (|steer| bajo) — no compite con tu control activo,
+    // solo evita el atasco cuando sueltas.
+    if (s.touching && Math.abs(s.steer) < 0.3 && (s.wallNx !== 0 || s.wallNy !== 0)) {
+      const inwardHeading = Math.atan2(s.wallNy, s.wallNx);
+      let dh = inwardHeading - s.heading;
+      while (dh > Math.PI) dh -= 2 * Math.PI;
+      while (dh < -Math.PI) dh += 2 * Math.PI;
+      const maxPush = ((C.WALL_PASSIVE_TURN_DEG * Math.PI) / 180) * dt;
+      s.heading += clamp(dh, -maxPush, maxPush);
+    }
   }
 
   const vx = Math.cos(s.heading) * s.speed;
@@ -1245,6 +1263,8 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
     const inv = near.dist || 1;
     const nx = (near.x - s.x) / inv;
     const ny = (near.y - s.y) / inv;
+    s.wallNx = nx;
+    s.wallNy = ny;
     s.x = near.x - nx * radius;
     s.y = near.y - ny * radius;
     const vn = vx * nx + vy * ny;

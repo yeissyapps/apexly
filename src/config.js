@@ -167,6 +167,17 @@ export const CONFIG = {
   // A 2.2/s, un segundo pegado te deja al 11% de velocidad: apoyarte castiga,
   // pero conservas el control (a diferencia de encadenar choques).
   WALL_DRAG: 2.2,
+  // Empuje pasivo hacia dentro (grados/s) mientras rozas SIN forzar el
+  // volante (|steer| < 0.3). Es el arreglo del bug más grave encontrado en
+  // toda la sesión: sin esto, "rozar en paralelo" es un equilibrio estable —
+  // el rumbo no cambia solo, así que si sueltas el dedo pegado al muro (algo
+  // completamente normal, "para replantear") te quedas ahí para siempre. Lo
+  // reproduje con el circuito real del nivel 1 de Carrera (semilla fija):
+  // soltar tras chocar dejaba el coche pegado el RESTO de la vuelta, rumbo
+  // congelado. Con 80°/s, en el mismo escenario, el tiempo pegado al muro
+  // baja de 89% a 52% en 12s simulados. No compite con tu volante activo (por
+  // debajo de |steer| 0.3 apenas se nota si estás corrigiendo tú).
+  WALL_PASSIVE_TURN_DEG: 80,
 
   // --- Coche (tamaño de la caja de colisión, en unidades de mundo) --------
   CAR_LENGTH: 32,
