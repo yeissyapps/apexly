@@ -1257,7 +1257,18 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
         const rvx = vx - k * nx;
         const rvy = vy - k * ny;
         s.speed = Math.hypot(rvx, rvy) * (1 - C.CRASH_SPEED_LOSS);
-        if (rvx !== 0 || rvy !== 0) s.heading = Math.atan2(rvy, rvx);
+        // El rumbo del rebote (billar, sin tope) puede girar 100-150° de golpe
+        // en un impacto casi de frente — grabación real: +147° y -102° en un
+        // solo frame, sin que el jugador tocara nada. Se tapa a CRASH_MAX_TURN
+        // por rebote en vez de aplicar el ángulo de billar entero.
+        if (rvx !== 0 || rvy !== 0) {
+          const bounceHeading = Math.atan2(rvy, rvx);
+          let dh = bounceHeading - s.heading;
+          while (dh > Math.PI) dh -= 2 * Math.PI;
+          while (dh < -Math.PI) dh += 2 * Math.PI;
+          dh = Math.max(-C.CRASH_MAX_TURN, Math.min(C.CRASH_MAX_TURN, dh));
+          s.heading += dh;
+        }
         s.stunUntil = t + C.CRASH_STUN_MS;
         s.flashUntil = t + 140;
         s.lastImpact = t;
