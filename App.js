@@ -45,6 +45,7 @@ import { levelSpec, gapMsFor, weatherForLevel, CAREER_AD_BATCH } from './src/car
 import { GroupHome, GrandPrixStandings } from './src/GrandPrix';
 import { gpCircuitSpec, gpWeather, GP_AD_BATCH } from './src/gpData';
 import ShineBadge from './src/ShineBadge';
+import Tour, { tourRef, isTourDone } from './src/Tour';
 import { CAR_DEFAULTS } from './src/car';
 
 const TRACKMAP_W = Dimensions.get('window').width - 18 * 2 - 14 * 2; // screenContent + panel
@@ -113,6 +114,9 @@ export default function App() {
   const [homeStanding, setHomeStanding] = useState(null); // { rank, total, above } resumen de rivalidad para Diario
   const [challenge, setChallenge] = useState(null); // { ms } reto recibido por deep link, si es de hoy
   const [tab, setTab] = useState('diario'); // pestaña activa de Inicio: diario | amigos | carrera
+  // Recorrido guiado de la primera apertura. null = aún no sabemos si toca
+  // (lo dice AsyncStorage); false = no toca o ya terminó; true = corriendo.
+  const [tourOn, setTourOn] = useState(null);
   const [careerLevel, setCareerLevel] = useState(null); // nivel de Modo Carrera en juego, o null
   const [careerResult, setCareerResult] = useState(null); // { level, ms, passed, gapMs } del último intento
   const [nomoreReturn, setNomoreReturn] = useState('playing'); // a qué screen volver tras ver el anuncio en 'nomore'
@@ -463,10 +467,29 @@ export default function App() {
     getMyLoadout().then(setLoadout).catch(() => {});
   }, [nickname, refreshKey]);
 
-  // Registrar token de notificaciones una vez que hay nickname.
+  // Recorrido guiado: solo la primera vez que se llega a Inicio con nickname.
+  // El guard de ref evita volver a consultarlo cada vez que se vuelve a Inicio
+  // desde una partida (si no, al terminar el tour y luego correr una vuelta,
+  // el efecto se dispararía otra vez antes de que AsyncStorage esté escrito).
+  // `null` = todavía no sabemos si toca; hace falta distinguirlo de false para
+  // que el permiso de notificaciones no se pida antes de tiempo (ver abajo).
+  const tourChecked = useRef(false);
   useEffect(() => {
-    if (PUSH_ENABLED && nickname) registerPushToken().catch(() => {});
-  }, [nickname]);
+    if (tourChecked.current || !nickname || screen !== 'home') return;
+    tourChecked.current = true;
+    isTourDone().then((done) => setTourOn(!done));
+  }, [nickname, screen]);
+
+  // Registrar token de notificaciones una vez que hay nickname... pero NO
+  // mientras corre el tour. Medido en dispositivo: el diálogo de permisos de
+  // Android salta justo al entrar a Inicio, que es cuando arranca el tour, y
+  // se pone por encima tapándolo. Además pedir el permiso antes de haber
+  // explicado para qué sirve es la mejor forma de que te lo denieguen: ahora
+  // se pide al terminar el recorrido, cuando ya sabe qué son las rachas y el
+  // Grand Prix (que es de lo que avisan las notificaciones).
+  useEffect(() => {
+    if (PUSH_ENABLED && nickname && tourOn === false) registerPushToken().catch(() => {});
+  }, [nickname, tourOn]);
 
   // Init: sesión anónima + ¿tenemos nickname?
   useEffect(() => {
@@ -695,7 +718,14 @@ export default function App() {
 
   // home
   return (
-    <AppShell tab={tab} setTab={setTab} nickname={nickname} wallet={wallet} onOpenProfile={() => setScreen('perfil')}>
+    <AppShell
+      tab={tab}
+      setTab={setTab}
+      nickname={nickname}
+      wallet={wallet}
+      onOpenProfile={() => setScreen('perfil')}
+      tour={tourOn ? <Tour steps={TOUR_STEPS} onDone={() => setTourOn(false)} /> : null}
+    >
       {tab === 'diario' && (
         <DiarioTab
           refreshKey={refreshKey}
@@ -786,6 +816,54 @@ function StreakPath({ current }) {
   );
 }
 
+// Pasos del recorrido guiado (ver src/Tour.js). Los que llevan `target`
+// resaltan un trozo real de la interfaz; el de la racha no puede, porque en
+// la primera apertura el camino de la racha todavía no se pinta (hace falta
+// racha >= 1) — así que enseña el MISMO componente con una racha de ejemplo.
+// Compartir no está: vive en la pantalla de Resultado y no tiene sentido
+// explicarlo antes de haber corrido una vuelta.
+const TOUR_STEPS = [
+  {
+    title: 'Bienvenido a Apexly',
+    body: 'Cada día se genera un circuito nuevo, y es el mismo para todo el mundo. Mismo trazado, mismo clima, mismas condiciones: gana quien mejor lo conduzca.\n\nTe enseño lo básico en medio minuto.',
+  },
+  {
+    target: 'circuito',
+    title: 'El circuito de hoy',
+    body: 'Cambia cada 24 horas. Debajo del nombre tienes el tiempo de referencia de una vuelta limpia y el clima, que afecta al agarre y a la velocidad punta. El número de la esquina son los intentos que te quedan hoy.',
+  },
+  {
+    target: 'cta',
+    title: 'Tu vuelta',
+    body: 'El coche acelera solo: tú únicamente giras, tocando el lado izquierdo o derecho de la pantalla. Cuanto más fuerte giras, más frena — trazar bien es ir rápido.\n\nTienes 3 intentos al día; cuando se acaben puedes ver un anuncio para conseguir más.',
+  },
+  {
+    target: 'ranking',
+    title: 'Ranking global',
+    body: 'Tu mejor tiempo del día entra aquí solo. Compites contra todos los que han corrido exactamente el mismo circuito que tú, y al cerrar el día los primeros se llevan monedas.',
+  },
+  {
+    title: 'La racha',
+    demo: <StreakPath current={3} />,
+    body: 'Corre al menos una vuelta cada día y la racha sube. Cada día paga más monedas — 5, 10, 15, 20 — y el séptimo cae un sobre con piezas para el coche.\n\nSi te saltas un día, vuelve a empezar de cero.',
+  },
+  {
+    target: 'tab-amigos',
+    title: 'Amigos y Grand Prix',
+    body: 'Crea un grupo y pasa el código a tus amigos. Dentro de un grupo podéis arrancar un Grand Prix: 7 circuitos exclusivos vuestros, uno por día, con puntos de F1 (25-18-15…) y una clasificación general.',
+  },
+  {
+    target: 'tab-carrera',
+    title: 'Modo carrera',
+    body: '30 niveles en solitario, de dificultad creciente. Cada uno te pide bajar de un tiempo objetivo para desbloquear el siguiente, y los últimos añaden viento y lluvia.',
+  },
+  {
+    target: 'perfil',
+    title: 'Perfil, garaje y tienda',
+    body: 'Aquí ves tus estadísticas y entras al Garaje, para personalizar el coche, y a la Tienda, donde se gastan las monedas en sobres. Las piezas del coche salen de esos sobres.',
+  },
+];
+
 // Pop-up "premios de ayer": una vez por día, al abrir la app por primera
 // vez, resume lo que se cobró (racha + ranking) desde la última entrada.
 function RecapModal({ rewards, onClose }) {
@@ -872,7 +950,9 @@ function DiarioTab({
         </View>
       )}
 
-      <View style={rd.panel}>
+      {/* collapsable={false}: en Android una View que solo agrupa se fusiona
+          con su padre y deja de ser medible — el tour necesita medirla. */}
+      <View style={rd.panel} ref={tourRef('circuito')} collapsable={false}>
         <View style={rd.panelHeadRow}>
           <Text style={rd.labelMono}>CIRCUITO DE HOY</Text>
           <View style={rd.attBadge}>
@@ -891,14 +971,16 @@ function DiarioTab({
         Próximo circuito en <Text style={rd.countdownValue}>{midnightLabel}</Text>
       </Text>
 
-      <Pressable style={rd.cta} onPress={tryPlay}>
+      <Pressable style={rd.cta} onPress={tryPlay} ref={tourRef('cta')} collapsable={false}>
         <Text style={rd.ctaText}>{unlimited || left > 0 ? 'Jugar' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
       </Pressable>
 
       {/* Ranking GLOBAL completo — vive aquí (es el del reto diario), no en
           Amigos (que ahora es solo grupos/Grand Prix). */}
-      <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING GLOBAL DE HOY</Text>
-      <MiniRanking refreshKey={refreshKey} showTabs={false} />
+      <View style={rd.rankingBlock} ref={tourRef('ranking')} collapsable={false}>
+        <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING GLOBAL DE HOY</Text>
+        <MiniRanking refreshKey={refreshKey} showTabs={false} />
+      </View>
 
       {DEV_WEATHER && (
         <View style={styles.devRow}>
@@ -1067,14 +1149,20 @@ function CoinIcon({ color }) {
 
 // Cabecera fija + barra de pestañas — envuelve las 3 pestañas de arriba.
 // Perfil (stats + Garaje + Tienda) vive fuera, es pantalla completa aparte.
-function AppShell({ tab, setTab, nickname, wallet, onOpenProfile, children }) {
+function AppShell({ tab, setTab, nickname, wallet, onOpenProfile, tour, children }) {
   return (
     <View style={rd.shell}>
       <StatusBar hidden />
       <DangerStripe height={6} />
 
       <View style={rd.appHeader}>
-        <Pressable style={rd.profileBtn} onPress={onOpenProfile} hitSlop={6}>
+        <Pressable
+          style={rd.profileBtn}
+          onPress={onOpenProfile}
+          hitSlop={6}
+          ref={tourRef('perfil')}
+          collapsable={false}
+        >
           <ProfileIcon color={RD.textPrimary} />
           {wallet?.pendingPacks > 0 && <View style={rd.profileBadge} />}
         </Pressable>
@@ -1094,12 +1182,26 @@ function AppShell({ tab, setTab, nickname, wallet, onOpenProfile, children }) {
           estándar de RN para exactamente este problema, más fiable). */}
       <SafeAreaView edges={['bottom']} style={rd.tabBar}>
         {TABS.map((t) => (
-          <Pressable key={t.id} style={rd.tabBarBtn} onPress={() => setTab(t.id)} hitSlop={4}>
+          <Pressable
+            key={t.id}
+            style={rd.tabBarBtn}
+            onPress={() => setTab(t.id)}
+            hitSlop={4}
+            ref={tourRef(`tab-${t.id}`)}
+            collapsable={false}
+          >
             <Text style={[rd.tabBarBtnText, tab === t.id && rd.tabBarBtnTextActive]}>{t.label}</Text>
             {tab === t.id && <View style={rd.tabBarIndicator} />}
           </Pressable>
         ))}
       </SafeAreaView>
+
+      {/* El tour va DENTRO del shell y no en un Modal a propósito: mide los
+          elementos con measureInWindow (coordenadas de ventana) y el shell
+          arranca justo en 0,0 de la ventana, así que los recortes caen
+          exactos. Un Modal en Android mete su propio desplazamiento y los
+          descuadraría. Va el último para quedar por encima de todo. */}
+      {tour}
     </View>
   );
 }
@@ -1233,6 +1335,10 @@ const rd = StyleSheet.create({
 
   cta: { backgroundColor: RD.brandOrange, borderRadius: 2, paddingVertical: 16, alignItems: 'center' },
   ctaDisabled: { opacity: 0.4 },
+  // El bloque de ranking (rótulo + lista) va envuelto para que el tour pueda
+  // resaltarlo entero. El `gap` reproduce el que daba el contenedor cuando
+  // eran dos hijos sueltos — sin él la lista se pegaría al rótulo.
+  rankingBlock: { gap: 16 },
   ctaText: {
     color: RD.bg, fontSize: 22, fontFamily: RD_FONT.displayBlack,
     textTransform: 'uppercase', letterSpacing: 0.6,
