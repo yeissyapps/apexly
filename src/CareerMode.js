@@ -50,7 +50,7 @@ export default function CareerMode({ unlimited, result, onPlayLevel, onDismissRe
   if (loading) {
     return (
       <View style={s.center}>
-        <ActivityIndicator color={RD.brandOrange} />
+        <ActivityIndicator color={RD.brand} />
       </View>
     );
   }
@@ -110,7 +110,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderRadius: 2, paddingHorizontal: 12, paddingVertical: 10,
   },
   resultPass: { borderColor: RD.successGreen, backgroundColor: 'rgba(56,217,122,0.1)' },
-  resultFail: { borderColor: RD.dangerRed, backgroundColor: 'rgba(255,92,92,0.1)' },
+  resultFail: { borderColor: RD.danger, backgroundColor: 'rgba(255,92,92,0.1)' },
   resultText: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.mono, flex: 1, marginRight: 8 },
   resultClose: { color: RD.textSecondary, fontSize: 14 },
 

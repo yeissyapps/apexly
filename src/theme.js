@@ -69,13 +69,12 @@ export const RD = {
   textSecondary: '#a7a7a7',
   textTertiary: '#8c8c8c',
   textDisabled: '#6f6f6f',
-  // PRUEBA (12/08): rojo del icono nuevo en vez de naranja, a ver qué tal se
-  // siente jugando. Mismo hex exacto que la racha del icono (#e4002b),
-  // sacado por pixel del propio asset — no es un rojo "parecido", es el
-  // mismo. Sigue siendo el único acento de marca: CTA, sector activo,
-  // detalle coche — el nombre del token no cambia aunque el tono sí, para no
-  // tocar los 9 archivos que lo usan. Si se descarta, volver a '#ff5a1f'.
-  brandOrange: '#e4002b',
+  // Acento de marca, de uso restringido: CTA, sector activo, detalle del
+  // coche. Es el MISMO rojo del icono de la app (sacado por pixel del propio
+  // asset, no un rojo parecido), para que lo de fuera y lo de dentro sean la
+  // misma marca. Nombre semántico a propósito: si algún día cambia el tono,
+  // el token sigue significando lo mismo.
+  brand: '#e4002b',
   gold1st: '#f0c451',
   gold1stShade: '#7a5610',
   silver2nd: '#a7a7a7',
@@ -87,11 +86,10 @@ export const RD = {
   youMagentaBg: '#1a1210',
   cream: '#eae4d6',
   trackBlue: '#4fa9ff',    // nombre del circuito · logro "1.º de tu grupo"
-  // Con la marca ahora en rojo, "vas por detrás" no puede seguir siendo
-  // rojo también (competían por el mismo significado — ver design review).
-  // Pasa a ocupar el naranja que deja libre la marca: sigue leyendo como
-  // aviso/alerta, y ahora además queda claramente distinto del acento.
-  dangerRed: '#ff5a1f',    // vas por detrás del fantasma
+  // Aviso ("vas por detrás del fantasma"). Va en naranja y NO en rojo a
+  // propósito: con la marca en rojo, un aviso rojo competiría por el mismo
+  // significado y el jugador no sabría si es acento o alerta.
+  danger: '#ff5a1f',
 };
 
 export const RD_FONT = {

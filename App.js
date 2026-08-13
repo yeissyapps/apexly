@@ -8,7 +8,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Animated, Dimensions, Linking, Modal, Pressable, ScrollView,
+  ActivityIndicator, Animated, Dimensions, Linking, Modal, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
@@ -27,11 +27,8 @@ import {
 import Game from './src/Game';
 import { todayKey, dayOffset } from './src/daily';
 import { dailyCircuit } from './src/generator';
-import { dailyWeather, weatherById, WEATHER_IDS, NEUTRAL } from './src/weather';
+import { dailyWeather, NEUTRAL } from './src/weather';
 
-// Modo de prueba: muestra un selector de clima en Inicio para ver los 4 efectos
-// sin esperar a la fecha. false = build de producción (capturas de tienda).
-const DEV_WEATHER = false;
 import { fmtTime, fmtSecs, fmtCountdown } from './src/format';
 import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS } from './src/theme';
 import DangerStripe from './src/DangerStripe';
@@ -55,12 +52,11 @@ import {
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
   getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
   getMyLoadout, getWallet, claimDailyReward, getRecentRewards, claimShareReward, claimCareerLevel,
-  devAdvanceStreakDay, devGrantCoins,
   submitGpResult, notifyGpOvertake,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
-import { loadAttempts, consumeAttempt, grantBatch, resetAttempts, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
+import { loadAttempts, consumeAttempt, grantBatch, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
 import { PUSH_ENABLED, intentosTxt } from './src/features';
 import { CONFIG } from './src/config';
 import { initAds, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError } from './src/ads';
@@ -123,7 +119,6 @@ export default function App() {
   const [sectorBests, setSectorBests] = useState(null); // { [sector]: ms } mejor del mundo hoy
   const [loadout, setLoadout] = useState(CAR_DEFAULTS); // personalización del coche (garaje)
 
-  const [forceWx, setForceWx] = useState(null); // id de clima forzado (modo prueba)
   const [att, setAtt] = useState({ used: 0, bonus: 0 }); // intentos del día (circuito diario)
   const [careerAtt, setCareerAtt] = useState({ used: 0, bonus: 0 }); // intentos del nivel de Carrera en juego — cupo PROPIO, no comparte con el diario
   const [gpGroup, setGpGroup] = useState(null); // { id, name } grupo cuyo Grand Prix se está viendo/jugando
@@ -163,10 +158,7 @@ export default function App() {
     [gpActive?.id, gpRoundIndex],
   );
   const midnightLabel = useMidnightCountdown();
-  const weather = useMemo(
-    () => (forceWx ? weatherById(forceWx) : dailyWeather(todayKey())),
-    [forceWx],
-  );
+  const weather = useMemo(() => dailyWeather(todayKey()), []);
 
   // Cargar el fantasma (tu mejor vuelta) del día + el mejor tiempo de cada
   // sector hoy entre todos (para el morado estilo F1 en el HUD de juego).
@@ -425,24 +417,6 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
-  // DEV ONLY: probar racha/monedas sin esperar días reales (ver economy_dev.sql).
-  async function handleDevAdvanceDay() {
-    try {
-      await devAdvanceStreakDay();
-      Alert.alert('OK', 'Fecha adelantada 1 día — juega una vuelta AHORA para que la racha suba. Si le das otra vez sin jugar antes, no pasa nada (a propósito).');
-    } catch (e) {
-      Alert.alert('Error', String(e?.message || e));
-    }
-    setRefreshKey((k) => k + 1);
-  }
-  async function handleDevGrantCoins() {
-    try {
-      await devGrantCoins(200);
-    } catch (e) {
-      Alert.alert('Error', String(e?.message || e));
-    }
-    setRefreshKey((k) => k + 1);
-  }
 
   // Loadout del coche (garaje): al tener nickname, y al volver del garaje.
   useEffect(() => {
@@ -730,11 +704,6 @@ export default function App() {
           unlimited={unlimited}
           tryPlay={tryPlay}
           privacyOptional={privacyOptional}
-          forceWx={forceWx}
-          setForceWx={setForceWx}
-          setAtt={setAtt}
-          onDevAdvanceDay={handleDevAdvanceDay}
-          onDevGrantCoins={handleDevGrantCoins}
         />
       )}
       {tab === 'amigos' && <AmigosTab refreshKey={refreshKey} onOpenGroup={openGroupHome} />}
@@ -891,7 +860,7 @@ function RecapModal({ rewards, onClose }) {
 // y en Perfil, ya no aquí, para no duplicar info entre sitios.
 function DiarioTab({
   refreshKey, myStreak, wallet, homeStanding, recap, onCloseRecap, challenge, onCloseChallenge, daily, weather, midnightLabel,
-  left, total, unlimited, tryPlay, privacyOptional, forceWx, setForceWx, setAtt, onDevAdvanceDay, onDevGrantCoins,
+  left, total, unlimited, tryPlay, privacyOptional,
 }) {
   return (
     <>
@@ -968,27 +937,6 @@ function DiarioTab({
         <MiniRanking refreshKey={refreshKey} showTabs={false} />
       </View>
 
-      {DEV_WEATHER && (
-        <View style={styles.devRow}>
-          <Text style={styles.devLabel}>🧪 Clima (prueba)</Text>
-          <View style={styles.devChips}>
-            <DevChip label="Real" active={!forceWx} onPress={() => setForceWx(null)} />
-            {WEATHER_IDS.map((id) => (
-              <DevChip key={id} label={weatherById(id).icon} active={forceWx === id} onPress={() => setForceWx(id)} />
-            ))}
-          </View>
-          <Pressable style={styles.devReset} onPress={() => resetAttempts(todayKey()).then(setAtt).catch(() => {})}>
-            <Text style={styles.devResetText}>↺ Reiniciar intentos (ahora {left})</Text>
-          </Pressable>
-          <Pressable style={styles.devReset} onPress={onDevAdvanceDay}>
-            <Text style={styles.devResetText}>📅 Avanzar racha 1 día</Text>
-          </Pressable>
-          <Pressable style={styles.devReset} onPress={onDevGrantCoins}>
-            <Text style={styles.devResetText}>🪙 +200 monedas</Text>
-          </Pressable>
-        </View>
-      )}
-
       {privacyOptional && (
         <Pressable style={rd.privacyLink} onPress={() => showPrivacyOptions()} hitSlop={8}>
           <Text style={rd.privacyLinkText}>Privacidad de anuncios</Text>
@@ -1043,7 +991,7 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
   }
 
   if (groups == null) {
-    return <ActivityIndicator color={RD.brandOrange} style={{ marginTop: 24 }} />;
+    return <ActivityIndicator color={RD.brand} style={{ marginTop: 24 }} />;
   }
 
   return (
@@ -1225,7 +1173,7 @@ const rd = StyleSheet.create({
   profileBtnText: { color: RD.textPrimary, fontSize: 14, fontFamily: RD_FONT.monoBold },
   profileBadge: {
     position: 'absolute', top: -1, right: -1, width: 9, height: 9, borderRadius: 5,
-    backgroundColor: RD.brandOrange, borderWidth: 1.5, borderColor: RD.bg,
+    backgroundColor: RD.brand, borderWidth: 1.5, borderColor: RD.bg,
   },
   tabScreenContent: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 24, gap: 16 },
   tabBar: {
@@ -1235,17 +1183,17 @@ const rd = StyleSheet.create({
   tabBarBtn: { flex: 1, alignItems: 'center', gap: 6, paddingVertical: 4 },
   tabBarBtnText: { color: RD.textDisabled, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
   tabBarBtnTextActive: { color: RD.textPrimary },
-  tabBarIndicator: { width: 18, height: 2, backgroundColor: RD.brandOrange },
+  tabBarIndicator: { width: 18, height: 2, backgroundColor: RD.brand },
   streakChip: {
     borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 7, paddingVertical: 4,
   },
   streakChipText: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold },
 
   challengeBanner: {
-    borderWidth: 1, borderColor: RD.brandOrange, borderRadius: 2,
+    borderWidth: 1, borderColor: RD.brand, borderRadius: 2,
     paddingVertical: 8, alignItems: 'center', backgroundColor: 'rgba(255,90,31,0.1)',
   },
-  challengeBannerText: { color: RD.brandOrange, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
+  challengeBannerText: { color: RD.brand, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
 
   streakPath: { marginTop: 4 },
   streakDotsRow: { flexDirection: 'row', alignItems: 'center' },
@@ -1257,7 +1205,7 @@ const rd = StyleSheet.create({
     backgroundColor: RD.bg, alignItems: 'center', justifyContent: 'center',
   },
   streakDotDone: { borderColor: RD.gold1st, backgroundColor: RD.gold1stShade },
-  streakDotToday: { borderColor: RD.brandOrange, borderWidth: 2 },
+  streakDotToday: { borderColor: RD.brand, borderWidth: 2 },
   streakDotText: { color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.monoBold },
   streakDotTextDone: { color: RD.gold1st },
   streakLabelsRow: { flexDirection: 'row', marginTop: 4 },
@@ -1273,7 +1221,7 @@ const rd = StyleSheet.create({
   streakGiftText: {
     position: 'absolute', width: 44, left: -11, textAlign: 'center', fontSize: 7.5, letterSpacing: 0.3,
   },
-  streakGiftDone: { color: RD.brandOrange, fontFamily: RD_FONT.monoBold },
+  streakGiftDone: { color: RD.brand, fontFamily: RD_FONT.monoBold },
 
   recapBackdrop: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center', padding: 24,
@@ -1289,7 +1237,7 @@ const rd = StyleSheet.create({
   recapRowLabel: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono },
   recapRowValue: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.monoBold },
   recapBtn: {
-    alignSelf: 'stretch', backgroundColor: RD.brandOrange, borderRadius: 2,
+    alignSelf: 'stretch', backgroundColor: RD.brand, borderRadius: 2,
     paddingVertical: 12, alignItems: 'center', marginTop: 6,
   },
   recapBtnText: {
@@ -1319,7 +1267,7 @@ const rd = StyleSheet.create({
   countdown: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, textAlign: 'center' },
   countdownValue: { color: RD.textPrimary, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
 
-  cta: { backgroundColor: RD.brandOrange, borderRadius: 2, paddingVertical: 16, alignItems: 'center' },
+  cta: { backgroundColor: RD.brand, borderRadius: 2, paddingVertical: 16, alignItems: 'center' },
   ctaDisabled: { opacity: 0.4 },
   // El bloque de ranking (rótulo + lista) va envuelto para que el tour pueda
   // resaltarlo entero. El `gap` reproduce el que daba el contenedor cuando
@@ -1374,9 +1322,9 @@ const rd = StyleSheet.create({
     textTransform: 'uppercase', marginBottom: 4,
   },
   msgOk: { color: RD.successGreen, fontSize: 13, fontFamily: RD_FONT.mono },
-  msgErr: { color: RD.dangerRed, fontSize: 13, fontFamily: RD_FONT.mono },
+  msgErr: { color: RD.danger, fontSize: 13, fontFamily: RD_FONT.mono },
   noAttemptsBody: { color: RD.textSecondary, fontSize: 14, lineHeight: 20, marginTop: 4 },
-  noAttemptsMsg: { color: RD.brandOrange, fontSize: 13, fontFamily: RD_FONT.mono, textAlign: 'center' },
+  noAttemptsMsg: { color: RD.brand, fontSize: 13, fontFamily: RD_FONT.mono, textAlign: 'center' },
   noAttemptsSkip: { color: RD.textTertiary, fontSize: 13, fontFamily: RD_FONT.mono, textAlign: 'center' },
   orDivider: {
     color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono,
@@ -1454,7 +1402,7 @@ function Onboarding({ onDone }) {
       <DangerStripe height={6} />
       <View style={rd.onboardWrap}>
         <View style={rd.onboardBrand}>
-          <Text style={rd.onboardTitle}>APEX<Text style={{ color: RD.brandOrange }}>LY</Text></Text>
+          <Text style={rd.onboardTitle}>APEX<Text style={{ color: RD.brand }}>LY</Text></Text>
           <Text style={rd.onboardTagline}>CIRCUITO DIARIO</Text>
         </View>
 
@@ -1714,7 +1662,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
                   <View style={rd.sectorSplitDivider} />
                   <View style={rd.sectorSplitCol}>
                     <Text style={rd.sectorSplitLabel}>TOTAL</Text>
-                    <Text style={[rd.sectorSplitValue, { color: total <= 0 ? RD.successGreen : RD.dangerRed }]}>
+                    <Text style={[rd.sectorSplitValue, { color: total <= 0 ? RD.successGreen : RD.danger }]}>
                       {`${total <= 0 ? '−' : '+'}${(Math.abs(total) / 1000).toFixed(3)}s`}
                     </Text>
                   </View>
@@ -1765,12 +1713,6 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     </ScrollView>
   );
 }
-
-const DevChip = ({ label, active, onPress }) => (
-  <Pressable onPress={onPress} style={[styles.devChip, active && styles.devChipOn]}>
-    <Text style={[styles.devChipText, active && styles.devChipTextOn]}>{label}</Text>
-  </Pressable>
-);
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
@@ -1852,15 +1794,6 @@ const styles = StyleSheet.create({
   sharePill: { color: C.purple, backgroundColor: 'rgba(184,132,255,0.18)', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, fontSize: 11, fontWeight: '700', overflow: 'hidden' },
 
 
-  devRow: { marginTop: 16, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.line, borderStyle: 'dashed' },
-  devLabel: { color: C.faint, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 },
-  devChips: { flexDirection: 'row', gap: 8 },
-  devChip: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: C.card2, borderWidth: 1, borderColor: C.line },
-  devChipOn: { backgroundColor: C.card, borderColor: C.hot },
-  devChipText: { color: C.dim, fontSize: 15, fontWeight: '700' },
-  devChipTextOn: { color: C.ink },
-  devReset: { marginTop: 10, alignItems: 'center', paddingVertical: 8, borderRadius: 10, backgroundColor: C.card2, borderWidth: 1, borderColor: C.line },
-  devResetText: { color: C.dim, fontSize: 13, fontWeight: '700' },
 
   privacyLink: { alignItems: 'center', marginTop: 20, paddingVertical: 6 },
   privacyLinkText: { color: C.faint, fontSize: 12, fontWeight: '600', textDecorationLine: 'underline' },

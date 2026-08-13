@@ -201,7 +201,7 @@ const s = StyleSheet.create({
   highlight: {
     position: 'absolute',
     borderWidth: 2,
-    borderColor: RD.brandOrange,
+    borderColor: RD.brand,
     borderRadius: 3,
   },
   card: {
@@ -232,7 +232,7 @@ const s = StyleSheet.create({
   },
   skip: { color: RD.textDisabled, fontSize: 12, fontFamily: RD_FONT.mono },
   nextBtn: {
-    backgroundColor: RD.brandOrange, borderRadius: 2,
+    backgroundColor: RD.brand, borderRadius: 2,
     paddingHorizontal: 18, paddingVertical: 10,
   },
   nextBtnText: { color: RD.bg, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.8 },

@@ -846,7 +846,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
               SECTOR {Math.min(view.sector + 1, SECTOR_COUNT)}/{SECTOR_COUNT}
             </Text>
             {view.phase !== 'ready' && view.ghostDeltaMs != null && (
-              <Text style={[rd.sectorDelta, { color: view.ghostDeltaMs <= 0 ? RD.successGreen : RD.dangerRed }]}>
+              <Text style={[rd.sectorDelta, { color: view.ghostDeltaMs <= 0 ? RD.successGreen : RD.danger }]}>
                 {view.ghostDeltaMs <= 0 ? 'FANTASMA −' : 'FANTASMA +'}{Math.abs(view.ghostDeltaMs / 1000).toFixed(2)}
               </Text>
             )}
@@ -863,7 +863,7 @@ const SECTOR_COLORS = {
   yellow: '#ffd83d',
   none: RD.cream,          // sector cerrado sin con qué compararlo
   pending: RD.panelBorder, // aún no llegas
-  active: RD.brandOrange,  // el que estás recorriendo ahora
+  active: RD.brand,  // el que estás recorriendo ahora
 };
 
 const rd = StyleSheet.create({

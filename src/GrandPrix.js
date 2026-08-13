@@ -53,7 +53,7 @@ function SectorBattle({ gpId, dayIndex, myMs, mySectors }) {
       <View style={s.sectorRow}>
         {mySectors.map((ms, i) => {
           const theirs = leader.sectorMs[i];
-          const color = theirs == null ? RD.textTertiary : ms < theirs ? RD.successGreen : RD.dangerRed;
+          const color = theirs == null ? RD.textTertiary : ms < theirs ? RD.successGreen : RD.danger;
           return (
             <View key={i} style={s.sectorChip}>
               <Text style={s.sectorChipLabel}>S{i + 1}</Text>
@@ -195,7 +195,7 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
         )}
 
         {loading ? (
-          <ActivityIndicator color={RD.brandOrange} style={{ marginTop: 24 }} />
+          <ActivityIndicator color={RD.brand} style={{ marginTop: 24 }} />
         ) : !gp ? (
           <>
             <View style={s.actionsRow}>
@@ -214,7 +214,7 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
 
             <Text style={s.labelMono}>MIEMBROS</Text>
             {members == null ? (
-              <ActivityIndicator color={RD.brandOrange} style={{ marginTop: 8 }} />
+              <ActivityIndicator color={RD.brand} style={{ marginTop: 8 }} />
             ) : (
               <View style={s.membersList}>
                 {members.map((m) => (
@@ -246,7 +246,7 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
 
             <Text style={[s.labelMono, { marginTop: 4 }]}>RESULTADOS DE HOY</Text>
             {roundResults == null ? (
-              <ActivityIndicator color={RD.brandOrange} style={{ marginTop: 8 }} />
+              <ActivityIndicator color={RD.brand} style={{ marginTop: 8 }} />
             ) : roundResults.length === 0 ? (
               <Text style={s.body}>Nadie ha clasificado todavía en esta ronda.</Text>
             ) : (
@@ -297,7 +297,7 @@ export function GrandPrixStandings({ group, gp, onBack }) {
         <Text style={s.subtitle}>{group.name}</Text>
 
         {rows == null ? (
-          <ActivityIndicator color={RD.brandOrange} style={{ marginTop: 24 }} />
+          <ActivityIndicator color={RD.brand} style={{ marginTop: 24 }} />
         ) : (
           <View style={s.standingsList}>
             {rows.map((r, i) => {
@@ -348,8 +348,8 @@ const s = StyleSheet.create({
   },
   labelMono: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 0.6 },
   body: { color: RD.textSecondary, fontSize: 13, fontFamily: RD_FONT.mono, lineHeight: 19 },
-  countdown: { color: RD.brandOrange, fontSize: 12, fontFamily: RD_FONT.monoBold },
-  cta: { backgroundColor: RD.brandOrange, borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
+  countdown: { color: RD.brand, fontSize: 12, fontFamily: RD_FONT.monoBold },
+  cta: { backgroundColor: RD.brand, borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
   ctaFlex: { flex: 1.4 },
   ctaDisabled: { opacity: 0.4 },
   ctaText: { color: RD.bg, fontSize: 14, fontFamily: RD_FONT.monoBold, textTransform: 'uppercase' },
@@ -357,7 +357,7 @@ const s = StyleSheet.create({
   secondaryBtnText: { color: RD.trackBlue, fontSize: 13, fontFamily: RD_FONT.monoBold },
   actionsRow: { flexDirection: 'row', gap: 10 },
   actionBtnFlex: { flex: 1 },
-  err: { color: RD.dangerRed, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' },
+  err: { color: RD.danger, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' },
   leaveLink: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' },
 
   membersList: { gap: 1, backgroundColor: RD.gridLine },
@@ -380,7 +380,7 @@ const s = StyleSheet.create({
   },
   resultOk: { borderColor: RD.successGreen, backgroundColor: 'rgba(56,217,122,0.1)' },
   resultPractice: { borderColor: RD.panelBorder, backgroundColor: 'rgba(255,255,255,0.03)' },
-  resultErr: { borderColor: RD.dangerRed, backgroundColor: 'rgba(255,92,92,0.1)' },
+  resultErr: { borderColor: RD.danger, backgroundColor: 'rgba(255,92,92,0.1)' },
   resultText: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.mono, flex: 1, marginRight: 8 },
   resultClose: { color: RD.textSecondary, fontSize: 14 },
 

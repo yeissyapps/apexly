@@ -61,7 +61,7 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
 
   if (isGlobal) {
     if (error) return <>{tabs}<Text style={styles.muted}>No se pudo cargar el ranking.</Text></>;
-    if (!board) return <>{tabs}<View style={styles.center}><ActivityIndicator color={RD.brandOrange} /></View></>;
+    if (!board) return <>{tabs}<View style={styles.center}><ActivityIndicator color={RD.brand} /></View></>;
     if (board.total === 0) return <>{tabs}<Text style={styles.muted}>Aún no hay tiempos. ¡Sé el primero!</Text></>;
 
     const { top, me, aboveRows, belowRows, total } = board;
@@ -110,7 +110,7 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
 
   // Ámbito de grupo: siempre pocos miembros, se listan todos sin ventana.
   if (error) return <>{tabs}<Text style={styles.muted}>No se pudo cargar el ranking.</Text></>;
-  if (!rows) return <>{tabs}<View style={styles.center}><ActivityIndicator color={RD.brandOrange} /></View></>;
+  if (!rows) return <>{tabs}<View style={styles.center}><ActivityIndicator color={RD.brand} /></View></>;
   if (rows.length === 0) return <>{tabs}<Text style={styles.muted}>Nadie de este grupo ha jugado hoy.</Text></>;
 
   const podium = rows.slice(0, 3);
