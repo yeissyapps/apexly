@@ -46,6 +46,7 @@ import { GroupHome, GrandPrixStandings } from './src/GrandPrix';
 import { gpCircuitSpec, gpWeather, GP_AD_BATCH } from './src/gpData';
 import ShineBadge from './src/ShineBadge';
 import Tour, { tourRef, isTourDone } from './src/Tour';
+import { noteRaceFinished } from './src/rate';
 import { CAR_DEFAULTS } from './src/car';
 
 const TRACKMAP_W = Dimensions.get('window').width - 18 * 2 - 14 * 2; // screenContent + panel
@@ -280,6 +281,10 @@ export default function App() {
     }
     setCareerResult({ level: n, ms, passed, gapMs });
     setScreen('home');
+    // El otro buen momento: acabas de desbloquear el siguiente nivel. Si has
+    // fallado el tiempo NO se pide — pedir valoración justo después de perder
+    // es la forma más rápida de llevarte una estrella.
+    noteRaceFinished(passed);
   }
 
   // Abrir la pantalla de un grupo concreto (desde Amigos): si ya tiene GP
@@ -521,8 +526,14 @@ export default function App() {
       setResult({ ms, isBest, submitting: false, streak, impacts, sectorColors, sectorDeltas });
       logRaceFinish({ ms, isBest });
       if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs); // fire-and-forget: avisa a quien adelantaste
+      // Valoración: mejorar tu propia marca es el mejor momento del diario
+      // para pedirla (ver src/rate.js). Va después de pintar el resultado,
+      // para que el diálogo del sistema caiga sobre la pantalla de Resultado
+      // y no sobre una pantalla a medias.
+      noteRaceFinished(isBest);
     } catch (e) {
       setResult({ ms, isBest: false, submitting: false, error: true, impacts, sectorColors, sectorDeltas });
+      noteRaceFinished(false); // cuenta el uso, pero sin pedir nada tras un error
     }
     setRefreshKey((k) => k + 1);
   }
