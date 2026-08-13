@@ -55,11 +55,9 @@ const CONDS = [
     steerMul: 1, speedMul: 1, wind: 18 },
 ];
 
-// IDs de condiciones (para el selector de prueba), en orden.
-export const WEATHER_IDS = CONDS.map((c) => c.id);
-
-// Fuerza una condición concreta (para el modo de prueba). Viento con dirección
-// diagonal fija para que el efecto se vea claro.
+// Devuelve una condición concreta por id. La usa el Modo Carrera, que asigna
+// el clima por nivel en vez de por fecha (ver weatherForLevel en career.js).
+// Viento con dirección diagonal fija para que el efecto se vea claro.
 export function weatherById(id) {
   const c = CONDS.find((x) => x.id === id) || CONDS[0];
   const windX = c.wind > 0 ? c.wind * 0.7 : 0;

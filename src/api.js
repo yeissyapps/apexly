@@ -293,19 +293,6 @@ export async function claimCareerLevel(level, ms) {
   return row?.cleared ?? level;
 }
 
-// ---- DEV ONLY (ver economy_dev.sql) — probar racha/monedas sin esperar
-// días reales. Detrás del flag DEV_WEATHER en App.js; quitar las funciones
-// de Supabase antes de que la economía llegue a jugadores reales.
-export async function devAdvanceStreakDay() {
-  await ensureSession();
-  await supabase.rpc('dev_advance_streak_day');
-}
-
-export async function devGrantCoins(amount = 200) {
-  await ensureSession();
-  await supabase.rpc('dev_grant_coins', { p_amount: amount });
-}
-
 // ---- Grupos ----------------------------------------------------------------
 // Lista los grupos del usuario (a los que pertenece).
 export async function listMyGroups() {

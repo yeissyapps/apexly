@@ -207,8 +207,8 @@ export default function Garage({ onBack }) {
 function LockIcon() {
   return (
     <Svg width={14} height={14} viewBox="0 0 16 16">
-      <Path d="M4,7 V5 A4,4 0 0,1 12,5 V7" fill="none" stroke={RD.brandOrange} strokeWidth={1.7} />
-      <Rect x={3} y={7} width={10} height={7} rx={1.5} fill={RD.brandOrange} />
+      <Path d="M4,7 V5 A4,4 0 0,1 12,5 V7" fill="none" stroke={RD.brand} strokeWidth={1.7} />
+      <Rect x={3} y={7} width={10} height={7} rx={1.5} fill={RD.brand} />
     </Svg>
   );
 }
@@ -275,16 +275,16 @@ const s = StyleSheet.create({
   },
   previewBadge: {
     position: 'absolute', bottom: 6, left: 6, right: 6,
-    backgroundColor: 'rgba(0,0,0,0.72)', borderWidth: 1, borderColor: RD.brandOrange,
+    backgroundColor: 'rgba(0,0,0,0.72)', borderWidth: 1, borderColor: RD.brand,
     paddingVertical: 5, alignItems: 'center',
   },
-  previewBadgeText: { color: RD.brandOrange, fontSize: 9, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
+  previewBadgeText: { color: RD.brand, fontSize: 9, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
   tabsRow: { flexDirection: 'row', gap: 6 },
   tab: {
     flex: 1, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
     paddingVertical: 9, alignItems: 'center',
   },
-  tabActive: { borderColor: RD.brandOrange },
+  tabActive: { borderColor: RD.brand },
   tabText: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
   tabTextActive: { color: RD.textPrimary },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' },
@@ -292,9 +292,9 @@ const s = StyleSheet.create({
   swatchStack: { width: 36, height: 36 },
   swatch: { width: 36, height: 36, borderRadius: 2, borderWidth: 2, borderColor: 'transparent' },
   swatchSelected: { borderColor: '#ffffff' },
-  swatchPreviewing: { borderColor: RD.brandOrange },
+  swatchPreviewing: { borderColor: RD.brand },
   swatchLocked: { opacity: 0.3 },
   lockBadge: { position: 'absolute', top: 0, left: 0, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   swatchLabel: { color: RD.textTertiary, fontSize: 8.5, fontFamily: RD_FONT.mono, marginTop: 5, textAlign: 'center', lineHeight: 11 },
-  swatchLabelPreviewing: { color: RD.brandOrange, fontFamily: RD_FONT.monoBold },
+  swatchLabelPreviewing: { color: RD.brand, fontFamily: RD_FONT.monoBold },
 });

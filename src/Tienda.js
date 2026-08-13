@@ -204,10 +204,10 @@ const s = StyleSheet.create({
   card: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 8 },
   cardTitle: { color: RD.textPrimary, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
   cardBody: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, lineHeight: 17 },
-  cardBtn: { borderWidth: 1, borderColor: RD.brandOrange, borderRadius: 2, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
+  cardBtn: { borderWidth: 1, borderColor: RD.brand, borderRadius: 2, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   cardBtnDisabled: { borderColor: RD.panelBorder, opacity: 0.5 },
-  cardBtnText: { color: RD.brandOrange, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
-  errorText: { color: RD.dangerRed, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' },
+  cardBtnText: { color: RD.brand, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
+  errorText: { color: RD.danger, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' },
   progressText: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' },
 
   revealOverlay: {
@@ -221,7 +221,7 @@ const s = StyleSheet.create({
   rarityBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 2 },
   rarityBadgeText: { color: RD.bg, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
   revealLabel: { color: RD.textPrimary, fontSize: 18, fontFamily: RD_FONT.displayBold, textTransform: 'uppercase' },
-  equipBtn: { alignSelf: 'stretch', backgroundColor: RD.brandOrange, borderRadius: 2, paddingVertical: 13, alignItems: 'center', marginTop: 6 },
+  equipBtn: { alignSelf: 'stretch', backgroundColor: RD.brand, borderRadius: 2, paddingVertical: 13, alignItems: 'center', marginTop: 6 },
   equipBtnText: { color: '#04160b', fontSize: 14, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
   laterLink: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, marginTop: 2 },
 });

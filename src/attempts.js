@@ -47,13 +47,6 @@ export async function grantBatch(day, amount = AD_BATCH) {
   return a;
 }
 
-// Reinicia los intentos del día (solo para pruebas).
-export async function resetAttempts(day) {
-  const a = { used: 0, bonus: 0 };
-  await save(day, a);
-  return a;
-}
-
 // Intentos restantes a partir del estado { used, bonus }.
 export function attemptsLeft(a) {
   return FREE_ATTEMPTS + (a?.bonus || 0) - (a?.used || 0);

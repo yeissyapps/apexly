@@ -11,7 +11,7 @@ import { RD } from './theme';
 // damero real del juego — ver ROAD.checkLight/checkDark en Game.js).
 const CHK = 5;
 
-// Rojo del tramo "peor sector" — deliberadamente más saturado que RD.dangerRed
+// Rojo del tramo "peor sector" — deliberadamente más saturado que RD.danger
 // (ese es un rojo-coral suave, aquí queremos que grite "atención" a simple vista).
 const WORST_SECTOR_RED = '#ff1a1a';
 
