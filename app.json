@@ -24,7 +24,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.yeissyapps.circuitodiario",
-      "versionCode": 8,
+      "versionCode": 9,
       "googleServicesFile": "./google-services.json"
     },
     "web": {
