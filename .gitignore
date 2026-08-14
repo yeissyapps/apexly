@@ -48,3 +48,6 @@ supabase/.temp/
 /android
 keystore.properties
 credentials.json
+
+# Salida de tools/contact-sheet.mjs — se regenera con un comando, no se versiona
+catalogo.svg
