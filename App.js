@@ -1125,15 +1125,9 @@ const TABS = [
 // no se entendiera el icono, sino que no tenía identidad y desaparecía al
 // lado del chip dorado de monedas.)
 
-// Icono de moneda — el número solo del saldo no se entendía qué era.
-function CoinIcon({ color }) {
-  return (
-    <Svg width={11} height={11} viewBox="0 0 24 24">
-      <Circle cx="12" cy="12" r="9" fill="none" stroke={color} strokeWidth={2.2} />
-      <Circle cx="12" cy="12" r="4" fill="none" stroke={color} strokeWidth={1.4} />
-    </Svg>
-  );
-}
+// (Aquí vivía CoinIcon, dos círculos concéntricos. Se quitó porque no se leía
+// como "moneda" — podía ser un objetivo, un ajuste o un disco. La palabra
+// MONEDAS ocupa parecido y no deja lugar a dudas.)
 
 // Cabecera fija + barra de pestañas — envuelve las 3 pestañas de arriba.
 // Perfil (stats + Garaje + Tienda) vive fuera, es pantalla completa aparte.
@@ -1158,10 +1152,16 @@ function AppShell({ tab, setTab, nickname, wallet, onOpenProfile, tour, children
         >
           <Identicon seed={nickname} size={20} />
           <Text style={rd.profileBtnName} numberOfLines={1}>{nickname}</Text>
+          {/* El chevron es lo que dice "esto se toca". Sin él, con borde e
+              icono, se leía igual que el chip de monedas de al lado, que NO
+              es un botón. */}
+          <Text style={rd.profileBtnChevron}>›</Text>
           {wallet?.pendingPacks > 0 && <View style={rd.profileBadge} />}
         </Pressable>
+        {/* Rotulado a palabra: el icono de moneda solo no se entendía, y el
+            número suelto podía ser cualquier cosa (puntos, nivel, posición). */}
         <View style={rd.coinChip}>
-          <CoinIcon color={RD.gold1st} />
+          <Text style={rd.coinChipLabel}>MONEDAS</Text>
           <Text style={rd.coinChipText}>{wallet?.balance ?? 0}</Text>
         </View>
       </View>
@@ -1214,11 +1214,14 @@ const rd = StyleSheet.create({
 
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
   coinChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 7, paddingVertical: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 9, paddingVertical: 5,
     backgroundColor: RD.gold1stShade,
   },
-  coinChipText: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold },
+  coinChipLabel: {
+    color: RD.gold1st, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 0.8, opacity: 0.85,
+  },
+  coinChipText: { color: RD.gold1st, fontSize: 13, fontFamily: RD_FONT.monoBold },
 
   // Cabecera fija + barra de pestañas (AppShell) — envuelve Diario/Amigos/Carrera.
   shell: { flex: 1, backgroundColor: RD.bg },
@@ -1235,6 +1238,7 @@ const rd = StyleSheet.create({
   profileBtnName: {
     color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.monoSemibold, flexShrink: 1,
   },
+  profileBtnChevron: { color: RD.textTertiary, fontSize: 15, marginLeft: -2, marginTop: -2 },
   profileBtnText: { color: RD.textPrimary, fontSize: 14, fontFamily: RD_FONT.monoBold },
   profileBadge: {
     position: 'absolute', top: -1, right: -1, width: 9, height: 9, borderRadius: 5,
