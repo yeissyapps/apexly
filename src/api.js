@@ -25,14 +25,37 @@ export async function getLocalNickname() {
   return AsyncStorage.getItem(NICK_KEY);
 }
 
-// Guarda el nickname (local + tabla users). Crea la sesión anónima si hace falta.
+// Guarda el nickname (local + tabla users). Crea la sesión anónima si hace
+// falta. Rechaza nombres ya en uso (comparación sin mayúsculas): lanza un
+// error con code='NICKNAME_TAKEN' que el onboarding atrapa para pedir otro
+// nombre, en vez de dejar avanzar a un jugador con un nombre duplicado.
 export async function saveNickname(nickname) {
   const clean = nickname.trim().slice(0, 16);
   const user = await ensureSession();
+  const { data: existing } = await supabase
+    .from('users')
+    .select('id')
+    .ilike('nickname', clean)
+    .neq('id', user.id)
+    .maybeSingle();
+  if (existing) {
+    const err = new Error('Ese nombre ya lo tiene otro jugador.');
+    err.code = 'NICKNAME_TAKEN';
+    throw err;
+  }
   const { error } = await supabase
     .from('users')
     .upsert({ id: user.id, nickname: clean });
-  if (error) throw error;
+  if (error) {
+    // Respaldo por si dos jugadores mandan el mismo nombre casi a la vez (el
+    // check de arriba no ve al otro todavía) — lo atrapa el índice único.
+    if (error.code === '23505') {
+      const err = new Error('Ese nombre ya lo tiene otro jugador.');
+      err.code = 'NICKNAME_TAKEN';
+      throw err;
+    }
+    throw error;
+  }
   await AsyncStorage.setItem(NICK_KEY, clean);
   return clean;
 }
@@ -88,7 +111,11 @@ export async function getSectorBests(day = todayKey()) {
 export async function submitSectorSplits(sectorMs, day = todayKey()) {
   await ensureSession();
   await Promise.all(sectorMs.map((ms, i) =>
-    supabase.rpc('submit_sector_best', { p_day: day, p_sector: i, p_ms: Math.round(ms) }).catch(() => {})
+    supabase.rpc('submit_sector_best', { p_day: day, p_sector: i, p_ms: Math.round(ms) })
+      .then(({ error }) => {
+        if (error) console.log('[sector_submit_err]', i, error.code, error.message);
+      })
+      .catch((e) => console.log('[sector_submit_throw]', i, e?.message || String(e)))
   ));
 }
 
