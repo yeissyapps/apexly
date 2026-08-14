@@ -297,6 +297,77 @@ export async function getInventory() {
   return (data || []).map((r) => ({ category: r.category, pieceId: r.piece_id }));
 }
 
+// ---- Stats de jugador (Perfil) ---------------------------------------------
+// Contadores de por vida: vueltas, choques, tiempo en pista, mejor vuelta.
+// Devuelve null si la tabla todavía no existe (supabase/stats.sql sin correr),
+// para que el Perfil enseñe un guion en esas casillas en vez de romperse.
+export async function getPlayerStats() {
+  const user = await ensureSession();
+  const { data, error } = await supabase
+    .from('player_stats')
+    .select('laps, crashes, race_ms, best_ms')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (error) return null;
+  if (!data) return { laps: 0, crashes: 0, raceMs: 0, bestMs: null };
+  return { laps: data.laps, crashes: data.crashes, raceMs: Number(data.race_ms), bestMs: data.best_ms };
+}
+
+// Suma una vuelta terminada a los contadores. Fire-and-forget desde el final
+// de carrera: son datos de vitrina, si se pierde uno no pasa nada — nunca
+// debe bloquear ni romper el flujo de resultado.
+export async function recordLap(ms, crashes) {
+  try {
+    await ensureSession();
+    await supabase.rpc('record_lap', { p_ms: Math.round(ms), p_crashes: crashes | 0 });
+  } catch (_) {
+    // tabla sin crear todavía, o sin red: se descarta en silencio
+  }
+}
+
+// Tus mejores tiempos por día (para el gráfico de evolución del Perfil).
+// Devuelve [{ day, ms }] de más antiguo a más reciente.
+export async function getMyDailyHistory(limit = 30) {
+  const user = await ensureSession();
+  const { data, error } = await supabase
+    .from('attempts')
+    .select('day, best_ms')
+    .eq('user_id', user.id)
+    .order('day', { ascending: false })
+    .limit(limit);
+  if (error) return [];
+  return (data || [])
+    .map((r) => ({ day: r.day, ms: r.best_ms }))
+    .reverse();
+}
+
+// Cuántos sectores del día tienes en tu poder (los "morados" estilo F1) y
+// cuántos hay en total. Es la stat de presumir: no es tu tiempo, es cuántos
+// trozos del circuito de hoy son tuyos y de nadie más.
+export async function getMyPurpleSectors(day = todayKey()) {
+  const user = await ensureSession();
+  const { data, error } = await supabase
+    .from('sector_bests')
+    .select('sector, holder_id')
+    .eq('day', day);
+  if (error) return { mine: 0, total: 0 };
+  const rows = data || [];
+  return { mine: rows.filter((r) => r.holder_id === user.id).length, total: rows.length };
+}
+
+// Monedas ganadas en total (solo ingresos: los gastos van en negativo y no
+// cuentan para "cuánto has ganado jugando").
+export async function getLifetimeCoins() {
+  const user = await ensureSession();
+  const { data, error } = await supabase
+    .from('wallet_transactions')
+    .select('amount')
+    .eq('user_id', user.id)
+    .gt('amount', 0);
+  if (error) return 0;
+  return (data || []).reduce((sum, r) => sum + r.amount, 0);
+}
+
 // ---- Modo Carrera (niveles con gap) -----------------------------------------
 // Nivel más alto ya superado (0 = ninguno todavía).
 export async function getCareerProgress() {

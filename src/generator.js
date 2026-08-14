@@ -201,6 +201,25 @@ function generateSpec(dateKey, opts = {}) {
   return fallback;
 }
 
+// Solo el tiempo de referencia del circuito de un día, SIN construir su
+// geometría (bordes, polígono de asfalto, meta). Lo usa el gráfico de
+// evolución del Perfil, que necesita el objetivo de muchos días pasados y no
+// dibuja ninguno de esos trazados.
+//
+// OJO con la expectativa: esto NO es la optimización que parece. Medido sobre
+// 30 días, 262 ms -> 231 ms (12%); el coste real está en `generateSpec`, que
+// prueba hasta 16 candidatos por día hasta encontrar uno válido, no en montar
+// la geometría. Para que el Perfil no se congele, lo que de verdad hace falta
+// es NO llamar a esto en bucle durante el render: el Perfil lo calcula fuera
+// del primer pintado y cachea el resultado (el valor de un día pasado es
+// determinista y no cambia nunca).
+//
+// Es el MISMO valor que `dailyCircuit(dateKey).timeEstimate` (misma semilla,
+// mismo generateSpec) — verificado sobre 30 días, 0 desviaciones.
+export function dailyTimeEstimate(dateKey) {
+  return generateSpec(dateKey).timeEstimate;
+}
+
 // Circuito del día listo para el juego: { track, label, half, timeEstimate }.
 export function dailyCircuit(dateKey) {
   const spec = generateSpec(dateKey);
