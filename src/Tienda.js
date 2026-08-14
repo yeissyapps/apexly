@@ -7,13 +7,14 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import Svg, { Ellipse } from 'react-native-svg';
-import * as Haptics from 'expo-haptics';
 
 import DangerStripe from './DangerStripe';
 import CarSprite from './CarSprite';
 import ShineBadge from './ShineBadge';
+import PackArt from './PackArt';
+import PackReveal from './PackReveal';
 import { RD, RD_FONT } from './theme';
 import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS } from './car';
 import { getWallet, getInventory, getMyLoadout, saveLoadout, openPack } from './api';
@@ -44,9 +45,7 @@ export default function Tienda({ onBack }) {
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [reveal, setReveal] = useState(null); // { category, pieceId, rarity }
-
-  const scale = useRef(new Animated.Value(0.6)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
+  const [revealSource, setRevealSource] = useState('paid'); // para dibujar el sobre correcto al abrirlo
   // Ref además de estado: `busy` (useState) no se actualiza a tiempo entre
   // dos taps casi simultáneos (React no re-renderiza entre medias), así que
   // un doble tap rápido pasaba el check `if (busy) return` dos veces y
@@ -63,16 +62,8 @@ export default function Tienda({ onBack }) {
 
   useEffect(refresh, []);
 
-  useEffect(() => {
-    if (!reveal) return;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    scale.setValue(0.6);
-    opacity.setValue(0);
-    Animated.parallel([
-      Animated.spring(scale, { toValue: 1, friction: 4, tension: 90, useNativeDriver: true }),
-      Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
-    ]).start();
-  }, [reveal]);
+  // La animación de apertura vive entera en PackReveal (secuencia de tres
+  // actos, escalada por rareza) — aquí solo se decide QUÉ se revela.
 
   async function handleOpen(source) {
     if (openingRef.current) return;
@@ -81,6 +72,7 @@ export default function Tienda({ onBack }) {
     setErrorMsg(null);
     try {
       const result = await openPack(source);
+      setRevealSource(source);
       setReveal(result);
       refresh();
     } catch (e) {
@@ -128,27 +120,33 @@ export default function Tienda({ onBack }) {
         </View>
 
         {wallet.pendingPacks > 0 && (
-          <View style={s.card}>
-            <Text style={s.cardTitle}>SOBRES PENDIENTES · {wallet.pendingPacks}</Text>
-            <Text style={s.cardBody}>Regalo de tu racha de 7 días — sin caducar.</Text>
-            <Pressable style={s.cardBtn} onPress={() => handleOpen('free')} disabled={busy}>
-              <Text style={s.cardBtnText}>ABRIR</Text>
-            </Pressable>
+          <View style={[s.card, s.cardWithArt]}>
+            <PackArt width={92} variant="free" serial={wallet.pendingPacks} />
+            <View style={s.cardText}>
+              <Text style={s.cardTitle}>SOBRES PENDIENTES · {wallet.pendingPacks}</Text>
+              <Text style={s.cardBody}>Regalo de tu racha de 7 días — sin caducar.</Text>
+              <Pressable style={s.cardBtn} onPress={() => handleOpen('free')} disabled={busy}>
+                <Text style={s.cardBtnText}>ABRIR</Text>
+              </Pressable>
+            </View>
           </View>
         )}
 
-        <View style={s.card}>
-          <Text style={s.cardTitle}>SOBRE · {PACK_COST} MONEDAS</Text>
-          <Text style={s.cardBody}>
-            1 pieza aleatoria, nunca repetida. 65% rara · 30% épica · 5% legendaria.
-          </Text>
-          <Pressable
-            style={[s.cardBtn, (busy || complete || wallet.balance < PACK_COST) && s.cardBtnDisabled]}
-            onPress={() => handleOpen('paid')}
-            disabled={busy || complete || wallet.balance < PACK_COST}
-          >
-            <Text style={s.cardBtnText}>{complete ? 'COLECCIÓN COMPLETA' : 'COMPRAR Y ABRIR'}</Text>
-          </Pressable>
+        <View style={[s.card, s.cardWithArt]}>
+          <PackArt width={92} variant="paid" serial={ownedCount + 1} />
+          <View style={s.cardText}>
+            <Text style={s.cardTitle}>SOBRE · {PACK_COST} MONEDAS</Text>
+            <Text style={s.cardBody}>
+              1 pieza aleatoria, nunca repetida. 65% rara · 30% épica · 5% legendaria.
+            </Text>
+            <Pressable
+              style={[s.cardBtn, (busy || complete || wallet.balance < PACK_COST) && s.cardBtnDisabled]}
+              onPress={() => handleOpen('paid')}
+              disabled={busy || complete || wallet.balance < PACK_COST}
+            >
+              <Text style={s.cardBtnText}>{complete ? 'COLECCIÓN COMPLETA' : 'COMPRAR Y ABRIR'}</Text>
+            </Pressable>
+          </View>
         </View>
 
         {errorMsg && <Text style={s.errorText}>{errorMsg}</Text>}
@@ -158,28 +156,35 @@ export default function Tienda({ onBack }) {
 
       {reveal && (
         <View style={s.revealOverlay}>
-          <Animated.View style={[s.revealCard, { opacity, transform: [{ scale }] }]}>
-            <Svg width="100%" height={150} viewBox="0 0 200 140">
-              <Ellipse cx={100} cy={104} rx={44} ry={8} fill="#000000" opacity={0.35} />
-              <CarSprite x={100} y={68} deg={-20} scale={3.15} loadout={previewLoadout} />
-            </Svg>
-            {reveal.rarity === 'legendaria' ? (
-              <ShineBadge style={[s.rarityBadge, { backgroundColor: RARITY_COLOR[reveal.rarity] }]}>
-                <Text style={s.rarityBadgeText}>{RARITY_LABEL[reveal.rarity]}</Text>
-              </ShineBadge>
-            ) : (
-              <View style={[s.rarityBadge, { backgroundColor: RARITY_COLOR[reveal.rarity] }]}>
-                <Text style={s.rarityBadgeText}>{RARITY_LABEL[reveal.rarity]}</Text>
-              </View>
-            )}
-            <Text style={s.revealLabel}>{pieceLabel(reveal.category, reveal.pieceId)}</Text>
-            <Pressable style={s.equipBtn} onPress={handleEquip}>
-              <Text style={s.equipBtnText}>EQUIPAR AHORA</Text>
-            </Pressable>
-            <Pressable onPress={() => setReveal(null)} hitSlop={12}>
-              <Text style={s.laterLink}>Seguir</Text>
-            </Pressable>
-          </Animated.View>
+          <PackReveal
+            rarity={reveal.rarity}
+            rarityColor={RARITY_COLOR[reveal.rarity]}
+            variant={revealSource}
+            serial={ownedCount}
+          >
+            <View style={s.revealCard}>
+              <Svg width="100%" height={150} viewBox="0 0 200 140">
+                <Ellipse cx={100} cy={104} rx={44} ry={8} fill="#000000" opacity={0.35} />
+                <CarSprite x={100} y={68} deg={-20} scale={3.15} loadout={previewLoadout} />
+              </Svg>
+              {reveal.rarity === 'legendaria' ? (
+                <ShineBadge style={[s.rarityBadge, { backgroundColor: RARITY_COLOR[reveal.rarity] }]}>
+                  <Text style={s.rarityBadgeText}>{RARITY_LABEL[reveal.rarity]}</Text>
+                </ShineBadge>
+              ) : (
+                <View style={[s.rarityBadge, { backgroundColor: RARITY_COLOR[reveal.rarity] }]}>
+                  <Text style={s.rarityBadgeText}>{RARITY_LABEL[reveal.rarity]}</Text>
+                </View>
+              )}
+              <Text style={s.revealLabel}>{pieceLabel(reveal.category, reveal.pieceId)}</Text>
+              <Pressable style={s.equipBtn} onPress={handleEquip}>
+                <Text style={s.equipBtnText}>EQUIPAR AHORA</Text>
+              </Pressable>
+              <Pressable onPress={() => setReveal(null)} hitSlop={12}>
+                <Text style={s.laterLink}>Seguir</Text>
+              </Pressable>
+            </View>
+          </PackReveal>
         </View>
       )}
     </View>
@@ -202,6 +207,10 @@ const s = StyleSheet.create({
   balanceLabel: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
   balanceValue: { color: RD.gold1st, fontSize: 26, fontFamily: RD_FONT.displayBlack },
   card: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 8 },
+  // Con el sobre dibujado, la tarjeta pasa a dos columnas: arte a la
+  // izquierda, texto y acción a la derecha.
+  cardWithArt: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  cardText: { flex: 1, minWidth: 0, gap: 8 },
   cardTitle: { color: RD.textPrimary, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
   cardBody: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, lineHeight: 17 },
   cardBtn: { borderWidth: 1, borderColor: RD.brand, borderRadius: 2, paddingVertical: 12, alignItems: 'center', marginTop: 4 },

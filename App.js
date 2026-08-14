@@ -32,6 +32,7 @@ import { dailyWeather, NEUTRAL } from './src/weather';
 import { fmtTime, fmtSecs, fmtCountdown } from './src/format';
 import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS } from './src/theme';
 import DangerStripe from './src/DangerStripe';
+import Identicon from './src/Identicon';
 import MiniRanking from './src/MiniRanking';
 import MiniTrackMap from './src/MiniTrackMap';
 import Garage from './src/Garage';
@@ -52,7 +53,7 @@ import {
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
   getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
   getMyLoadout, getWallet, claimDailyReward, getRecentRewards, claimShareReward, claimCareerLevel,
-  submitGpResult, notifyGpOvertake,
+  submitGpResult, notifyGpOvertake, recordLap,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -264,10 +265,11 @@ export default function App() {
     else { setNomoreReturn('career-playing'); setScreen('nomore'); }
   }
 
-  async function handleCareerFinish(ms) {
+  async function handleCareerFinish(ms, trace, sectorSplits, impacts) {
     const n = careerLevel;
     const gapMs = gapMsFor(n, careerSpec.timeEstimate);
     const passed = ms <= gapMs;
+    recordLap(ms, impacts); // cuenta para los contadores del Perfil
     if (passed) {
       try { await claimCareerLevel(n, Math.round(ms)); } catch (_) {}
     }
@@ -320,10 +322,13 @@ export default function App() {
   // servidor); desde la 3ª ('gpAtt.used' ya incluye el intento que se acaba
   // de gastar en startGpAttempt) cada vuelta clasifica y el servidor se
   // queda con tu mejor tiempo — igual que el resto de la app, mejor-de-N.
-  async function handleGpFinish(ms, trace, sectorSplits) {
+  async function handleGpFinish(ms, trace, sectorSplits, impacts) {
     const gp = gpActive;
     const dayIndex = gpRoundIndex;
     const isPractice = gpAtt.used < 3;
+    // También las vueltas de práctica: has estado en pista y te has chocado
+    // igual, aunque esa vuelta no clasifique.
+    recordLap(ms, impacts);
     if (isPractice) {
       setGpResult({ dayIndex, ms, isPractice: true });
       setScreen('group-home');
@@ -489,6 +494,10 @@ export default function App() {
   async function handleFinish(ms, trace, sectorSplits, impacts, sectorColors, sectorDeltas) {
     setResult({ ms, isBest: false, submitting: true, impacts, sectorColors, sectorDeltas });
     setScreen('results');
+    // Contadores de por vida del Perfil (vueltas/choques/tiempo en pista).
+    // Cuenta TODAS las vueltas, no solo las que mejoran: "cuánto has corrido"
+    // no es lo mismo que "cuál es tu récord".
+    recordLap(ms, impacts);
     // Guarda tu mejor vuelta (fantasma) en el móvil.
     saveGhostIfBest(todayKey(), ms, trace).then((g) => { if (g) setGhost(g); }).catch(() => {});
     // Splits de sector de ESTA vuelta (aunque no sea tu mejor tiempo general —
@@ -1086,17 +1095,10 @@ const TABS = [
   { id: 'carrera', label: 'CARRERA' },
 ];
 
-// Icono de perfil (cabeza + hombros) — se probó con la inicial del nombre en
-// un círculo y no se entendía qué era; esto se lee como "perfil" a simple
-// vista, mismo lenguaje SVG a mano que el resto de iconos de la app.
-function ProfileIcon({ color }) {
-  return (
-    <Svg width={16} height={16} viewBox="0 0 24 24">
-      <Circle cx="12" cy="8" r="4" fill="none" stroke={color} strokeWidth={1.8} />
-      <Path d="M4,20.5 C4,15.8 7.6,13 12,13 C16.4,13 20,15.8 20,20.5" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
-    </Svg>
-  );
-}
+// (Aquí vivía ProfileIcon, un contorno genérico de cabeza+hombros. Se
+// sustituyó por el identicon del jugador + su nombre: el problema no era que
+// no se entendiera el icono, sino que no tenía identidad y desaparecía al
+// lado del chip dorado de monedas.)
 
 // Icono de moneda — el número solo del saldo no se entendía qué era.
 function CoinIcon({ color }) {
@@ -1117,6 +1119,11 @@ function AppShell({ tab, setTab, nickname, wallet, onOpenProfile, tour, children
       <DangerStripe height={6} />
 
       <View style={rd.appHeader}>
+        {/* Antes: contorno gris de persona sobre borde #2a2a2c — se perdía al
+            lado del chip de monedas, que va en dorado sobre dorado. Ahora
+            lleva el identicon del jugador (color propio, no genérico) y su
+            nombre, que es lo que lo convierte en "tu sitio" y no en un botón
+            de ajustes cualquiera. */}
         <Pressable
           style={rd.profileBtn}
           onPress={onOpenProfile}
@@ -1124,7 +1131,8 @@ function AppShell({ tab, setTab, nickname, wallet, onOpenProfile, tour, children
           ref={tourRef('perfil')}
           collapsable={false}
         >
-          <ProfileIcon color={RD.textPrimary} />
+          <Identicon seed={nickname} size={20} />
+          <Text style={rd.profileBtnName} numberOfLines={1}>{nickname}</Text>
           {wallet?.pendingPacks > 0 && <View style={rd.profileBadge} />}
         </Pressable>
         <View style={rd.coinChip}>
@@ -1194,8 +1202,13 @@ const rd = StyleSheet.create({
     paddingHorizontal: 18, paddingTop: PAD, paddingBottom: 10,
   },
   profileBtn: {
-    width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: RD.panelBorder,
-    alignItems: 'center', justifyContent: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    paddingLeft: 6, paddingRight: 10, paddingVertical: 5,
+    maxWidth: 190,
+  },
+  profileBtnName: {
+    color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.monoSemibold, flexShrink: 1,
   },
   profileBtnText: { color: RD.textPrimary, fontSize: 14, fontFamily: RD_FONT.monoBold },
   profileBadge: {
