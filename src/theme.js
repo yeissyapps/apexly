@@ -114,6 +114,18 @@ const RD_IDENTICON_PAIRS = [
   ['#ff8f5c', '#b3572c'], // naranja tostado
 ];
 
+// Rareza de las piezas del coche. Vive aquí y no en cada pantalla porque lo
+// usan la Tienda (probabilidades y badge al abrir) y el Garaje (marco de cada
+// pieza): si el azul de "rara" no es EL MISMO en los dos sitios, el jugador
+// no puede aprender el código de color.
+export const RARITY_COLOR = {
+  rara: '#4fa9ff',       // = RD.trackBlue
+  epica: '#d63384',      // = RD.youMagenta
+  legendaria: '#f0c451', // = RD.gold1st
+};
+
+export const RARITY_LABEL = { rara: 'Rara', epica: 'Épica', legendaria: 'Legendaria' };
+
 // Resultado real por sector de una vuelta (no confundir con RD, que es la
 // paleta general): morado = mejor del mundo hoy, verde = mejoraste tu
 // fantasma, amarillo = no lo mejoraste. Usado en el desglose de Resultado.

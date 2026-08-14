@@ -579,6 +579,7 @@ export default function App() {
     return (
       <Garage
         onBack={() => { setRefreshKey((k) => k + 1); setScreen('home'); }}
+        onOpenTienda={() => setScreen('tienda')}
       />
     );
   }
