@@ -28,7 +28,7 @@
 
 import { memo, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
-import Svg, { Ellipse, Line, Path, Rect } from 'react-native-svg';
+import Svg, { Circle, Ellipse, Line, Path, Rect } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 
 import DangerStripe from './DangerStripe';
@@ -49,43 +49,56 @@ const TABS = [
 const GROUP_ORDER = [null, 'rara', 'epica', 'legendaria'];
 const GROUP_LABEL = { null: 'LIBRES', rara: 'RARAS', epica: 'ÉPICAS', legendaria: 'LEGENDARIAS' };
 
-// --- Suelo del garaje, en perspectiva ---------------------------------------
-// Antes era una cuadrícula plana al 14% de opacidad: se leía como una textura
-// de fondo, no como un suelo. Con las filas estrechándose hacia el fondo, el
-// coche pasa a estar APOYADO en algo y el panel deja de ser una caja plana.
-const HORIZON = 46;
-const FLOOR_BOTTOM = 140;
-const FLOOR_ROWS = 7;
-const FLOOR_COLS = 8;
-const HALF_TOP = 34;   // media anchura del suelo en el horizonte
-const HALF_BOTTOM = 190; // media anchura al borde de abajo (se sale del viewBox a propósito)
+// A partir de cuántas piezas compensa agrupar por rareza. Con los 20 colores
+// de carrocería, agrupar da estructura y convierte la lista en un mapa de
+// colección. Pero alerón tiene 5 piezas y librea 4, repartidas en las mismas
+// 4 rarezas: salían CUATRO cabeceras para cuatro piezas, una por pieza. Por
+// debajo de este umbral van en una sola fila, y la rareza sigue leyéndose en
+// el marco de cada pieza (que es donde de verdad importa).
+const GROUP_MIN = 8;
 
-function floorRowY(i) {
-  const t = i / FLOOR_ROWS;
-  return HORIZON + (FLOOR_BOTTOM - HORIZON) * Math.pow(t, 1.9);
-}
-function floorHalfWidth(i) {
-  const t = i / FLOOR_ROWS;
-  return HALF_TOP + (HALF_BOTTOM - HALF_TOP) * Math.pow(t, 1.9);
+// --- Suelo del garaje: plato giratorio, visto DESDE ARRIBA -------------------
+//  Aquí hubo un error de bulto que merece quedar escrito. Se dibujó un suelo
+//  en PERSPECTIVA de un punto (con horizonte y filas estrechándose al fondo)
+//  debajo de un coche que está dibujado CENITAL, visto desde arriba. Son dos
+//  proyecciones incompatibles en el mismo cuadro: el suelo se alejaba y el
+//  coche no, así que el coche parecía recortado y pegado encima en vez de
+//  estar apoyado — justo lo contrario de lo que se buscaba.
+//
+//  El sprite del coche es el MISMO del juego (vista cenital) y no se puede
+//  cambiar, así que manda él: el suelo tiene que ser cenital también. Un
+//  plato giratorio visto desde arriba —anillos concéntricos, borde a cuadros,
+//  marcas radiales— es coherente con esa vista y además explica por qué el
+//  coche da vueltas, cosa que antes no explicaba nada.
+const CX = 100;
+const CY = 70;
+const RING_IN = 49;
+const RING_OUT = 57;
+const RING_SEGMENTS = 24;
+
+const polar = (r, a) =>
+  `${(CX + r * Math.cos(a)).toFixed(2)},${(CY + r * Math.sin(a)).toFixed(2)}`;
+
+// Borde a cuadros del plato: un sector de corona por segmento (arco exterior
+// de ida, arco interior de vuelta).
+const RING_QUADS = [];
+for (let i = 0; i < RING_SEGMENTS; i += 2) {
+  const a0 = (i * 2 * Math.PI) / RING_SEGMENTS;
+  const a1 = ((i + 1) * 2 * Math.PI) / RING_SEGMENTS;
+  RING_QUADS.push(
+    `M${polar(RING_OUT, a0)} A${RING_OUT},${RING_OUT} 0 0 1 ${polar(RING_OUT, a1)}` +
+      ` L${polar(RING_IN, a1)} A${RING_IN},${RING_IN} 0 0 0 ${polar(RING_IN, a0)} Z`,
+  );
 }
 
-const FLOOR_QUADS = [];
-for (let r = 0; r < FLOOR_ROWS; r++) {
-  const y0 = floorRowY(r), y1 = floorRowY(r + 1);
-  const h0 = floorHalfWidth(r), h1 = floorHalfWidth(r + 1);
-  for (let c = 0; c < FLOOR_COLS; c++) {
-    if ((r + c) % 2 !== 0) continue;
-    const u0 = c / FLOOR_COLS, u1 = (c + 1) / FLOOR_COLS;
-    const x0a = 100 - h0 + 2 * h0 * u0, x1a = 100 - h0 + 2 * h0 * u1;
-    const x0b = 100 - h1 + 2 * h1 * u0, x1b = 100 - h1 + 2 * h1 * u1;
-    FLOOR_QUADS.push({
-      d: `M${x0a},${y0} L${x1a},${y0} L${x1b},${y1} L${x0b},${y1} Z`,
-      // Las filas del fondo se desvanecen: sin esto el damero llega nítido
-      // hasta el horizonte y parece un mantel, no un suelo con profundidad.
-      o: 0.05 + 0.13 * (r / FLOOR_ROWS),
-    });
-  }
-}
+// Marcas radiales en cruz, como las guías de un plato de taller.
+const TICKS = [0, 90, 180, 270].map((deg) => {
+  const a = (deg * Math.PI) / 180;
+  return {
+    x1: CX + 20 * Math.cos(a), y1: CY + 20 * Math.sin(a),
+    x2: CX + 44 * Math.cos(a), y2: CY + 44 * Math.sin(a),
+  };
+});
 
 // Escaparate memoizado: se queda con el giro para él solo (ver punto 4 de la
 // cabecera). Solo se repinta cuando cambia la pieza que se está mirando.
@@ -97,18 +110,24 @@ const Showcase = memo(function Showcase({ loadout }) {
   }, []);
 
   return (
-    <Svg width="100%" height={210} viewBox="0 0 200 140">
-      <Rect x={0} y={0} width={200} height={HORIZON} fill="#0e0e10" />
-      {FLOOR_QUADS.map((q, i) => (
-        <Path key={i} d={q.d} fill={RD.cream} opacity={q.o} />
+    <Svg width="100%" height={200} viewBox="0 0 200 140">
+      <Rect x={0} y={0} width={200} height={140} fill="#0d0d0f" />
+      <Circle cx={CX} cy={CY} r={RING_OUT} fill="#161618" />
+      {RING_QUADS.map((d, i) => (
+        <Path key={i} d={d} fill={RD.cream} opacity={0.45} />
       ))}
-      <Line x1={0} y1={HORIZON} x2={200} y2={HORIZON} stroke={RD.panelBorder} strokeWidth={1} />
-      {/* OJO con la escala: el alto del <Svg> subió a 210 pero el viewBox
-          sigue siendo 200x140, así que el coche NO se escala solo con el
-          panel — a 3.4 llenaba el marco entero y se cortaba por abajo. El
-          coche tiene que dejar ver el suelo, que es lo que le da el sitio. */}
-      <Ellipse cx={100} cy={100} rx={38} ry={7} fill="#000000" opacity={0.45} />
-      <CarSprite x={100} y={74} deg={spin} scale={2.5} loadout={loadout} />
+      <Circle cx={CX} cy={CY} r={RING_IN} fill="#121214" />
+      <Circle cx={CX} cy={CY} r={36} fill="none" stroke={RD.panelBorder} strokeWidth={0.8} />
+      <Circle cx={CX} cy={CY} r={20} fill="none" stroke={RD.panelBorder} strokeWidth={0.8} />
+      {TICKS.map((t, i) => (
+        <Line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={RD.panelBorder} strokeWidth={0.8} />
+      ))}
+      {/* Sombra CENITAL: centrada bajo el coche, no una elipse aplastada
+          "de suelo" (eso solo tiene sentido mirando desde un lado). */}
+      <Ellipse cx={CX + 2} cy={CY + 3} rx={25} ry={19} fill="#000000" opacity={0.38} />
+      {/* OJO con la escala: el coche NO se escala con el alto del <Svg>, que
+          el viewBox es fijo (200x140). A 3.4 llenaba el marco entero. */}
+      <CarSprite x={CX} y={CY} deg={spin} scale={2.5} loadout={loadout} />
     </Svg>
   );
 });
@@ -124,10 +143,10 @@ function LockIcon({ color }) {
   );
 }
 
-function Swatch({ opt, value, isSelected, isPreviewing, isLocked, onPress }) {
+function Swatch({ opt, value, isSelected, isPreviewing, isLocked, onPress, wrapStyle }) {
   const rc = opt.rarity ? RARITY_COLOR[opt.rarity] : null;
   return (
-    <Pressable style={s.swatchWrap} onPress={onPress}>
+    <Pressable style={[s.swatchWrap, wrapStyle]} onPress={onPress}>
       <View style={s.swatchStack}>
         <View
           style={[
@@ -181,6 +200,29 @@ function PieceGrid({ field, category, options, selected, getValue = (o) => o.c, 
   const isOwned = (opt) =>
     !opt.locked || !!(category && owned?.has(`${category}:${opt.id}`));
 
+  const renderSwatch = (opt, wrapStyle) => {
+    const value = getValue(opt);
+    const locked = !isOwned(opt);
+    return (
+      <Swatch
+        key={String(opt.id)}
+        opt={opt}
+        value={value}
+        isSelected={!preview && value === selected}
+        isPreviewing={!!preview && preview.field === field && preview.value === value}
+        isLocked={locked}
+        wrapStyle={wrapStyle}
+        onPress={() => (locked ? onPreview(field, value) : onSelect(value))}
+      />
+    );
+  };
+
+  // Pocas piezas: una sola fila, sin cabeceras. `flex: 1` en cada hueco en
+  // vez de ancho fijo para que entren siempre, sean 3, 4 o 5.
+  if (options.length < GROUP_MIN) {
+    return <View style={s.singleRow}>{options.map((opt) => renderSwatch(opt, s.swatchFlex))}</View>;
+  }
+
   return (
     <View style={{ gap: 14 }}>
       {groups.map(({ rarity, items }) => {
@@ -195,23 +237,7 @@ function PieceGrid({ field, category, options, selected, getValue = (o) => o.c, 
                 {rarity ? `${have}/${items.length}` : items.length}
               </Text>
             </View>
-            <View style={s.grid}>
-              {items.map((opt) => {
-                const value = getValue(opt);
-                const locked = !isOwned(opt);
-                return (
-                  <Swatch
-                    key={String(opt.id)}
-                    opt={opt}
-                    value={value}
-                    isSelected={!preview && value === selected}
-                    isPreviewing={!!preview && preview.field === field && preview.value === value}
-                    isLocked={locked}
-                    onPress={() => (locked ? onPreview(field, value) : onSelect(value))}
-                  />
-                );
-              })}
-            </View>
+            <View style={s.grid}>{items.map((opt) => renderSwatch(opt))}</View>
           </View>
         );
       })}
@@ -431,6 +457,8 @@ const s = StyleSheet.create({
   },
 
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' },
+  singleRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
+  swatchFlex: { width: undefined, flex: 1 },
   swatchWrap: { width: 68, alignItems: 'center' },
   swatchStack: { width: 38, height: 38 },
   swatch: { width: 38, height: 38, borderRadius: 2, borderWidth: 2, borderColor: 'transparent' },
