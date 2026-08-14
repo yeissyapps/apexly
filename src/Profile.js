@@ -157,6 +157,19 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
           </View>
         </View>
 
+        {/* Garaje y Tienda van ARRIBA: son lo accionable de esta pantalla, y
+            enterrarlos bajo el bloque de stats obligaba a hacer scroll para
+            llegar a lo único que se puede pulsar. Las stats son de leer, y
+            leer puede esperar a después de actuar. */}
+        <View style={s.actionsRow}>
+          <Pressable style={s.actionBtn} onPress={onOpenGarage}>
+            <Text style={s.actionBtnText}>GARAJE</Text>
+          </Pressable>
+          <Pressable style={s.actionBtn} onPress={onOpenTienda}>
+            <Text style={s.actionBtnText}>TIENDA</Text>
+          </Pressable>
+        </View>
+
         {/* Fila de titulares: lo que de verdad presume el jugador. Va en una
             fila propia y más grande que el resto — si todo pesa igual, nada
             destaca (que era el problema de la versión anterior). */}
@@ -167,7 +180,10 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
             <Text style={s.heroHint}>máx. {myStreak?.longest ?? 0}</Text>
           </View>
           <View style={s.heroCard}>
-            <Text style={s.heroValue}>
+            {/* El dorado SOLO si de verdad vas primero. Antes lo llevaban
+                todos los números de la pantalla, así que no distinguía nada;
+                apareciendo solo aquí, vuelve a significar "podio". */}
+            <Text style={[s.heroValue, todayRank === 1 && s.heroValueGold]}>
               {todayRank ? `#${todayRank}` : todayRank === null ? '—' : '···'}
             </Text>
             <Text style={s.heroLabel}>HOY</Text>
@@ -221,15 +237,6 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
             Los contadores de pista se activan al correr supabase/stats.sql.
           </Text>
         )}
-
-        <View style={s.actionsRow}>
-          <Pressable style={s.actionBtn} onPress={onOpenGarage}>
-            <Text style={s.actionBtnText}>GARAJE</Text>
-          </Pressable>
-          <Pressable style={s.actionBtn} onPress={onOpenTienda}>
-            <Text style={s.actionBtnText}>TIENDA</Text>
-          </Pressable>
-        </View>
       </ScrollView>
     </View>
   );
@@ -253,10 +260,14 @@ const s = StyleSheet.create({
     flex: 1, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
     paddingVertical: 16, alignItems: 'center', gap: 2,
   },
+  // Neutro por defecto. El color se reserva para cuando dice algo (ver
+  // heroValueGold); un número grande ya destaca por tamaño, no necesita
+  // además un acento para que lo mires.
   heroValue: {
-    color: RD.gold1st, fontSize: 40, fontFamily: RD_FONT.displayBlack,
+    color: RD.textPrimary, fontSize: 40, fontFamily: RD_FONT.displayBlack,
     fontVariant: ['tabular-nums'], lineHeight: 42,
   },
+  heroValueGold: { color: RD.gold1st },
   heroLabel: { color: RD.textSecondary, fontSize: 10, fontFamily: RD_FONT.monoBold, letterSpacing: 1.2 },
   heroHint: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono },
 
@@ -284,7 +295,7 @@ const s = StyleSheet.create({
     textAlign: 'center', marginTop: -4,
   },
 
-  actionsRow: { flexDirection: 'row', gap: 10, marginTop: 6 },
+  actionsRow: { flexDirection: 'row', gap: 10, marginBottom: 2 },
   actionBtn: {
     flex: 1, borderWidth: 1, borderColor: RD.trackBlue, borderRadius: 2,
     paddingVertical: 14, alignItems: 'center',

@@ -24,8 +24,11 @@ export default function PackArt({ width = 116, variant = 'paid', serial = '000' 
   // Proporción de credencial (ISO 7810 girada), no de sobre de cromos: es lo
   // que la hace leer como acreditación y no como chuchería.
   const H = width * 1.42;
-  const seal = variant === 'free' ? RD.gold1st : RD.brand;
-  const sealInk = variant === 'free' ? '#3a2a06' : '#ffffff';
+  // El de regalo va en VERDE y no en dorado: el dorado ya es la moneda (y el
+  // podio), así que un sobre dorado al lado del saldo dorado se leía como
+  // "sobre de pago". El verde dice "esto ya es tuyo, no cuesta nada".
+  const seal = variant === 'free' ? RD.successGreen : RD.brand;
+  const sealInk = variant === 'free' ? '#04220f' : '#ffffff';
 
   return (
     <Svg width={width} height={H} viewBox="0 0 100 142">
@@ -60,28 +63,34 @@ export default function PackArt({ width = 116, variant = 'paid', serial = '000' 
         <Circle cx="50" cy="42" r="3.4" fill={seal} />
 
         {/* Datos del pase, en mono como el resto de números de la app. */}
-        <SvgText x="14" y="92" fill={RD.textSecondary} fontSize="7" letterSpacing="1.2">
+        <SvgText x="14" y="88" fill={RD.textSecondary} fontSize="7" letterSpacing="1.2">
           PADDOCK PASS
         </SvgText>
-        <Line x1="14" y1="97" x2="86" y2="97" stroke={RD.panelBorder} strokeWidth="1" />
-        <SvgText x="14" y="107" fill={RD.textPrimary} fontSize="8.5" letterSpacing="0.4">
+        <Line x1="14" y1="93" x2="86" y2="93" stroke={RD.panelBorder} strokeWidth="1" />
+        <SvgText x="14" y="105" fill={RD.textPrimary} fontSize="8.5" letterSpacing="0.4">
           {variant === 'free' ? 'REGALO · RACHA 7' : '1 PIEZA'}
         </SvgText>
-        <SvgText x="14" y="118" fill={RD.textTertiary} fontSize="6" letterSpacing="1">
+        {/* El nº de serie va a la DERECHA del lacre (que ocupa x 13-31): en
+            la esquina inferior izquierda quedaba justo debajo y el sello lo
+            tapaba. */}
+        <SvgText x="40" y="125" fill={RD.textTertiary} fontSize="6" letterSpacing="1">
           N.º {String(serial).padStart(3, '0')}
         </SvgText>
 
         {/* Código de barras: relleno visual con sentido (un pase lo lleva),
             no decoración abstracta. Anchos variados para que no parezca una
-            trama repetida. */}
+            trama repetida.
+            OJO con la escala: el patrón llega a 38 unidades, así que el
+            factor tiene que dejarlo dentro del borde (x < 96) o el clip lo
+            corta por la mitad y parece un error de dibujo. */}
         <G>
           {[0, 3, 5, 9, 11, 12, 16, 19, 21, 25, 27, 31, 33, 34, 38].map((x, i) => (
             <Rect
               key={x}
-              x={54 + x * 1.6}
-              y={110}
-              width={i % 3 === 0 ? 1.6 : 0.9}
-              height={11}
+              x={52 + x * 1.15}
+              y={97}
+              width={i % 3 === 0 ? 1.5 : 0.9}
+              height={12}
               fill={RD.textDisabled}
             />
           ))}
@@ -96,10 +105,13 @@ export default function PackArt({ width = 116, variant = 'paid', serial = '000' 
         stroke={RD.panelBorder}
         strokeWidth="1.5"
       />
-      {/* Sello lacrado, encima del corte: es lo que comunica "sin abrir". */}
-      <Circle cx="86" cy="128" r="11" fill={seal} />
+      {/* Sello lacrado: comunica "sin abrir". Va abajo a la IZQUIERDA, no
+          sobre la esquina cortada — ahí tapaba justo el corte, así que el
+          pase se leía como un rectángulo plano y el sello parecía pegado
+          por error. Separados, se leen las dos cosas. */}
+      <Circle cx="22" cy="120" r="9" fill={seal} />
       <SvgText
-        x="86" y="131.5" fill={sealInk} fontSize="9" fontWeight="bold" textAnchor="middle"
+        x="22" y="123.5" fill={sealInk} fontSize="8.5" fontWeight="bold" textAnchor="middle"
       >
         A
       </SvgText>

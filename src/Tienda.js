@@ -111,42 +111,58 @@ export default function Tienda({ onBack }) {
         <Pressable onPress={onBack} hitSlop={12}>
           <Text style={s.backLink}>‹ INICIO</Text>
         </Pressable>
-        <Text style={s.pageTitle}>Tienda</Text>
+        {/* Título y monedas en la MISMA fila: el saldo ocupaba un panel
+            entero para un solo número, y encima lo llamaba "saldo" cuando en
+            Inicio se llama "monedas". Mismo nombre en toda la app. */}
+        <View style={s.titleRow}>
+          <Text style={s.pageTitle}>Tienda</Text>
+          <View style={s.coinChip}>
+            <Text style={s.coinChipLabel}>MONEDAS</Text>
+            <Text style={s.coinChipValue}>{wallet.balance}</Text>
+          </View>
+        </View>
         <Text style={s.disclaimer}>Solo estético — no afecta al rendimiento del coche</Text>
 
-        <View style={s.balanceRow}>
-          <Text style={s.balanceLabel}>SALDO</Text>
-          <Text style={s.balanceValue}>{wallet.balance}</Text>
-        </View>
-
         {wallet.pendingPacks > 0 && (
-          <View style={[s.card, s.cardWithArt]}>
-            <PackArt width={92} variant="free" serial={wallet.pendingPacks} />
+          <View style={[s.card, s.cardWithArt, s.freeCard]}>
+            <PackArt width={76} variant="free" serial={wallet.pendingPacks} />
             <View style={s.cardText}>
-              <Text style={s.cardTitle}>SOBRES PENDIENTES · {wallet.pendingPacks}</Text>
+              <Text style={s.cardTitle}>YA SON TUYOS · {wallet.pendingPacks}</Text>
               <Text style={s.cardBody}>Regalo de tu racha de 7 días — sin caducar.</Text>
-              <Pressable style={s.cardBtn} onPress={() => handleOpen('free')} disabled={busy}>
-                <Text style={s.cardBtnText}>ABRIR</Text>
+              <Pressable style={[s.cardBtn, s.freeBtn]} onPress={() => handleOpen('free')} disabled={busy}>
+                <Text style={[s.cardBtnText, s.freeBtnText]}>ABRIR</Text>
               </Pressable>
             </View>
           </View>
         )}
 
-        <View style={[s.card, s.cardWithArt]}>
-          <PackArt width={92} variant="paid" serial={ownedCount + 1} />
-          <View style={s.cardText}>
-            <Text style={s.cardTitle}>SOBRE · {PACK_COST} MONEDAS</Text>
-            <Text style={s.cardBody}>
-              1 pieza aleatoria, nunca repetida. 65% rara · 30% épica · 5% legendaria.
-            </Text>
-            <Pressable
-              style={[s.cardBtn, (busy || complete || wallet.balance < PACK_COST) && s.cardBtnDisabled]}
-              onPress={() => handleOpen('paid')}
-              disabled={busy || complete || wallet.balance < PACK_COST}
-            >
-              <Text style={s.cardBtnText}>{complete ? 'COLECCIÓN COMPLETA' : 'COMPRAR Y ABRIR'}</Text>
-            </Pressable>
+        {/* El sobre, en grande y centrado: es el producto de la tienda, así
+            que es lo que hay que mirar. En miniatura a un lado competía con
+            el texto y no invitaba a nada. */}
+        <View style={s.hero}>
+          <PackArt width={186} variant="paid" serial={ownedCount + 1} />
+          <Text style={s.heroName}>Sobre de paddock</Text>
+          <Text style={s.heroBody}>
+            1 pieza aleatoria, nunca repetida.
+          </Text>
+          <View style={s.oddsRow}>
+            <Text style={[s.odd, { color: RD.trackBlue }]}>65% rara</Text>
+            <Text style={s.oddSep}>·</Text>
+            <Text style={[s.odd, { color: RD.youMagenta }]}>30% épica</Text>
+            <Text style={s.oddSep}>·</Text>
+            <Text style={[s.odd, { color: RD.gold1st }]}>5% legendaria</Text>
           </View>
+          <Pressable
+            style={[s.heroBtn, (busy || complete || wallet.balance < PACK_COST) && s.heroBtnDisabled]}
+            onPress={() => handleOpen('paid')}
+            disabled={busy || complete || wallet.balance < PACK_COST}
+          >
+            <Text style={[s.heroBtnText, (busy || complete || wallet.balance < PACK_COST) && s.heroBtnTextDisabled]}>
+              {complete ? 'COLECCIÓN COMPLETA'
+                : wallet.balance < PACK_COST ? `TE FALTAN ${PACK_COST - wallet.balance} MONEDAS`
+                : `COMPRAR · ${PACK_COST}`}
+            </Text>
+          </Pressable>
         </View>
 
         {errorMsg && <Text style={s.errorText}>{errorMsg}</Text>}
@@ -197,15 +213,50 @@ const s = StyleSheet.create({
   backLink: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, marginBottom: 8 },
   pageTitle: {
     color: RD.textPrimary, fontSize: 28, fontFamily: RD_FONT.displayBlack,
-    textTransform: 'uppercase', marginBottom: 4,
+    textTransform: 'uppercase',
   },
   disclaimer: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, marginBottom: -4 },
-  balanceRow: {
-    flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between',
-    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, paddingHorizontal: 14, paddingVertical: 12,
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  coinChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2,
+    paddingHorizontal: 9, paddingVertical: 5, backgroundColor: RD.gold1stShade,
   },
-  balanceLabel: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
-  balanceValue: { color: RD.gold1st, fontSize: 26, fontFamily: RD_FONT.displayBlack },
+  coinChipLabel: { color: RD.gold1st, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 0.8, opacity: 0.85 },
+  coinChipValue: { color: RD.gold1st, fontSize: 13, fontFamily: RD_FONT.monoBold },
+
+  hero: {
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    paddingVertical: 22, paddingHorizontal: 18, alignItems: 'center', gap: 8,
+  },
+  heroName: {
+    color: RD.textPrimary, fontSize: 24, fontFamily: RD_FONT.displayBlack,
+    textTransform: 'uppercase', marginTop: 8,
+  },
+  heroBody: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' },
+  // Las probabilidades van con el color de SU rareza, que es el mismo que
+  // luego lleva el badge al abrirlo: así el 5% legendaria ya enseña de qué
+  // color es el premio gordo antes de comprarlo.
+  oddsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  odd: { fontSize: 11, fontFamily: RD_FONT.monoBold },
+  oddSep: { color: RD.textDisabled, fontSize: 11, fontFamily: RD_FONT.mono },
+  heroBtn: {
+    alignSelf: 'stretch', backgroundColor: RD.brand, borderRadius: 2,
+    paddingVertical: 15, alignItems: 'center', marginTop: 10,
+  },
+  // Deshabilitado sin perder legibilidad: al pintarlo de gris el texto
+  // seguía en color de fondo (oscuro sobre oscuro) y no se leía justo el
+  // mensaje que explica POR QUÉ no puedes comprar, que es lo único útil de
+  // ese estado. Se invierte a borde + texto claro.
+  heroBtnDisabled: { backgroundColor: 'transparent', borderWidth: 1, borderColor: RD.panelBorder },
+  heroBtnText: {
+    color: RD.bg, fontSize: 16, fontFamily: RD_FONT.displayBlack,
+    textTransform: 'uppercase', letterSpacing: 0.6,
+  },
+  heroBtnTextDisabled: { color: RD.textTertiary },
+  freeCard: { borderColor: RD.successGreen },
+  freeBtn: { borderColor: RD.successGreen },
+  freeBtnText: { color: RD.successGreen },
   card: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 8 },
   // Con el sobre dibujado, la tarjeta pasa a dos columnas: arte a la
   // izquierda, texto y acción a la derecha.
