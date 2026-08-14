@@ -15,14 +15,12 @@ import CarSprite from './CarSprite';
 import ShineBadge from './ShineBadge';
 import PackArt from './PackArt';
 import PackReveal from './PackReveal';
-import { RD, RD_FONT } from './theme';
+import { RD, RD_FONT, RARITY_COLOR, RARITY_LABEL } from './theme';
 import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS } from './car';
 import { getWallet, getInventory, getMyLoadout, saveLoadout, openPack } from './api';
 
 const PACK_COST = 125;
 const TOTAL_PIECES = 19;
-const RARITY_LABEL = { rara: 'Rara', epica: 'Épica', legendaria: 'Legendaria' };
-const RARITY_COLOR = { rara: RD.trackBlue, epica: RD.youMagenta, legendaria: RD.gold1st };
 
 function pieceLabel(category, pieceId) {
   if (category === 'wing') return WING_SHAPES.find((w) => w.id === pieceId)?.label ?? pieceId;
