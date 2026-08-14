@@ -495,7 +495,13 @@ export default function App() {
       logOnboardingComplete();
       setScreen('home');
     } catch (e) {
-      // Si falla la red, al menos deja jugar con el nombre local.
+      // Nombre ya en uso: no dejar pasar, que el onboarding lo muestre y
+      // pida otro (si no, el jugador se queda con una sesión sin fila en
+      // `users`, y todo lo que dependa de ella fallará más tarde en
+      // silencio: racha, coche, tiempos de sector...).
+      if (e?.code === 'NICKNAME_TAKEN') throw e;
+      // Cualquier otro fallo (típicamente de red): al menos deja jugar con
+      // el nombre local.
       setNickname(nick.trim().slice(0, 16));
       logOnboardingComplete();
       setScreen('home');
@@ -982,14 +988,32 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { type:'ok'|'err', text }
+  const nameRef = useRef(null);
+  const nameShake = useRef(new Animated.Value(0)).current;
 
   async function refresh() {
     try { setGroups(await listMyGroups()); } catch (e) { setGroups([]); }
   }
   useEffect(() => { refresh(); }, [refreshKey]);
 
+  // El CTA se queda siempre en rojo vivo (nunca "apagado" a la espera de que
+  // rellenes el nombre): tocarlo sin nombre da foco al campo + lo sacude, en
+  // vez de comportarse como un botón muerto hasta que aciertas con el input.
+  function nudgeName() {
+    nameRef.current?.focus();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    nameShake.setValue(0);
+    Animated.sequence([
+      Animated.timing(nameShake, { toValue: 1, duration: 45, useNativeDriver: true }),
+      Animated.timing(nameShake, { toValue: -1, duration: 90, useNativeDriver: true }),
+      Animated.timing(nameShake, { toValue: 1, duration: 90, useNativeDriver: true }),
+      Animated.timing(nameShake, { toValue: 0, duration: 45, useNativeDriver: true }),
+    ]).start();
+  }
+
   async function doCreate() {
-    if (!name.trim() || busy) return;
+    if (busy) return;
+    if (!name.trim()) { nudgeName(); return; }
     setBusy(true); setMsg(null);
     try {
       const g = await createGroup(name.trim());
@@ -1044,15 +1068,18 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
 
       <View style={rd.panel}>
         <Text style={rd.labelMono}>CREAR UN GRUPO</Text>
-        <TextInput
-          style={rd.input}
-          value={name}
-          onChangeText={setName}
-          placeholder="Nombre del grupo"
-          placeholderTextColor={RD.textDisabled}
-          maxLength={24}
-        />
-        <Pressable style={[rd.cta, (!name.trim() || busy) && rd.ctaDisabled]} onPress={doCreate} disabled={!name.trim() || busy}>
+        <Animated.View style={{ transform: [{ translateX: nameShake.interpolate({ inputRange: [-1, 1], outputRange: [-8, 8] }) }] }}>
+          <TextInput
+            ref={nameRef}
+            style={rd.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="Nombre del grupo"
+            placeholderTextColor={RD.textDisabled}
+            maxLength={24}
+          />
+        </Animated.View>
+        <Pressable style={[rd.cta, busy && rd.ctaDisabled]} onPress={doCreate} disabled={busy}>
           <Text style={rd.ctaText}>Crear</Text>
         </Pressable>
       </View>
@@ -1438,7 +1465,21 @@ function NoMoreAttempts({ title = 'SIN INTENTOS POR HOY', adBatch = AD_BATCH, un
 function Onboarding({ onDone }) {
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const ok = value.trim().length > 0;
+
+  async function submit() {
+    if (!ok || saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      await onDone(value);
+    } catch (e) {
+      setError(e?.code === 'NICKNAME_TAKEN' ? e.message : 'No se pudo guardar. Inténtalo de nuevo.');
+      setSaving(false);
+    }
+  }
+
   return (
     <View style={rd.screen}>
       <StatusBar hidden />
@@ -1454,19 +1495,20 @@ function Onboarding({ onDone }) {
           <TextInput
             style={rd.input}
             value={value}
-            onChangeText={setValue}
+            onChangeText={(v) => { setValue(v); if (error) setError(''); }}
             placeholder="Tu nombre"
             placeholderTextColor={RD.textDisabled}
             maxLength={16}
             autoFocus
             autoCapitalize="words"
             returnKeyType="done"
-            onSubmitEditing={() => ok && onDone(value)}
+            onSubmitEditing={submit}
           />
+          {!!error && <Text style={rd.msgErr}>{error}</Text>}
           <Pressable
             style={[rd.cta, (!ok || saving) && rd.ctaDisabled]}
             disabled={!ok || saving}
-            onPress={() => { setSaving(true); onDone(value); }}
+            onPress={submit}
           >
             <Text style={rd.ctaText}>{saving ? 'Guardando…' : 'Empezar'}</Text>
           </Pressable>

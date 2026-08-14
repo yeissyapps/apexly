@@ -1192,10 +1192,14 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
       : null;
     const worldBest = sectorBests ? sectorBests[s.sector] : null;
     let color = null;
-    if (worldBest != null && mySplit <= worldBest) color = 'purple';
+    // Sin nadie (ni tú) registrado hoy en este sector -> lo que envíes ES el
+    // mejor del mundo del momento, sea el tiempo que sea (submit_sector_best
+    // hace INSERT si no existe fila). Sin este caso, la primerísima vez que
+    // se marca un sector en el día caía al verde por descarte, nunca morado.
+    if (worldBest == null || mySplit <= worldBest) color = 'purple';
     else if (ghostSplit != null) color = mySplit < ghostSplit ? 'green' : 'yellow';
-    // Primera vuelta del día: no hay fantasma que batir, así que no hay nada
-    // "peor" contra lo que perder — cuenta como mejora.
+    // Hay mejor mundial pero no lo bates, y no hay fantasma propio que batir:
+    // no hay nada "peor" contra lo que perder -> cuenta como mejora.
     else color = 'green';
     s.sectorSplits.push(mySplit);
     s.sectorColors.push(color);
