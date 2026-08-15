@@ -16,7 +16,7 @@ import { PACK_FRAMES } from './frames.js';
 
 export const CAR_DEFAULTS = {
   chassis: 'gt', // id de CHASSIS (chassis.js); 'gt' es el coche de siempre
-  bodyColor: '#ffd23f',
+  bodyColor: '#f5c518', // amarillo de la paleta nueva
   wingShape: 'sin_aleron', // todos empiezan sin extras, nada equipado de fábrica
   // OJO: tiene que ser un color que EXISTA en CAR_COLORS. Antes era
   // '#0f1218' (el negro del splitter, tomado prestado), que no está en el
@@ -25,63 +25,82 @@ export const CAR_DEFAULTS = {
   // garaje: save_loadout devolvía PIECE_NOT_OWNED: wing_color en cada toque.
   // Estuvo invisible porque el error se tragaba (ver Garage.apply).
   // Afectaba a 41 de 51 usuarios cuando se detectó.
-  wingColor: '#1a1a1c', // negro, libre y en catálogo
+  wingColor: '#17171a', // negro de la paleta nueva, libre y en catálogo
   frame: 'sin_marco', // id de FRAMES (frames.js) — marco de tu fila del ranking
   livery: null, // color de la franja (hex de CAR_COLORS), null = sin franja
   liveryPattern: 'simple', // id de LIVERY_PATTERNS
   lightsColor: '#fff6cf',
 };
 
-// 20 colores (8 base + 12 premium en 3 acabados), compartidos por
-// carrocería, alerón y franja de librea.
+// ============================================================================
+//  PALETA — 20 colores, compartidos por carrocería, alerón y franja.
 //
-// `finish` decide cómo se pinta en el coche de verdad (ver CarSprite.js):
-//   'flat'       -> el hex de `c` tal cual, como hasta ahora.
-//   'metalizado' / 'cromado' -> degradado ESTÁTICO a partir de `stops`.
-//   'holografico'            -> degradado que ROTA con el tiempo (sin timer
-//                                nuevo: el coche ya se re-renderiza solo,
-//                                sea el plato giratorio del garaje o el rAF
-//                                del juego).
-// `c` se queda siempre como representante plano (para localizar la pieza
-// por su hex guardado en Supabase, que sigue siendo un string simple).
+//  Los 8 LIBRES son colores nacionales de competición, no primarios de caja
+//  de rotuladores. Cada uno tiene historia (verde británico, rosso corsa,
+//  azul Francia, amarillo Bélgica...), que es lo que hace que elegir uno
+//  signifique algo. La versión anterior era rojo/azul/verde genéricos más un
+//  MARRÓN que no elige nadie para un coche de carreras: un hueco tirado.
+//
+//  Dos que se corrigen a propósito:
+//   - El rojo libre viejo (#ff5c5c) era un salmón lavado y encima chocaba con
+//     el rojo de marca (#e4002b): dos rojos distintos se leen como un fallo.
+//     El rosso corsa tira a naranja, así que convive sin competir.
+//   - El naranja viejo (#ff5a1f) era EXACTAMENTE el token "danger" del tema,
+//     o sea un coche pintado del color de las alertas.
+//  Y entra un gris grafito, que faltaba: el neutro medio es de los más usados
+//  en motorsport y no había ninguno entre el blanco y el negro.
+//
+//  El campo "finish" decide cómo se pinta (ver CarSprite.js):
+//    'flat'                   -> el hex de "c" tal cual.
+//    'metalizado' / 'cromado' -> degradado ESTÁTICO a partir de "stops".
+//    'holografico'            -> degradado que ROTA con el tiempo (sin timer
+//                                nuevo: el coche ya se re-renderiza solo).
+//  "c" es siempre el representante plano: es el hex que se guarda en
+//  Supabase y por el que se localiza la pieza.
+// ============================================================================
 export const CAR_COLORS = [
-  { id: 'blanco', c: '#ffffff', locked: false, finish: 'flat' },
-  { id: 'negro', c: '#1a1a1c', locked: false, finish: 'flat' },
-  { id: 'amarillo', c: '#ffd23f', locked: false, finish: 'flat' },
-  { id: 'naranja', c: '#ff5a1f', locked: false, finish: 'flat' },
-  { id: 'rojo', c: '#ff5c5c', locked: false, finish: 'flat' },
-  { id: 'azul', c: '#4fa9ff', locked: false, finish: 'flat' },
-  { id: 'verde', c: '#3fae5c', locked: false, finish: 'flat' },
-  { id: 'marron', c: '#6b4a2f', locked: false, finish: 'flat' },
+  // --- Libres: colores nacionales de competición --------------------------
+  { id: 'blanco', label: 'Blanco', c: '#f0eee8', locked: false, finish: 'flat' },
+  { id: 'negro', label: 'Negro', c: '#17171a', locked: false, finish: 'flat' },
+  { id: 'grafito', label: 'Grafito', c: '#6e737a', locked: false, finish: 'flat' },
+  { id: 'rosso', label: 'Rosso corsa', c: '#d32b1e', locked: false, finish: 'flat' },
+  { id: 'verde_britanico', label: 'Verde británico', c: '#1f5c3a', locked: false, finish: 'flat' },
+  { id: 'azul_francia', label: 'Azul Francia', c: '#2b5fb8', locked: false, finish: 'flat' },
+  { id: 'amarillo', label: 'Amarillo', c: '#f5c518', locked: false, finish: 'flat' },
+  { id: 'naranja_gulf', label: 'Naranja Gulf', c: '#e8611a', locked: false, finish: 'flat' },
 
-  // --- Metalizado (rara) ---
-  { id: 'morado_metalizado', label: 'Morado metal.', c: '#7a5ea8', locked: true, finish: 'metalizado', rarity: 'rara',
-    stops: ['#5c447f', '#8f74bf', '#6a5192', '#c3b0e0', '#6a5192', '#4a3766'] },
-  { id: 'verde_metalizado', label: 'Verde metal.', c: '#3f7a52', locked: true, finish: 'metalizado', rarity: 'rara',
-    stops: ['#2c5a3c', '#4f9968', '#3a7a4f', '#a8dcb8', '#3a7a4f', '#204030'] },
+  // --- Metalizado (rara) ---------------------------------------------------
+  // Veta de brillo satinada a lo largo del coche (ver highlightEllipses).
   { id: 'azul_metalizado', label: 'Azul metal.', c: '#3a6ea5', locked: true, finish: 'metalizado', rarity: 'rara',
     stops: ['#294e78', '#5c8dc2', '#3a6ea5', '#a9cdec', '#3a6ea5', '#1c3752'] },
-  { id: 'rojo_metalizado', label: 'Rojo metal.', c: '#a13f3f', locked: true, finish: 'metalizado', rarity: 'rara',
-    stops: ['#7a2c2c', '#c26161', '#a13f3f', '#e8adad', '#a13f3f', '#521818'] },
+  { id: 'verde_metalizado', label: 'Verde metal.', c: '#3f7a52', locked: true, finish: 'metalizado', rarity: 'rara',
+    stops: ['#2c5a3c', '#4f9968', '#3a7a4f', '#a8dcb8', '#3a7a4f', '#204030'] },
+  { id: 'burdeos_metalizado', label: 'Burdeos metal.', c: '#7a2038', locked: true, finish: 'metalizado', rarity: 'rara',
+    stops: ['#4f1224', '#a33a55', '#7a2038', '#d98aa0', '#7a2038', '#360b18'] },
+  { id: 'arena_metalizado', label: 'Arena metal.', c: '#a8894f', locked: true, finish: 'metalizado', rarity: 'rara',
+    stops: ['#6f5729', '#c9a768', '#a8894f', '#ecd6a8', '#a8894f', '#4d3a18'] },
 
-  // --- Cromado (épica) ---
+  // --- Cromado (épica) -----------------------------------------------------
+  // Dos vetas, la de abajo más fina y nítida: reflejo duro de metal pulido.
   { id: 'oro', label: 'Oro cromado', c: '#d4af37', locked: true, finish: 'cromado', rarity: 'epica',
     stops: ['#7a5f16', '#e8c65a', '#fff3c4', '#e8c65a', '#a67f24', '#f5da8a', '#7a5f16', '#c99f2e'] },
   { id: 'plata', label: 'Plata cromada', c: '#c0c0c0', locked: true, finish: 'cromado', rarity: 'epica',
     stops: ['#6e6e6e', '#d8d8d8', '#ffffff', '#d8d8d8', '#8a8a8a', '#e8e8e8', '#6e6e6e', '#b0b0b0'] },
-  { id: 'grafito', label: 'Grafito cromado', c: '#5b5f66', locked: true, finish: 'cromado', rarity: 'epica',
-    stops: ['#3d4046', '#7d828b', '#5b5f66', '#c4c8ce', '#5b5f66', '#26282c'] },
-  { id: 'bronce', label: 'Bronce cromado', c: '#8a5a34', locked: true, finish: 'cromado', rarity: 'epica',
-    stops: ['#5f3c20', '#a97c4d', '#8a5a34', '#d9b98d', '#8a5a34', '#3d2612'] },
+  { id: 'cobre', label: 'Cobre cromado', c: '#b06a3b', locked: true, finish: 'cromado', rarity: 'epica',
+    stops: ['#6b3a1a', '#c9834f', '#f0c9a8', '#c9834f', '#8a5028', '#e0a878', '#6b3a1a', '#a06034'] },
+  { id: 'acero', label: 'Acero cromado', c: '#5b5f66', locked: true, finish: 'cromado', rarity: 'epica',
+    stops: ['#3d4046', '#7d828b', '#c4c8ce', '#7d828b', '#4a4e55', '#a8adb5', '#3d4046', '#5b5f66'] },
 
-  // --- Holográfico (legendaria) ---
-  { id: 'holografico_arcoiris', label: 'Holo arcoíris', c: '#ff5c8a', locked: true, finish: 'holografico', rarity: 'legendaria',
+  // --- Holográfico (legendaria) -------------------------------------------
+  // Cubren el cuerpo entero y el degradado ROTA: es lo que las separa de
+  // cualquier otra cosa del catálogo a simple vista.
+  { id: 'holo_arcoiris', label: 'Holo arcoíris', c: '#ff5c8a', locked: true, finish: 'holografico', rarity: 'legendaria',
     stops: ['#ff5c8a', '#ffb84d', '#f5e663', '#5ce8a0', '#5cc8ff', '#b884ff'] },
-  { id: 'holografico_verde_amarillo_morado', label: 'Holo verde-morado', c: '#5ce87a', locked: true, finish: 'holografico', rarity: 'legendaria',
+  { id: 'holo_aurora', label: 'Holo aurora', c: '#5ce87a', locked: true, finish: 'holografico', rarity: 'legendaria',
     stops: ['#5ce87a', '#f5e663', '#b884ff'] },
-  { id: 'holografico_rosa_cian_azul', label: 'Holo rosa-azul', c: '#ff6fa8', locked: true, finish: 'holografico', rarity: 'legendaria',
+  { id: 'holo_laguna', label: 'Holo laguna', c: '#ff6fa8', locked: true, finish: 'holografico', rarity: 'legendaria',
     stops: ['#ff6fa8', '#5ce8e0', '#4fa9ff'] },
-  { id: 'holografico_ambar_magenta_violeta', label: 'Holo ámbar-violeta', c: '#ffb84d', locked: true, finish: 'holografico', rarity: 'legendaria',
+  { id: 'holo_magma', label: 'Holo magma', c: '#ffb84d', locked: true, finish: 'holografico', rarity: 'legendaria',
     stops: ['#ffb84d', '#ff4fa0', '#8a4fff'] },
 ];
 
