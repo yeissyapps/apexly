@@ -8,10 +8,23 @@
 //  bloqueadas, como escaparate de lo que vendrá.
 // ============================================================================
 
+// chassis.js no importa nada, así que esto no crea ciclo. Con extensión .js
+// a propósito: Metro no la necesita, pero Node sí, y tools/contact-sheet.mjs
+// importa este archivo (misma convención que pieces.js -> track.js).
+import { CHASSIS } from './chassis.js';
+
 export const CAR_DEFAULTS = {
+  chassis: 'gt', // id de CHASSIS (chassis.js); 'gt' es el coche de siempre
   bodyColor: '#ffd23f',
   wingShape: 'sin_aleron', // todos empiezan sin extras, nada equipado de fábrica
-  wingColor: '#0f1218',
+  // OJO: tiene que ser un color que EXISTA en CAR_COLORS. Antes era
+  // '#0f1218' (el negro del splitter, tomado prestado), que no está en el
+  // catálogo — y como el servidor solo acepta colores del catálogo, cualquier
+  // usuario que no hubiera cambiado nunca el alerón NO PODÍA GUARDAR NADA del
+  // garaje: save_loadout devolvía PIECE_NOT_OWNED: wing_color en cada toque.
+  // Estuvo invisible porque el error se tragaba (ver Garage.apply).
+  // Afectaba a 41 de 51 usuarios cuando se detectó.
+  wingColor: '#1a1a1c', // negro, libre y en catálogo
   livery: null, // color de la franja (hex de CAR_COLORS), null = sin franja
   liveryPattern: 'simple', // id de LIVERY_PATTERNS
   lightsColor: '#fff6cf',
@@ -102,3 +115,19 @@ export const LIGHT_COLORS = [
   { id: 'ambar', c: '#ffb84d', locked: false },
   { id: 'multicolor', c: '#b884ff', locked: true },
 ];
+
+// ============================================================================
+//  Total de piezas coleccionables — UNA fuente, calculada del catálogo.
+//
+//  Estaba escrito a mano (`const TOTAL_PIECES = 19`) en Tienda.js mientras
+//  Profile.js lo calculaba. Al añadir los chasis, la tienda habría dicho
+//  "22/19 piezas" y, peor, habría dado la colección por completa al llegar a
+//  19 — apagando la compra con tres piezas todavía por salir.
+//
+//  Los FAROS no entran: `multicolor` está marcado locked pero no tiene vía de
+//  desbloqueo (no está en catalog_pieces), así que nunca sale en un sobre y
+//  contarlo haría la colección imposible de completar.
+// ============================================================================
+export const COLLECTIBLE_CATALOGS = [CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, CHASSIS];
+
+export const TOTAL_PIECES = COLLECTIBLE_CATALOGS.flat().filter((p) => p.locked).length;

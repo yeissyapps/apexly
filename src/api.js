@@ -171,11 +171,14 @@ export async function getMyLoadout() {
   const user = await ensureSession();
   const { data } = await supabase
     .from('users')
-    .select('car_body_color, car_wing_shape, car_wing_color, car_livery, car_livery_pattern, car_lights_color')
+    .select('car_chassis, car_body_color, car_wing_shape, car_wing_color, car_livery, car_livery_pattern, car_lights_color')
     .eq('id', user.id)
     .maybeSingle();
   if (!data) return { ...CAR_DEFAULTS };
   return {
+    // car_chassis solo existe si se corrió supabase/chassis.sql; sin él,
+    // `data.car_chassis` llega undefined y cae al GT de siempre.
+    chassis: data.car_chassis || CAR_DEFAULTS.chassis,
     bodyColor: data.car_body_color || CAR_DEFAULTS.bodyColor,
     wingShape: data.car_wing_shape || CAR_DEFAULTS.wingShape,
     wingColor: data.car_wing_color || CAR_DEFAULTS.wingColor,
@@ -192,6 +195,7 @@ export async function getMyLoadout() {
 export async function saveLoadout(loadout) {
   await ensureSession();
   const { error } = await supabase.rpc('save_loadout', {
+    p_chassis: loadout.chassis || 'gt',
     p_body_color: loadout.bodyColor,
     p_wing_shape: loadout.wingShape,
     p_wing_color: loadout.wingColor,

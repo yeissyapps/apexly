@@ -81,6 +81,54 @@ export function liveryGeom(pattern) {
   return LIVERY_SHAPES_GEOM[pattern] || LIVERY_SHAPES_GEOM.simple;
 }
 
+// --- Adaptación de piezas a cada chasis --------------------------------------
+// Las medidas de arriba están dibujadas para el chasis GT (el original). Para
+// los demás no valen tal cual: en un monoplaza la franja se sale por los
+// costados y el alerón queda flotando lejos de la cola. Estas dos funciones
+// las recolocan usando los anclajes que declara cada chasis.
+//
+// GT es la referencia (wingMount -16, liveryLen 20, liveryX -8), así que para
+// GT el desplazamiento es 0 y la escala 1: no toca nada de lo que ya
+// funcionaba.
+const REF_WING_MOUNT = -16;
+const REF_LIVERY_LEN = 20;
+const REF_LIVERY_X = -8;
+
+export function wingGeomFor(chassis, shape) {
+  const dx = (chassis?.wingMount ?? REF_WING_MOUNT) - REF_WING_MOUNT;
+  const rects = wingGeom(shape);
+  return dx === 0 ? rects : rects.map((r) => ({ ...r, x: r.x + dx }));
+}
+
+export function liveryGeomFor(chassis, pattern) {
+  const len = chassis?.liveryLen ?? REF_LIVERY_LEN;
+  const x0 = chassis?.liveryX ?? REF_LIVERY_X;
+  const k = len / REF_LIVERY_LEN;
+  const dx = x0 - REF_LIVERY_X;
+  const shapes = liveryGeom(pattern);
+  if (k === 1 && dx === 0) return shapes;
+
+  // Solo se escala/desplaza en X (a lo largo del coche). En Y NO: la franja
+  // debe conservar su grosor, si no en un chasis ancho se convierte en una
+  // mancha y en uno estrecho desaparece.
+  const mapX = (x) => (x - REF_LIVERY_X) * k + x0;
+  return shapes.map((p) => {
+    if (p.type === 'rect') return { ...p, x: mapX(p.x), width: p.width * k };
+    if (p.type === 'polygon') {
+      return {
+        ...p,
+        points: p.points.split(' ').map((pt) => {
+          const [px, py] = pt.split(',').map(Number);
+          return `${mapX(px).toFixed(2)},${py}`;
+        }).join(' '),
+      };
+    }
+    if (p.type === 'circle') return { ...p, cx: mapX(p.cx) };
+    if (p.type === 'text') return { ...p, x: mapX(p.x) };
+    return p;
+  });
+}
+
 // --- Piezas fijas (no personalizables) --------------------------------------
 export const GRILLE = { x: -12, y: -4.6, width: 8, height: 9.2, rx: 2, fill: 'rgba(0,0,0,0.18)' };
 export const CABIN = { x: -1, y: -4.8, width: 9, height: 9.6, rx: 3.4, fill: '#1b2733' };

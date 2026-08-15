@@ -16,11 +16,11 @@ import ShineBadge from './ShineBadge';
 import PackArt from './PackArt';
 import PackReveal from './PackReveal';
 import { RD, RD_FONT, RARITY_COLOR, RARITY_LABEL } from './theme';
-import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS } from './car';
+import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, TOTAL_PIECES } from './car';
+import { CHASSIS } from './chassis';
 import { getWallet, getInventory, getMyLoadout, saveLoadout, openPack } from './api';
 
 const PACK_COST = 125;
-const TOTAL_PIECES = 19;
 
 function pieceLabel(category, pieceId) {
   if (category === 'wing') return WING_SHAPES.find((w) => w.id === pieceId)?.label ?? pieceId;

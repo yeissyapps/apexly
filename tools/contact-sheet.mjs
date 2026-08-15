@@ -23,9 +23,9 @@
 
 import { writeFileSync } from 'node:fs';
 import {
-  CAR_BODY, wingGeom, liveryGeom, highlightEllipses,
-  GRILLE, CABIN, SPLITTER, LIGHT_BEAMS, LIGHT_BULBS,
+  wingGeomFor, liveryGeomFor, highlightEllipses, LIGHT_BEAMS,
 } from '../src/carGeometry.js';
+import { CHASSIS, chassisById, DEFAULT_CHASSIS } from '../src/chassis.js';
 import { CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS, CAR_DEFAULTS } from '../src/car.js';
 
 const CELL_W = 132;
@@ -44,7 +44,8 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 // --- Un coche completo, con el mismo orden de capas que CarSprite -----------
 function carSvg(loadout, scale = 2.6) {
-  const lo = { ...CAR_DEFAULTS, ...loadout };
+  const lo = { ...CAR_DEFAULTS, chassis: DEFAULT_CHASSIS, ...loadout };
+  const ch = chassisById(lo.chassis);
   const id = `g${uid++}`;
   const entry = CAR_COLORS.find((c) => c.c === lo.bodyColor) || { c: lo.bodyColor, finish: 'flat' };
 
@@ -66,11 +67,11 @@ function carSvg(loadout, scale = 2.6) {
       .join('');
   }
 
-  const wing = wingGeom(lo.wingShape)
+  const wing = wingGeomFor(ch, lo.wingShape)
     .map((r) => `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" rx="${r.rx}" fill="${lo.wingColor}"/>`)
     .join('');
 
-  const livery = !lo.livery ? '' : liveryGeom(lo.liveryPattern).map((p) => {
+  const livery = !lo.livery ? '' : liveryGeomFor(ch, lo.liveryPattern).map((p) => {
     if (p.type === 'rect') return `<rect x="${p.x}" y="${p.y}" width="${p.width}" height="${p.height}" fill="${lo.livery}"/>`;
     if (p.type === 'polygon') return `<polygon points="${p.points}" fill="${lo.livery}"/>`;
     if (p.type === 'circle') {
@@ -84,14 +85,18 @@ function carSvg(loadout, scale = 2.6) {
     return '';
   }).join('');
 
-  const rect = (r) => `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" rx="${r.rx}" fill="${r.fill}"/>`;
+  const rect = (r, fill) => `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" rx="${r.rx}" fill="${fill}"/>`;
+  // Ruedas descubiertas y demás añadidos del chasis: heredan el color del
+  // cuerpo, así que van con él y antes de la librea.
+  const extras = (ch.extras || []).map((r) => rect(r, bodyFill)).join('');
   const beams = LIGHT_BEAMS.map((b) => `<polygon points="${b.points}" fill="${lo.lightsColor}" opacity="${b.opacity}"/>`).join('');
-  const bulbs = LIGHT_BULBS.map((b) => `<circle cx="${b.cx}" cy="${b.cy}" r="${b.r}" fill="${lo.lightsColor}"/>`).join('');
+  const bulbs = ch.lights.map((b) => `<circle cx="${b.x}" cy="${b.y}" r="1.7" fill="${lo.lightsColor}"/>`).join('');
 
   return `${defs ? `<defs>${defs}</defs>` : ''}<g transform="scale(${scale})">` +
-    wing +
-    `<path d="${CAR_BODY}" fill="${bodyFill}"/>` + veta + livery +
-    rect(GRILLE) + rect(CABIN) + rect(SPLITTER) + beams + bulbs +
+    wing + extras +
+    `<path d="${ch.body}" fill="${bodyFill}"/>` + veta + livery +
+    rect(ch.grille, 'rgba(0,0,0,0.18)') + rect(ch.cabin, '#1b2733') + rect(ch.splitter, '#0f1218') +
+    beams + bulbs +
     `</g>`;
 }
 
@@ -110,6 +115,25 @@ function cell(x, y, loadout, label, rarity) {
 
 // --- Composición ------------------------------------------------------------
 const sections = [
+  {
+    // Cada chasis con el MISMO color y alerón, que es la única forma de
+    // juzgar la silueta: si cada uno lleva su color, se compara el color.
+    title: 'CHASIS · silueta',
+    items: CHASSIS.map((c) => ({
+      loadout: { chassis: c.id, bodyColor: '#ffffff', wingColor: '#e4002b', wingShape: 'cuello_cisne' },
+      label: c.label,
+      rarity: c.rarity,
+    })),
+  },
+  {
+    // El mismo chasis con cada alerón, para ver que el anclaje encaja.
+    title: 'CHASIS × ALERÓN · encaje',
+    items: CHASSIS.map((c) => ({
+      loadout: { chassis: c.id, bodyColor: '#1a1a1c', wingColor: '#f0c451', wingShape: 'cola_de_pato', liveryPattern: 'diagonal', livery: '#4fa9ff' },
+      label: `${c.label} + cola`,
+      rarity: c.rarity,
+    })),
+  },
   {
     title: 'CARROCERÍA · color',
     items: CAR_COLORS.map((c) => ({

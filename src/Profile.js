@@ -30,13 +30,11 @@ import {
   getPlayerStats, getMyDailyHistory, getMyPurpleSectors, getLifetimeCoins,
 } from './api';
 import { LEVEL_COUNT } from './career';
-import { CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS } from './car';
+import { TOTAL_PIECES } from './car';
 
-// Piezas realmente "coleccionables" (con candado y vía de desbloqueo). Los
-// faros no cuentan — no tienen vía de desbloqueo esta fase (ver Garage.js).
-const TOTAL_PIECES = [CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS]
-  .flat()
-  .filter((p) => p.locked).length;
+// TOTAL_PIECES ahora vive en car.js (una sola fuente, calculada del catálogo)
+// — antes se calculaba aquí y estaba escrito a mano en Tienda.js, así que al
+// añadir una categoría los dos números se separaban.
 
 // Caché de los objetivos por día. El objetivo de un día pasado es
 // determinista y no cambia NUNCA, así que se calcula una vez y se guarda:
