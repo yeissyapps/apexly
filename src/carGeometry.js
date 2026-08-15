@@ -156,10 +156,12 @@ export const LIVERY_SHAPES_GEOM = {
   //
   // Va en la cubierta TRASERA (x negativa) y no en el centro: centrado, la
   // cabina se comía media cifra — el techo se pinta encima de la librea, así
-  // que un dorsal bajo el techo es un dorsal invisible.
+  // que un dorsal bajo el techo es un dorsal invisible. Echado bien atrás,
+  // además, deja de pelearse con la rejilla del motor y se lee el disco
+  // entero. Es el sitio donde va en un coche de verdad.
   numero: [
-    { type: 'circle', cx: -8, cy: 0, r: 4.4 },
-    { type: 'text', x: -8, y: 2.0, fontSize: 6.6, fontWeight: '700', anchor: 'middle', value: '7', knockout: true },
+    { type: 'circle', cx: -10.6, cy: 0, r: 4.6 },
+    { type: 'text', x: -10.6, y: 2.1, fontSize: 7, fontWeight: '700', anchor: 'middle', value: '7', knockout: true },
   ],
   damero: DAMERO,
 };
