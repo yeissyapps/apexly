@@ -36,6 +36,7 @@ import CarSprite from './CarSprite';
 import { RD, RD_FONT, RARITY_COLOR, RARITY_LABEL } from './theme';
 import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS, TOTAL_PIECES } from './car';
 import { CHASSIS } from './chassis';
+import { FRAMES, frameStyle, frameGlyphColor } from './frames';
 import { getMyLoadout, saveLoadout, getInventory } from './api';
 
 // Con 5 pestañas cada una tiene ~70dp: "CARROCERÍA" partía en dos líneas y
@@ -47,6 +48,7 @@ const TABS = [
   { id: 'wing', label: 'ALERÓN' },
   { id: 'livery', label: 'LIBREA' },
   { id: 'lights', label: 'FAROS' },
+  { id: 'frame', label: 'MARCO' },
 ];
 
 // Orden de los grupos: primero lo que puedes usar ya, luego la escalera de
@@ -294,7 +296,7 @@ function PieceGrid({ field, category, options, selected, getValue = (o) => o.c, 
   );
 }
 
-export default function Garage({ onBack, onOpenTienda }) {
+export default function Garage({ onBack, onOpenTienda, nickname }) {
   const [loadout, setLoadout] = useState(CAR_DEFAULTS);
   const [tab, setTab] = useState('body');
   const [preview, setPreview] = useState(null); // { field, value } de una pieza bloqueada, o null
@@ -492,6 +494,42 @@ export default function Garage({ onBack, onOpenTienda }) {
           </>
         )}
 
+        {tab === 'frame' && (
+          <View style={{ gap: 10 }}>
+            <Text style={s.frameHint}>
+              Es la única pieza que ven los demás: se pinta en tu fila del ranking.
+            </Text>
+            {FRAMES.map((f) => {
+              const locked = f.locked && !owned.has(`frame:${f.id}`);
+              const selected = !preview && (loadout.frame || 'sin_marco') === f.id;
+              const previewing = !!preview && preview.field === 'frame' && preview.value === f.id;
+              const rc = f.rarity ? RARITY_COLOR[f.rarity] : null;
+              return (
+                <Pressable
+                  key={f.id}
+                  onPress={() => (locked ? previewLocked('frame', f.id) : apply({ frame: f.id }))}
+                >
+                  {/* La muestra ES una fila de ranking de mentira: un swatch
+                      abstracto no diría dónde acaba apareciendo esto. */}
+                  <View style={[s.frameRow, frameStyle(f, RD), locked && s.frameRowLocked, selected && s.frameRowSelected, previewing && s.frameRowPreviewing]}>
+                    <Text style={s.frameRank}>01</Text>
+                    <Text style={s.frameNick}>{nickname || 'Tú'}</Text>
+                    {!!f.glyph && <Text style={{ color: frameGlyphColor(f, RD), fontSize: 13 }}>{f.glyph}</Text>}
+                    <View style={{ flex: 1 }} />
+                    {locked && <LockIcon color={rc || RD.brand} />}
+                  </View>
+                  <View style={s.frameMeta}>
+                    <Text style={[s.frameLabel, !locked && rc && { color: rc }]}>{f.label}</Text>
+                    <Text style={[s.frameTier, rc && { color: rc }]}>
+                      {f.achievement ? 'LOGRO · 1.º DEL MUNDO' : f.rarity ? f.rarity.toUpperCase() : 'LIBRE'}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
         {tab === 'lights' && (
           <PieceGrid
             field="lightsColor"
@@ -560,6 +598,20 @@ const s = StyleSheet.create({
     paddingVertical: 6, alignItems: 'center', justifyContent: 'center',
   },
   chassisLock: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+
+  frameHint: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, lineHeight: 16 },
+  frameRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: RD.youMagentaBg, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 2,
+  },
+  frameRowLocked: { opacity: 0.45 },
+  frameRowSelected: { borderWidth: 1, borderColor: '#ffffff' },
+  frameRowPreviewing: { borderWidth: 1, borderColor: RD.brand },
+  frameRank: { color: RD.youMagenta, fontSize: 12, fontFamily: RD_FONT.mono },
+  frameNick: { color: RD.textPrimary, fontSize: 13, fontWeight: '700' },
+  frameMeta: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, paddingHorizontal: 2 },
+  frameLabel: { color: RD.textSecondary, fontSize: 11, fontFamily: RD_FONT.mono },
+  frameTier: { color: RD.textTertiary, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
   swatchFlex: { width: undefined, flex: 1 },
   swatchWrap: { width: 68, alignItems: 'center' },
   swatchStack: { width: 38, height: 38 },

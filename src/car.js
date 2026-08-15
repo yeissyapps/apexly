@@ -12,6 +12,7 @@
 // a propósito: Metro no la necesita, pero Node sí, y tools/contact-sheet.mjs
 // importa este archivo (misma convención que pieces.js -> track.js).
 import { CHASSIS } from './chassis.js';
+import { PACK_FRAMES } from './frames.js';
 
 export const CAR_DEFAULTS = {
   chassis: 'gt', // id de CHASSIS (chassis.js); 'gt' es el coche de siempre
@@ -25,6 +26,7 @@ export const CAR_DEFAULTS = {
   // Estuvo invisible porque el error se tragaba (ver Garage.apply).
   // Afectaba a 41 de 51 usuarios cuando se detectó.
   wingColor: '#1a1a1c', // negro, libre y en catálogo
+  frame: 'sin_marco', // id de FRAMES (frames.js) — marco de tu fila del ranking
   livery: null, // color de la franja (hex de CAR_COLORS), null = sin franja
   liveryPattern: 'simple', // id de LIVERY_PATTERNS
   lightsColor: '#fff6cf',
@@ -128,6 +130,10 @@ export const LIGHT_COLORS = [
 //  desbloqueo (no está en catalog_pieces), así que nunca sale en un sobre y
 //  contarlo haría la colección imposible de completar.
 // ============================================================================
+//  Los MARCOS entran por `PACK_FRAMES` y no por la lista entera: la Corona
+//  mundial es un logro (no está en catalog_pieces, nunca sale en un sobre) y
+//  contarla dejaría la colección en 24/25 para siempre.
 export const COLLECTIBLE_CATALOGS = [CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, CHASSIS];
 
-export const TOTAL_PIECES = COLLECTIBLE_CATALOGS.flat().filter((p) => p.locked).length;
+export const TOTAL_PIECES =
+  COLLECTIBLE_CATALOGS.flat().filter((p) => p.locked).length + PACK_FRAMES.length;
