@@ -29,7 +29,11 @@ export const CAR_DEFAULTS = {
   frame: 'sin_marco', // id de FRAMES (frames.js) — marco de tu fila del ranking
   livery: null, // color de la franja (hex de CAR_COLORS), null = sin franja
   liveryPattern: 'simple', // id de LIVERY_PATTERNS
-  lightsColor: '#fff6cf',
+  // Mismo cuidado que con wingColor: tiene que EXISTIR en LIGHT_COLORS y ser
+  // libre. Al rehacer los faros este valor era '#fff6cf', que dejó de estar
+  // en el catálogo — y eso es exactamente lo que bloqueó a 41 de 51 usuarios
+  // la vez anterior. Lo comprueba tools/check-catalog.mjs.
+  lightsColor: '#f4f1e4',
 };
 
 // ============================================================================
@@ -112,29 +116,56 @@ export function findColorEntry(hex) {
   return CAR_COLORS.find((c) => c.c === hex) || { c: hex, finish: 'flat' };
 }
 
-// Formas de alerón. 'sin_aleron' es la única libre (nuevo valor de fábrica);
-// el resto son piezas premium, de más a menos común.
+// ============================================================================
+//  ALERONES — 'sin_aleron' es el único libre; el resto salen en sobres.
+//
+//  El lote anterior (cuello cisne / GT / barrido / cola de pato) eran cuatro
+//  rectángulos detrás del coche que solo se diferenciaban en dos milímetros
+//  de largo: en el garaje, mirándolos fijamente, se notaba; en pista, no.
+//  Ahora cada uno cambia la SILUETA, que es lo único que se lee en marcha.
+//  La escalera va de discreto a bestia, para que subir de rareza se note.
+// ============================================================================
 export const WING_SHAPES = [
   { id: 'sin_aleron', label: 'Sin alerón', locked: false },
-  { id: 'cuello_cisne', label: 'Cuello cisne', locked: true, rarity: 'rara' },
+  { id: 'labio', label: 'Labio', locked: true, rarity: 'rara' },
   { id: 'gt', label: 'GT', locked: true, rarity: 'rara' },
-  { id: 'barrido', label: 'Barrido', locked: true, rarity: 'epica' },
-  { id: 'cola_de_pato', label: 'Cola de pato', locked: true, rarity: 'legendaria' },
+  { id: 'cuello_cisne', label: 'Cuello cisne', locked: true, rarity: 'epica' },
+  { id: 'biplano', label: 'Biplano', locked: true, rarity: 'legendaria' },
 ];
 
-// Patrones de librea (la franja). El COLOR de la franja ya no es propio de
-// la librea: reutiliza CAR_COLORS (mismo picker que carrocería/alerón).
+// ============================================================================
+//  LIBREAS — el patrón de la franja. El COLOR no es propio de la librea:
+//  reutiliza CAR_COLORS (mismo picker que carrocería y alerón).
+//
+//  Antes eran tres rayas y un número. Ahora las dos legendarias son las que
+//  no se parecen a una raya: el galón y el damero se reconocen de un vistazo
+//  incluso a tamaño de juego, que es lo que justifica su rareza.
+// ============================================================================
 export const LIVERY_PATTERNS = [
-  { id: 'simple', label: 'Franja simple', locked: false },
+  { id: 'simple', label: 'Franja central', locked: false },
   { id: 'doble', label: 'Doble franja', locked: true, rarity: 'rara' },
-  { id: 'diagonal', label: 'Diagonal', locked: true, rarity: 'epica' },
-  { id: 'numero', label: 'Número', locked: true, rarity: 'legendaria' },
+  { id: 'flecha', label: 'Galón', locked: true, rarity: 'rara' },
+  { id: 'numero', label: 'Dorsal', locked: true, rarity: 'epica' },
+  { id: 'damero', label: 'Damero', locked: true, rarity: 'legendaria' },
 ];
 
+// ============================================================================
+//  FAROS — ahora son piezas de verdad, no un interruptor de dos posiciones.
+//
+//  Antes había tres entradas y una de ellas ('multicolor') estaba marcada
+//  `locked` pero NO existía en catalog_pieces: no salía en ningún sobre, así
+//  que era una pieza imposible de conseguir puesta ahí de adorno — y había
+//  que excluirla a mano del recuento para que la colección no fuera
+//  incompletable. Fuera; las bloqueadas de ahora sí se sortean.
+//
+//  Mismo mecanismo que los colores de carrocería: se guarda el hex en la
+//  columna que ya existe (car_lights_color), sin columna nueva.
+// ============================================================================
 export const LIGHT_COLORS = [
-  { id: 'blanco', c: '#fff6cf', locked: false },
-  { id: 'ambar', c: '#ffb84d', locked: false },
-  { id: 'multicolor', c: '#b884ff', locked: true },
+  { id: 'blanco', label: 'Blanco', c: '#f4f1e4', locked: false },
+  { id: 'ambar', label: 'Ámbar', c: '#ffb347', locked: false },
+  { id: 'xenon', label: 'Xenón', c: '#a8d8ff', locked: true, rarity: 'rara' },
+  { id: 'laser', label: 'Láser', c: '#c9a2ff', locked: true, rarity: 'epica' },
 ];
 
 // ============================================================================
@@ -145,14 +176,14 @@ export const LIGHT_COLORS = [
 //  "22/19 piezas" y, peor, habría dado la colección por completa al llegar a
 //  19 — apagando la compra con tres piezas todavía por salir.
 //
-//  Los FAROS no entran: `multicolor` está marcado locked pero no tiene vía de
-//  desbloqueo (no está en catalog_pieces), así que nunca sale en un sobre y
-//  contarlo haría la colección imposible de completar.
+//  Los FAROS ya SÍ entran: hasta ahora quedaban fuera porque su única pieza
+//  bloqueada era imposible de conseguir (ver LIGHT_COLORS). Las nuevas se
+//  sortean como cualquier otra, así que cuentan para la colección.
 // ============================================================================
 //  Los MARCOS entran por `PACK_FRAMES` y no por la lista entera: la Corona
 //  mundial es un logro (no está en catalog_pieces, nunca sale en un sobre) y
-//  contarla dejaría la colección en 24/25 para siempre.
-export const COLLECTIBLE_CATALOGS = [CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, CHASSIS];
+//  contarla dejaría la colección en 27/28 para siempre.
+export const COLLECTIBLE_CATALOGS = [CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, CHASSIS, LIGHT_COLORS];
 
 export const TOTAL_PIECES =
   COLLECTIBLE_CATALOGS.flat().filter((p) => p.locked).length + PACK_FRAMES.length;

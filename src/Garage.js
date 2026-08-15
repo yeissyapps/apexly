@@ -36,7 +36,7 @@ import CarSprite from './CarSprite';
 import { RD, RD_FONT, RARITY_COLOR, RARITY_LABEL } from './theme';
 import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS, TOTAL_PIECES } from './car';
 import { CHASSIS } from './chassis';
-import { FRAMES, frameStyle, frameGlyphColor } from './frames';
+import { FRAMES, PACK_FRAMES, frameStyle, frameGlyphColor } from './frames';
 import { getMyLoadout, saveLoadout, getInventory } from './api';
 
 // Con 5 pestañas cada una tiene ~70dp: "CARROCERÍA" partía en dos líneas y
@@ -354,6 +354,10 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
     ...WING_SHAPES.map((o) => ['wing', o]),
     ...LIVERY_PATTERNS.map((o) => ['livery', o]),
     ...CHASSIS.map((o) => ['chassis', o]),
+    ...LIGHT_COLORS.map((o) => ['light', o]),
+    // PACK_FRAMES y no FRAMES: la Corona es un logro y no entra en
+    // TOTAL_PIECES, así que contarla daría un 29/28 a quien la tenga.
+    ...PACK_FRAMES.map((o) => ['frame', o]),
   ].filter(([cat, o]) => o.locked && owned.has(`${cat}:${o.id}`)).length;
 
   return (
@@ -533,8 +537,14 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
         {tab === 'lights' && (
           <PieceGrid
             field="lightsColor"
+            // Con `category` los faros bloqueados se comprueban contra el
+            // inventario, como el resto. Sin ella, PieceGrid daba por tuya
+            // cualquier pieza bloqueada — daba igual mientras el único faro
+            // bloqueado era inconseguible, pero ahora se ganan en sobres.
+            category="light"
             options={LIGHT_COLORS}
             selected={loadout.lightsColor}
+            owned={owned}
             preview={preview}
             onPreview={previewLocked}
             onSelect={(c) => apply({ lightsColor: c })}

@@ -23,7 +23,7 @@
 
 import { writeFileSync } from 'node:fs';
 import {
-  wingGeomFor, liveryGeomFor, highlightEllipses, LIGHT_BEAMS,
+  wingGeomFor, liveryGeomFor, highlightEllipses, lightBeamsFor, lightRadius,
 } from '../src/carGeometry.js';
 import { CHASSIS, chassisById, DEFAULT_CHASSIS } from '../src/chassis.js';
 import { CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS, CAR_DEFAULTS } from '../src/car.js';
@@ -67,35 +67,44 @@ function carSvg(loadout, scale = 2.6) {
       .join('');
   }
 
-  const wing = wingGeomFor(ch, lo.wingShape)
-    .map((r) => `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" rx="${r.rx}" fill="${lo.wingColor}"/>`)
-    .join('');
-
-  const livery = !lo.livery ? '' : liveryGeomFor(ch, lo.liveryPattern).map((p) => {
-    if (p.type === 'rect') return `<rect x="${p.x}" y="${p.y}" width="${p.width}" height="${p.height}" fill="${lo.livery}"/>`;
-    if (p.type === 'polygon') return `<polygon points="${p.points}" fill="${lo.livery}"/>`;
+  // Mismo pintor que <Shapes> en CarSprite: alerones y libreas comparten
+  // vocabulario, así que aquí también comparten función. `under` es el color
+  // del coche, que es lo que cala el dorsal.
+  const paint = (shapes, color, under) => shapes.map((p) => {
+    const fill = p.knockout ? under : color;
+    if (p.type === 'rect') {
+      return `<rect x="${p.x}" y="${p.y}" width="${p.width}" height="${p.height}"` +
+        (p.rx ? ` rx="${p.rx}"` : '') + ` fill="${fill}"/>`;
+    }
+    if (p.type === 'polygon') return `<polygon points="${p.points}" fill="${fill}"/>`;
     if (p.type === 'circle') {
       return p.stroke
-        ? `<circle cx="${p.cx}" cy="${p.cy}" r="${p.r}" fill="none" stroke="${lo.livery}" stroke-width="${p.strokeWidth}"/>`
-        : `<circle cx="${p.cx}" cy="${p.cy}" r="${p.r}" fill="${lo.livery}"/>`;
+        ? `<circle cx="${p.cx}" cy="${p.cy}" r="${p.r}" fill="none" stroke="${color}" stroke-width="${p.strokeWidth}"/>`
+        : `<circle cx="${p.cx}" cy="${p.cy}" r="${p.r}" fill="${fill}"/>`;
     }
     if (p.type === 'text') {
-      return `<text x="${p.x}" y="${p.y}" font-size="${p.fontSize}" font-weight="${p.fontWeight}" text-anchor="${p.anchor}" fill="${lo.livery}">${esc(p.value)}</text>`;
+      return `<text x="${p.x}" y="${p.y}" font-size="${p.fontSize}" font-weight="${p.fontWeight}" text-anchor="${p.anchor}" fill="${fill}" font-family="sans-serif">${esc(p.value)}</text>`;
     }
     return '';
   }).join('');
+
+  const wing = paint(wingGeomFor(ch, lo.wingShape), lo.wingColor, bodyFill);
+  const livery = !lo.livery ? '' : paint(liveryGeomFor(ch, lo.liveryPattern), lo.livery, bodyFill);
 
   const rect = (r, fill) => `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" rx="${r.rx}" fill="${fill}"/>`;
   // Ruedas descubiertas y demás añadidos del chasis: heredan el color del
   // cuerpo, así que van con él y antes de la librea.
   const extras = (ch.extras || []).map((r) => rect(r, bodyFill)).join('');
-  const beams = LIGHT_BEAMS.map((b) => `<polygon points="${b.points}" fill="${lo.lightsColor}" opacity="${b.opacity}"/>`).join('');
-  const bulbs = ch.lights.map((b) => `<circle cx="${b.x}" cy="${b.y}" r="1.7" fill="${lo.lightsColor}"/>`).join('');
+  const beams = lightBeamsFor(ch).map((b) => `<polygon points="${b.points}" fill="${lo.lightsColor}" opacity="${b.opacity}"/>`).join('');
+  const bulbs = ch.lights.map((b) => `<circle cx="${b.x}" cy="${b.y}" r="${lightRadius(ch)}" fill="${lo.lightsColor}"/>`).join('');
 
+  // MISMO ORDEN DE CAPAS que CarSprite. La rejilla va antes que la librea:
+  // es un negro al 18% y encima apagaba la mitad trasera de la franja.
   return `${defs ? `<defs>${defs}</defs>` : ''}<g transform="scale(${scale})">` +
     wing + extras +
-    `<path d="${ch.body}" fill="${bodyFill}"/>` + veta + livery +
-    rect(ch.grille, 'rgba(0,0,0,0.18)') + rect(ch.cabin, '#1b2733') + rect(ch.splitter, '#0f1218') +
+    `<path d="${ch.body}" fill="${bodyFill}"/>` + veta +
+    rect(ch.grille, 'rgba(0,0,0,0.18)') + livery +
+    rect(ch.cabin, '#1b2733') + rect(ch.splitter, '#0f1218') +
     beams + bulbs +
     `</g>`;
 }
@@ -114,23 +123,43 @@ function cell(x, y, loadout, label, rarity) {
 }
 
 // --- Composición ------------------------------------------------------------
+// Colores de referencia para las fichas: SIEMPRE del catálogo, nunca hex
+// inventados. Si aquí se cuela un color que ya no existe, la hoja enseña un
+// coche que el jugador no puede construir — y eso es justo lo que hay que
+// detectar, no lo que hay que dibujar.
+const BLANCO = '#f0eee8';
+const NEGRO = '#17171a';
+const ROJO = '#d32b1e';
+const AMARILLO = '#f5c518';
+const AZUL = '#2b5fb8';
+
 const sections = [
   {
     // Cada chasis con el MISMO color y alerón, que es la única forma de
     // juzgar la silueta: si cada uno lleva su color, se compara el color.
     title: 'CHASIS · silueta',
     items: CHASSIS.map((c) => ({
-      loadout: { chassis: c.id, bodyColor: '#ffffff', wingColor: '#e4002b', wingShape: 'cuello_cisne' },
+      loadout: { chassis: c.id, bodyColor: BLANCO, wingColor: ROJO, wingShape: 'gt' },
       label: c.label,
       rarity: c.rarity,
     })),
   },
   {
-    // El mismo chasis con cada alerón, para ver que el anclaje encaja.
+    // El alerón más grande sobre cada chasis: si el anclaje falla, aquí se ve.
     title: 'CHASIS × ALERÓN · encaje',
     items: CHASSIS.map((c) => ({
-      loadout: { chassis: c.id, bodyColor: '#1a1a1c', wingColor: '#f0c451', wingShape: 'cola_de_pato', liveryPattern: 'diagonal', livery: '#4fa9ff' },
-      label: `${c.label} + cola`,
+      loadout: { chassis: c.id, bodyColor: NEGRO, wingColor: AMARILLO, wingShape: 'biplano' },
+      label: `${c.label} + biplano`,
+      rarity: c.rarity,
+    })),
+  },
+  {
+    // La franja es lo que más fácil se desborda por los costados, porque no
+    // se escala en Y a propósito. Esta fila es la comprobación.
+    title: 'CHASIS × LIBREA · desbordes',
+    items: CHASSIS.map((c) => ({
+      loadout: { chassis: c.id, bodyColor: BLANCO, wingShape: 'sin_aleron', liveryPattern: 'doble', livery: AZUL },
+      label: `${c.label} + doble`,
       rarity: c.rarity,
     })),
   },
@@ -145,7 +174,7 @@ const sections = [
   {
     title: 'ALERÓN · forma',
     items: WING_SHAPES.map((w) => ({
-      loadout: { wingShape: w.id, bodyColor: '#ffffff', wingColor: '#e4002b' },
+      loadout: { wingShape: w.id, bodyColor: BLANCO, wingColor: ROJO },
       label: w.label,
       rarity: w.rarity,
     })),
@@ -153,15 +182,17 @@ const sections = [
   {
     title: 'LIBREA · patrón',
     items: LIVERY_PATTERNS.map((l) => ({
-      loadout: { liveryPattern: l.id, livery: '#e4002b', bodyColor: '#ffffff' },
+      loadout: { liveryPattern: l.id, livery: ROJO, bodyColor: BLANCO },
       label: l.label,
       rarity: l.rarity,
     })),
   },
   {
+    // Sobre coche negro: es donde se aprecia el haz, que es la mitad de la
+    // pieza (la otra mitad son las dos lámparas).
     title: 'FAROS · color',
     items: LIGHT_COLORS.map((l) => ({
-      loadout: { lightsColor: l.c, bodyColor: '#1a1a1c' },
+      loadout: { lightsColor: l.c, bodyColor: NEGRO, wingColor: NEGRO },
       label: l.label || l.id,
       rarity: l.rarity,
     })),

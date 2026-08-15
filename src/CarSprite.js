@@ -18,7 +18,7 @@ import { CAR_DEFAULTS, findColorEntry } from './car';
 // La FORMA del coche vive en carGeometry.js, como datos puros: así la puede
 // pintar también la hoja de contactos (tools/contact-sheet.mjs) sin arrastrar
 // React, y cambiar una pieza es editar números en un sitio y no JSX en dos.
-import { wingGeomFor, liveryGeomFor, highlightEllipses, LIGHT_BEAMS } from './carGeometry';
+import { wingGeomFor, liveryGeomFor, highlightEllipses, lightBeamsFor, lightRadius } from './carGeometry';
 import { chassisById } from './chassis';
 
 // Cuánto ha girado el degradado holográfico ahora mismo (0..1), a partir del
@@ -79,21 +79,27 @@ function HighlightGradientDef({ id, stops }) {
   );
 }
 
-// Pinta los descriptores de librea de carGeometry (rect/polygon/circle/text).
-// `stroke: true` manda el color al trazo en vez de al relleno.
-function LiveryShape({ chassis, pattern, color }) {
+// Pinta el vocabulario de formas de carGeometry (rect/polygon/circle/text).
+// Lo usan alerones y libreas por igual — cuando eran dos pintores distintos,
+// meter un polígono en un alerón simplemente no se dibujaba.
+//
+// `stroke: true`   -> el color va al trazo, no al relleno.
+// `knockout: true` -> se pinta con el color de DEBAJO (el del coche), para
+//                     calar el dorsal dentro de su disco sin máscaras.
+function Shapes({ shapes, color, under }) {
   return (
     <>
-      {liveryGeomFor(chassis, pattern).map((p, i) => {
+      {shapes.map((p, i) => {
+        const fill = p.knockout ? under : color;
         if (p.type === 'rect') {
-          return <Rect key={i} x={p.x} y={p.y} width={p.width} height={p.height} fill={color} />;
+          return <Rect key={i} x={p.x} y={p.y} width={p.width} height={p.height} rx={p.rx} fill={fill} />;
         }
-        if (p.type === 'polygon') return <Polygon key={i} points={p.points} fill={color} />;
+        if (p.type === 'polygon') return <Polygon key={i} points={p.points} fill={fill} />;
         if (p.type === 'circle') {
           return (
             <Circle
               key={i} cx={p.cx} cy={p.cy} r={p.r}
-              fill={p.stroke ? 'none' : color}
+              fill={p.stroke ? 'none' : fill}
               stroke={p.stroke ? color : undefined}
               strokeWidth={p.strokeWidth}
             />
@@ -103,7 +109,7 @@ function LiveryShape({ chassis, pattern, color }) {
           return (
             <SvgText
               key={i} x={p.x} y={p.y} fontSize={p.fontSize} fontWeight={p.fontWeight}
-              textAnchor={p.anchor} fill={color}
+              textAnchor={p.anchor} fill={fill}
             >
               {p.value}
             </SvgText>
@@ -133,9 +139,7 @@ export default function CarSprite({ x, y, deg, scale = 1, loadout }) {
       )}
       {/* Alerón trasero (forma y color personalizables), recolocado al
           anclaje del chasis */}
-      {wingGeomFor(ch, lo.wingShape).map((r, i) => (
-        <Rect key={i} {...r} fill={wing.fill} />
-      ))}
+      <Shapes shapes={wingGeomFor(ch, lo.wingShape)} color={wing.fill} under={body.fill} />
       {/* Añadidos del chasis que son parte de la carrocería (p. ej. las
           ruedas descubiertas del monoplaza): heredan su color, así que van
           justo antes del cuerpo */}
@@ -151,20 +155,28 @@ export default function CarSprite({ x, y, deg, scale = 1, loadout }) {
           fill={`url(#${body.highlight.id})`} opacity={e.opacity}
         />
       ))}
-      {/* Franja/librea sobre el cuerpo (patrón + color, por separado) */}
-      {lo.livery && <LiveryShape chassis={ch} pattern={lo.liveryPattern} color={lo.livery} />}
-      {/* Rejilla del motor (trasera) */}
+      {/* Rejilla del motor (trasera). Va ANTES de la librea: es un negro al
+          18% y, pintada encima, apagaba la mitad trasera de cualquier franja
+          — se veía una raya de dos tonos, como si estuviera sucia. */}
       <Rect {...ch.grille} fill="rgba(0,0,0,0.18)" />
+      {/* Franja/librea sobre el cuerpo (patrón + color, por separado).
+          `under` es el color del coche: es lo que cala el dorsal. */}
+      {lo.livery && (
+        <Shapes shapes={liveryGeomFor(ch, lo.liveryPattern)} color={lo.livery} under={body.fill} />
+      )}
       {/* Cabina / cristales */}
       <Rect {...ch.cabin} fill="#1b2733" />
       {/* Splitter delantero (sobresale del morro) */}
       <Rect {...ch.splitter} fill="#0f1218" />
-      {/* Faros + haz de luz (color personalizable) */}
-      {LIGHT_BEAMS.map((b, i) => (
+      {/* Faros + haz de luz (color personalizable). El haz se calcula DESDE
+          las lámparas del chasis: cuando era una constante con las del GT,
+          en los otros tres coches la luz salía de un sitio y la lámpara
+          estaba en otro. */}
+      {lightBeamsFor(ch).map((b, i) => (
         <Polygon key={i} points={b.points} fill={lo.lightsColor} opacity={b.opacity} />
       ))}
       {ch.lights.map((b, i) => (
-        <Circle key={i} cx={b.x} cy={b.y} r={1.7} fill={lo.lightsColor} />
+        <Circle key={i} cx={b.x} cy={b.y} r={lightRadius(ch)} fill={lo.lightsColor} />
       ))}
     </G>
   );

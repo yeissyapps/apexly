@@ -17,6 +17,13 @@
 //  Sistema de coordenadas (el mismo de siempre, no se ha tocado):
 //  origen en el centro del coche, +x hacia el MORRO, +y hacia la derecha del
 //  coche. El coche mide ~32 de largo por ~16 de ancho.
+//
+//  VOCABULARIO DE FORMAS: todo (alerones y libreas) se describe con las
+//  mismas primitivas — `rect`, `polygon`, `circle`, `text` — para que un
+//  único pintor las sirva. Antes los alerones eran solo rectángulos sueltos
+//  con otra forma de escribirlos, y por eso los cuatro se parecían: un
+//  rectángulo detrás del coche admite pocas variaciones. Con polígonos
+//  entran las placas laterales abiertas y los labios curvos.
 // ============================================================================
 
 // Silueta de la carrocería. Estilo 911 GT3 RS visto desde arriba: morro
@@ -27,77 +34,197 @@ export const CAR_BODY =
   'C-15.5,6 -14,7.9 -12,8.2 C-9,8.6 -6,8 -2,7.6 ' +
   'C2,7.2 6,7.8 10,7.2 C13,6.5 15,4 16,0 Z';
 
-// --- Alerones ---------------------------------------------------------------
-// Cada forma es una lista de rectángulos (props sueltas). Se pintan ANTES que
-// la carrocería, así que lo que quede bajo el cuerpo no se ve: por eso los
-// puntales arrancan dentro y solo asoma el plano.
+// ============================================================================
+//  ALERONES
+//
+//  Se pintan ANTES que la carrocería, así que todo lo que quede bajo el
+//  cuerpo desaparece: por eso los puntales y los labios arrancan dentro del
+//  coche y solo asoma lo que sobresale por detrás.
+//
+//  Cada uno se reconoce por UNA idea, no por milímetros de diferencia:
+//    labio        · pegado a la cola, sin hueco       -> discreto
+//    gt           · plano + placas abiertas en abanico
+//    cuello_cisne · plano sostenido por dos brazos visibles en el hueco
+//    biplano      · dos planos apilados, el más ancho y el que más sobresale
+// ============================================================================
 export const WING_SHAPES_GEOM = {
   sin_aleron: [],
-  cuello_cisne: [
-    { x: -16.5, y: -4, width: 3.6, height: 8, rx: 1 },
-    { x: -18.6, y: -10.8, width: 3.6, height: 21.6, rx: 1.6 },
-    { x: -18.9, y: -11.2, width: 5.2, height: 2.4, rx: 1 },
-    { x: -18.9, y: 8.8, width: 5.2, height: 2.4, rx: 1 },
+
+  // Labio de cola (ducktail): un bulto que abraza la cola sin dejar hueco.
+  // La arista recta que cierra el polígono cae dentro del cuerpo y no se ve.
+  //
+  // `hug` = esta pieza sigue el ANCHO del chasis. Es la única que lo lleva:
+  // un plano suspendido puede (y debe) ser más ancho que el coche, pero un
+  // labio que sobresale por los costados no es un labio, es un escudo pegado
+  // detrás — que es exactamente como se veía en el monoplaza.
+  labio: [
+    {
+      type: 'polygon',
+      hug: true,
+      points: '-14,-7.8 -16.6,-7.2 -18.4,-4.6 -19.2,0 -18.4,4.6 -16.6,7.2 -14,7.8',
+    },
   ],
-  // Plano recto + placas trapezoidales en los extremos + puntales finos.
+
+  // Plano recto con hueco + placas laterales abiertas en abanico. Las placas
+  // son polígonos, no rectángulos: abiertas se leen como placas; en recto se
+  // leían como que el plano era simplemente más largo.
   gt: [
-    { x: -18.5, y: -9, width: 3, height: 18, rx: 1 },
-    { x: -20.5, y: -11, width: 3.4, height: 2.6, rx: 0.8 },
-    { x: -20.5, y: 8.4, width: 3.4, height: 2.6, rx: 0.8 },
-    { x: -16, y: -3.4, width: 2.2, height: 6.8, rx: 1 },
+    { type: 'rect', x: -18.0, y: -3.6, width: 3.0, height: 2.0, rx: 0.6 },
+    { type: 'rect', x: -18.0, y: 1.6, width: 3.0, height: 2.0, rx: 0.6 },
+    { type: 'rect', x: -20.6, y: -9.6, width: 3.0, height: 19.2, rx: 0.8 },
+    { type: 'polygon', points: '-21.8,-11.6 -16.8,-10.0 -16.8,-8.6 -21.8,-9.6' },
+    { type: 'polygon', points: '-21.8,11.6 -16.8,10.0 -16.8,8.6 -21.8,9.6' },
   ],
-  // Angulada/barrida, minimalista (menos piezas que el GT).
-  barrido: [
-    { x: -19, y: -9.5, width: 3, height: 19, rx: 1.4 },
-    { x: -16.2, y: -3, width: 2, height: 6, rx: 1 },
+
+  // Cuello de cisne: el plano no se apoya desde abajo sino que cuelga de dos
+  // brazos que salen de la carrocería. Los brazos van afilados y separados,
+  // que es lo que hace que el hueco se lea.
+  cuello_cisne: [
+    { type: 'polygon', points: '-15.8,-4.6 -20.6,-6.8 -20.6,-5.2 -15.8,-3.0' },
+    { type: 'polygon', points: '-15.8,4.6 -20.6,6.8 -20.6,5.2 -15.8,3.0' },
+    { type: 'rect', x: -21.4, y: -8.6, width: 2.6, height: 17.2, rx: 0.8 },
+    { type: 'rect', x: -22.6, y: -9.9, width: 3.8, height: 1.8, rx: 0.6 },
+    { type: 'rect', x: -22.6, y: 8.1, width: 3.8, height: 1.8, rx: 0.6 },
   ],
-  // Plano ancho pegado a la carrocería, sin puntales visibles — más ancho que
-  // el propio coche (whale-tail).
-  cola_de_pato: [{ x: -17.5, y: -10, width: 4.5, height: 20, rx: 1.6 }],
+
+  // Biplano: dos planos apilados unidos por placas que abarcan los dos. Es
+  // el que más sobresale por detrás y el único más ancho que el propio coche
+  // — a tamaño de juego se distingue por la silueta, sin mirar el detalle.
+  biplano: [
+    { type: 'rect', x: -17.8, y: -3.4, width: 2.6, height: 1.8, rx: 0.6 },
+    { type: 'rect', x: -17.8, y: 1.6, width: 2.6, height: 1.8, rx: 0.6 },
+    { type: 'rect', x: -18.8, y: -10.2, width: 2.4, height: 20.4, rx: 0.8 },
+    { type: 'rect', x: -22.4, y: -11.2, width: 2.8, height: 22.4, rx: 0.8 },
+    { type: 'polygon', points: '-23.4,-12.0 -17.4,-10.8 -17.4,-9.0 -23.4,-10.2' },
+    { type: 'polygon', points: '-23.4,12.0 -17.4,10.8 -17.4,9.0 -23.4,10.2' },
+  ],
 };
 
 export function wingGeom(shape) {
-  return WING_SHAPES_GEOM[shape] || WING_SHAPES_GEOM.cuello_cisne;
+  return WING_SHAPES_GEOM[shape] || WING_SHAPES_GEOM.sin_aleron;
 }
 
-// --- Libreas ----------------------------------------------------------------
-// Descriptores de primitiva en vez de JSX, para que los pueda pintar tanto
-// react-native-svg (en el juego) como una plantilla de texto (en la hoja de
-// contactos). `stroke: true` = el color va al trazo, no al relleno.
+// ============================================================================
+//  LIBREAS
+//
+//  La franja ya no es "una barra corta en medio del capó": va de morro a
+//  cola, que es como se pintan de verdad. Y el catálogo deja de ser cuatro
+//  variantes de raya:
+//    simple  · franja central
+//    doble   · dos franjas paralelas
+//    flecha  · galón apuntando al morro   -> no es una raya, se lee al vuelo
+//    numero  · dorsal en disco, con el número calado en el color del coche
+//    damero  · banda a cuadros            -> la más reconocible de todas
+// ============================================================================
+
+// La banda a cuadros se genera con un bucle en vez de escribir 12 cuadrados a
+// mano: sigue siendo dato puro (se calcula una vez al cargar el módulo) y
+// cambiar el tamaño del cuadro es tocar un número.
+const DAMERO_SQ = 2.8;
+const DAMERO_COLS = 5;
+const DAMERO_ROWS = 5;
+const DAMERO = [];
+for (let r = 0; r < DAMERO_ROWS; r++) {
+  for (let c = 0; c < DAMERO_COLS; c++) {
+    // Solo se pintan los cuadros "negros": los otros dejan ver la carrocería,
+    // que es justo lo que hace el damero (y evita tener que calar nada).
+    if ((r + c) % 2 !== 0) continue;
+    DAMERO.push({
+      type: 'rect',
+      x: -DAMERO_COLS * DAMERO_SQ / 2 + c * DAMERO_SQ,
+      y: -DAMERO_ROWS * DAMERO_SQ / 2 + r * DAMERO_SQ,
+      width: DAMERO_SQ,
+      height: DAMERO_SQ,
+    });
+  }
+}
+
 export const LIVERY_SHAPES_GEOM = {
-  simple: [{ type: 'rect', x: -8, y: -1.4, width: 20, height: 2.8 }],
+  simple: [{ type: 'rect', x: -13, y: -1.5, width: 26, height: 3.0 }],
   doble: [
-    { type: 'rect', x: -8, y: -2.6, width: 20, height: 1.6 },
-    { type: 'rect', x: -8, y: 1, width: 20, height: 1.6 },
+    { type: 'rect', x: -13, y: -2.9, width: 26, height: 1.8 },
+    { type: 'rect', x: -13, y: 1.1, width: 26, height: 1.8 },
   ],
-  diagonal: [{ type: 'polygon', points: '-2,-7.4 4,-7.4 -4,7.4 -10,7.4' }],
+  // Galón: dos trazos que se juntan en punta hacia el morro.
+  flecha: [
+    { type: 'polygon', points: '3,0 -4,-6.6 -7.6,-6.6 -0.6,0 -7.6,6.6 -4,6.6' },
+    { type: 'polygon', points: '-4.6,0 -11.6,-6.6 -13.6,-6.6 -6.6,0 -13.6,6.6 -11.6,6.6' },
+  ],
+  // Dorsal: disco relleno con el número CALADO en el color de la carrocería
+  // (`knockout`). Un círculo de contorno con el número dentro se perdía a
+  // tamaño de juego; un disco macizo se ve incluso en miniatura.
+  //
+  // Va en la cubierta TRASERA (x negativa) y no en el centro: centrado, la
+  // cabina se comía media cifra — el techo se pinta encima de la librea, así
+  // que un dorsal bajo el techo es un dorsal invisible.
   numero: [
-    { type: 'circle', cx: -2, cy: 0, r: 4.4, stroke: true, strokeWidth: 1 },
-    { type: 'text', x: -2, y: 1.6, fontSize: 5, fontWeight: '700', anchor: 'middle', value: '7' },
+    { type: 'circle', cx: -8, cy: 0, r: 4.4 },
+    { type: 'text', x: -8, y: 2.0, fontSize: 6.6, fontWeight: '700', anchor: 'middle', value: '7', knockout: true },
   ],
+  damero: DAMERO,
 };
 
 export function liveryGeom(pattern) {
   return LIVERY_SHAPES_GEOM[pattern] || LIVERY_SHAPES_GEOM.simple;
 }
 
-// --- Adaptación de piezas a cada chasis --------------------------------------
-// Las medidas de arriba están dibujadas para el chasis GT (el original). Para
-// los demás no valen tal cual: en un monoplaza la franja se sale por los
-// costados y el alerón queda flotando lejos de la cola. Estas dos funciones
-// las recolocan usando los anclajes que declara cada chasis.
+// ============================================================================
+//  Adaptación de piezas a cada chasis
 //
-// GT es la referencia (wingMount -16, liveryLen 20, liveryX -8), así que para
-// GT el desplazamiento es 0 y la escala 1: no toca nada de lo que ya
-// funcionaba.
+//  Las medidas de arriba están dibujadas para el chasis GT (el original).
+//  Para los demás no valen tal cual: en un monoplaza la franja se sale por
+//  los costados y el alerón queda flotando lejos de la cola. Estas funciones
+//  las recolocan usando los anclajes que declara cada chasis.
+//
+//  GT es la referencia, así que para GT el desplazamiento es 0 y la escala 1:
+//  no toca nada de lo que ya funcionaba.
+// ============================================================================
 const REF_WING_MOUNT = -16;
-const REF_LIVERY_LEN = 20;
-const REF_LIVERY_X = -8;
+const REF_LIVERY_LEN = 26;
+const REF_LIVERY_X = -13;
+
+// Aplica una transformación en X a cualquier primitiva del vocabulario. Una
+// sola función para alerones y libreas: cuando eran dos caminos distintos,
+// añadir un polígono a un alerón significaba que el desplazamiento por chasis
+// se lo saltaba en silencio.
+// `ky` solo se aplica a las primitivas marcadas `hug` (ver el labio): al
+// resto se les deja el Y intacto a propósito.
+function mapShapes(shapes, mapX, scale, ky = 1) {
+  return shapes.map((p) => {
+    const k = p.hug ? ky : 1;
+    if (p.type === 'rect') {
+      return { ...p, x: mapX(p.x), width: p.width * scale, y: p.y * k, height: p.height * k };
+    }
+    if (p.type === 'polygon') {
+      return {
+        ...p,
+        points: p.points.split(' ').map((pt) => {
+          const [px, py] = pt.split(',').map(Number);
+          return `${round(mapX(px))},${round(py * k)}`;
+        }).join(' '),
+      };
+    }
+    if (p.type === 'circle') return { ...p, cx: mapX(p.cx) };
+    if (p.type === 'text') return { ...p, x: mapX(p.x) };
+    return p;
+  });
+}
+
+const round = (n) => Math.round(n * 100) / 100;
+
+// Medio ancho del GT: la referencia contra la que se estrechan las piezas
+// que abrazan la carrocería.
+const REF_HALF = 8.2;
 
 export function wingGeomFor(chassis, shape) {
   const dx = (chassis?.wingMount ?? REF_WING_MOUNT) - REF_WING_MOUNT;
-  const rects = wingGeom(shape);
-  return dx === 0 ? rects : rects.map((r) => ({ ...r, x: r.x + dx }));
+  const ky = (chassis?.half ?? REF_HALF) / REF_HALF;
+  const shapes = wingGeom(shape);
+  // El alerón se DESPLAZA, no se escala en X: estirarlo cambiaría el grosor
+  // de los planos y un chasis largo tendría un alerón "gordo" sin haberlo
+  // elegido. En Y solo se ajusta lo marcado `hug`.
+  if (dx === 0 && ky === 1) return shapes;
+  return mapShapes(shapes, (x) => x + dx, 1, ky);
 }
 
 export function liveryGeomFor(chassis, pattern) {
@@ -110,23 +237,9 @@ export function liveryGeomFor(chassis, pattern) {
 
   // Solo se escala/desplaza en X (a lo largo del coche). En Y NO: la franja
   // debe conservar su grosor, si no en un chasis ancho se convierte en una
-  // mancha y en uno estrecho desaparece.
-  const mapX = (x) => (x - REF_LIVERY_X) * k + x0;
-  return shapes.map((p) => {
-    if (p.type === 'rect') return { ...p, x: mapX(p.x), width: p.width * k };
-    if (p.type === 'polygon') {
-      return {
-        ...p,
-        points: p.points.split(' ').map((pt) => {
-          const [px, py] = pt.split(',').map(Number);
-          return `${mapX(px).toFixed(2)},${py}`;
-        }).join(' '),
-      };
-    }
-    if (p.type === 'circle') return { ...p, cx: mapX(p.cx) };
-    if (p.type === 'text') return { ...p, x: mapX(p.x) };
-    return p;
-  });
+  // mancha y en uno estrecho desaparece. Como los largos de todos los chasis
+  // son parecidos, la escala se queda cerca de 1 y el damero no se deforma.
+  return mapShapes(shapes, (x) => (x - REF_LIVERY_X) * k + x0, k);
 }
 
 // --- Piezas fijas (no personalizables) --------------------------------------
@@ -134,19 +247,38 @@ export const GRILLE = { x: -12, y: -4.6, width: 8, height: 9.2, rx: 2, fill: 'rg
 export const CABIN = { x: -1, y: -4.8, width: 9, height: 9.6, rx: 3.4, fill: '#1b2733' };
 export const SPLITTER = { x: 13.6, y: -6.6, width: 2.6, height: 13.2, rx: 1, fill: '#0f1218' };
 
-// --- Faros ------------------------------------------------------------------
-// Dos conos por faro (uno largo y tenue, otro corto y más denso) para que el
-// haz tenga caída sin necesitar degradado.
-export const LIGHT_BEAMS = [
-  { points: '11.4,-5 30,-11 30,-1', opacity: 0.22 },
-  { points: '11.4,5 30,1 30,11', opacity: 0.22 },
-  { points: '11.4,-5 20,-6.6 20,-3.4', opacity: 0.4 },
-  { points: '11.4,5 20,3.4 20,6.6', opacity: 0.4 },
-];
-export const LIGHT_BULBS = [
-  { cx: 11.4, cy: -5, r: 1.7 },
-  { cx: 11.4, cy: 5, r: 1.7 },
-];
+// ============================================================================
+//  FAROS
+//
+//  El haz SALE DE LA LÁMPARA, calculado a partir de `chassis.lights`. Antes
+//  era una constante con las coordenadas del GT clavadas (x=11.4, y=±5),
+//  así que en los otros tres chasis las lámparas estaban en un sitio y los
+//  conos de luz en otro: en el monoplaza los faros van casi juntos en el
+//  centro (y=±1.6) y la luz salía a la altura de las ruedas.
+//
+//  Dos conos por faro (uno largo y tenue, otro corto y más denso) para que el
+//  haz tenga caída sin necesitar degradado.
+// ============================================================================
+export function lightBeamsFor(chassis) {
+  const lamps = chassis?.lights || [{ x: 11.4, y: -5 }, { x: 11.4, y: 5 }];
+  const out = [];
+  for (const l of lamps) {
+    // El cono largo se abre hacia fuera (y*1.2) además de hacia delante: es
+    // lo que hace que dos haces paralelos no se lean como una sola mancha.
+    out.push({ points: `${l.x},${l.y} ${round(l.x + 18.6)},${round(l.y * 1.2 - 5)} ${round(l.x + 18.6)},${round(l.y * 1.2 + 5)}`, opacity: 0.22 });
+  }
+  for (const l of lamps) {
+    out.push({ points: `${l.x},${l.y} ${round(l.x + 8.6)},${round(l.y - 1.6)} ${round(l.x + 8.6)},${round(l.y + 1.6)}`, opacity: 0.4 });
+  }
+  return out;
+}
+
+// Radio de la lámpara. El monoplaza lo declara más pequeño porque sus faros
+// van casi pegados: con el radio del GT los dos círculos se solapaban y se
+// veía una sola mancha.
+export function lightRadius(chassis) {
+  return chassis?.lightR ?? 1.7;
+}
 
 // --- Veta de brillo de metalizado/cromado -----------------------------------
 // Elipse angosta a lo largo del morro-cola: ya se estrecha sola en los

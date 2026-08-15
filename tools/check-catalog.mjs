@@ -55,6 +55,10 @@ if (!CHASSIS.some((c) => c.id === CAR_DEFAULTS.chassis)) fail('chassis por defec
 else ok('chassis por defecto existe');
 if (!FRAMES.some((f) => f.id === CAR_DEFAULTS.frame)) fail('frame por defecto no existe');
 else ok('frame por defecto existe');
+// Los faros pasaron a ser catálogo con hex propio, así que caen en la misma
+// trampa que la carrocería: al rehacerlos, '#fff6cf' dejó de existir.
+if (!LIGHT_COLORS.some((l) => l.c === CAR_DEFAULTS.lightsColor)) fail(`lightsColor ${CAR_DEFAULTS.lightsColor} no está en el catálogo de faros`);
+else ok('lightsColor existe en el catálogo de faros');
 
 // Todo lo que es por defecto tiene que ser LIBRE, o el usuario nuevo nace
 // con una pieza que el servidor le va a rechazar.
@@ -65,24 +69,45 @@ for (const [k, v] of [['bodyColor', CAR_DEFAULTS.bodyColor], ['wingColor', CAR_D
 if (WING_SHAPES.find((w) => w.id === CAR_DEFAULTS.wingShape)?.locked) fail('wingShape por defecto está bloqueado');
 if (CHASSIS.find((c) => c.id === CAR_DEFAULTS.chassis)?.locked) fail('chassis por defecto está bloqueado');
 if (FRAMES.find((f) => f.id === CAR_DEFAULTS.frame)?.locked) fail('frame por defecto está bloqueado');
+if (LIVERY_PATTERNS.find((l) => l.id === CAR_DEFAULTS.liveryPattern)?.locked) fail('liveryPattern por defecto está bloqueado');
+if (LIGHT_COLORS.find((l) => l.c === CAR_DEFAULTS.lightsColor)?.locked) fail('lightsColor por defecto está bloqueado');
 
 console.log('\nCLIENTE vs SERVIDOR');
 // La lista de colores libres está escrita a mano en el SQL: si se separa de
 // la del cliente, el jugador ve un color que no puede equipar.
-// Se lee palette_v2.sql porque es la migración MÁS RECIENTE que redefine
-// save_loadout: es la que manda sobre la lista de colores libres del
+// Se lee pieces_v2.sql porque es la migración MÁS RECIENTE que redefine
+// save_loadout: es la que manda sobre las listas de piezas libres del
 // servidor. Si algún día hay otra posterior, hay que apuntar aquí.
-const sql = readFileSync(new URL('../supabase/palette_v2.sql', import.meta.url), 'utf8');
-const m = sql.match(/v_free_colors\s+text\[\]\s*:=\s*array\[([^\]]+)\]/);
-if (!m) fail('no encuentro v_free_colors en supabase/frames.sql');
-else {
-  const sqlFree = m[1].split(',').map((s) => s.trim().replace(/'/g, '').toLowerCase());
-  const cliFree = freeHex.map((h) => h.toLowerCase());
-  const faltan = cliFree.filter((h) => !sqlFree.includes(h));
-  const sobran = sqlFree.filter((h) => !cliFree.includes(h));
-  if (faltan.length) fail(`el SQL no acepta colores que el cliente ofrece: ${faltan.join(', ')}`);
-  if (sobran.length) fail(`el SQL acepta colores que ya no existen: ${sobran.join(', ')}`);
-  if (!faltan.length && !sobran.length) ok(`los ${cliFree.length} colores libres coinciden con el SQL`);
+const sql = readFileSync(new URL('../supabase/pieces_v2.sql', import.meta.url), 'utf8');
+
+// Compara una lista `array[...]` del SQL contra la del cliente. Se hizo
+// genérica al añadir los faros: la de colores llevaba meses escrita a mano y
+// ya se había desincronizado una vez.
+function compareList(name, cliente) {
+  const m = sql.match(new RegExp(name + "\\s+text\\[\\]\\s*:=\\s*array\\[([^\\]]+)\\]"));
+  if (!m) { fail(`no encuentro ${name} en el SQL`); return; }
+  const enSql = m[1].split(',').map((s) => s.trim().replace(/'/g, '').toLowerCase());
+  const cli = cliente.map((h) => String(h).toLowerCase());
+  const faltan = cli.filter((h) => !enSql.includes(h));
+  const sobran = enSql.filter((h) => !cli.includes(h));
+  if (faltan.length) fail(`${name}: el SQL no acepta lo que el cliente ofrece: ${faltan.join(', ')}`);
+  if (sobran.length) fail(`${name}: el SQL acepta lo que ya no existe: ${sobran.join(', ')}`);
+  if (!faltan.length && !sobran.length) ok(`${name}: ${cli.length} coinciden con el SQL`);
+}
+
+compareList('v_free_colors', freeHex);
+compareList('v_free_lights', LIGHT_COLORS.filter((l) => !l.locked).map((l) => l.c));
+
+// Las piezas bloqueadas tienen que estar EN catalog_pieces o son imposibles
+// de conseguir (le pasaba al faro 'multicolor'). Se comprueba contra los
+// inserts del propio SQL.
+for (const [cat, list] of [['wing', WING_SHAPES], ['livery', LIVERY_PATTERNS], ['light', LIGHT_COLORS]]) {
+  // Con regex y no con includes(): los inserts van alineados en columnas, así
+  // que entre la categoría y el id hay varios espacios.
+  const enSql = (id) => new RegExp(`'${cat}'\\s*,\\s*'${id}'`).test(sql);
+  const faltan = list.filter((p) => p.locked && !enSql(p.id)).map((p) => p.id);
+  if (faltan.length) fail(`${cat}: bloqueadas que no se sortean en ningún sobre: ${faltan.join(', ')}`);
+  else ok(`${cat}: todas las bloqueadas están en catalog_pieces`);
 }
 
 console.log('\nCOLECCIÓN');
@@ -91,13 +116,10 @@ const packable =
   WING_SHAPES.filter((w) => w.locked).length +
   LIVERY_PATTERNS.filter((l) => l.locked).length +
   CHASSIS.filter((c) => c.locked).length +
+  LIGHT_COLORS.filter((l) => l.locked).length +
   PACK_FRAMES.length;
 if (packable !== TOTAL_PIECES) fail(`TOTAL_PIECES=${TOTAL_PIECES} pero hay ${packable} piezas sorteables`);
 else ok(`TOTAL_PIECES = ${TOTAL_PIECES} y cuadra con las piezas sorteables`);
-// Una pieza bloqueada que no pueda salir en un sobre deja la colección
-// imposible de completar (le pasa a los faros y a la corona, a propósito).
-const lockedLights = LIGHT_COLORS.filter((l) => l.locked).length;
-if (lockedLights) ok(`${lockedLights} faro(s) bloqueado(s) fuera del recuento, correcto`);
 if (FRAMES.some((f) => f.achievement)) ok('la corona es logro y queda fuera del recuento, correcto');
 
 console.log(fails ? `\n${fails} PROBLEMA(S)\n` : '\nCatálogo coherente\n');

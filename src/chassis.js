@@ -39,8 +39,8 @@ const GT = {
   splitter: { x: 13.6, y: -6.6, width: 2.6, height: 13.2, rx: 1 },
   lights: [{ x: 11.4, y: -5 }, { x: 11.4, y: 5 }],
   wingMount: -16,   // desde aquí hacia atrás cuelga el alerón
-  liveryLen: 20,    // largo de la franja
-  liveryX: -8,      // dónde empieza
+  liveryLen: 26,    // largo de la franja — es la REFERENCIA de carGeometry
+  liveryX: -13,     // dónde empieza (de cola a morro, no un trozo del capó)
 };
 
 // --- Chasis 2: Monoplaza ----------------------------------------------------
@@ -71,9 +71,15 @@ const MONOPLAZA = {
   grille: { x: -13, y: -3, width: 5, height: 6, rx: 1.6 },
   splitter: { x: 14.5, y: -5.2, width: 2.4, height: 10.4, rx: 0.9 },
   lights: [{ x: 12, y: -1.6 }, { x: 12, y: 1.6 }],
+  // Lámparas más pequeñas: van casi pegadas en el centro y con el radio del
+  // GT los dos círculos se solapaban en una sola mancha.
+  lightR: 1.2,
   wingMount: -16.5,
-  liveryLen: 22,
-  liveryX: -10,
+  // Franja deliberadamente corta: el morro es tan fino que una franja hasta
+  // la punta desbordaría por los costados (no se escala en Y a propósito,
+  // ver liveryGeomFor), y una franja que se sale parece un fallo de dibujo.
+  liveryLen: 21,
+  liveryX: -13,
 };
 
 // --- Chasis 3: Clásico ------------------------------------------------------
@@ -94,8 +100,8 @@ const CLASICO = {
   splitter: { x: 15.2, y: -6, width: 2, height: 12, rx: 0.5 },
   lights: [{ x: 13.8, y: -4.4 }, { x: 13.8, y: 4.4 }],
   wingMount: -16,
-  liveryLen: 24,
-  liveryX: -10,
+  liveryLen: 28,
+  liveryX: -14,
 };
 
 // --- Chasis 4: Prototipo ----------------------------------------------------
@@ -117,8 +123,8 @@ const PROTOTIPO = {
   splitter: { x: 14.4, y: -7, width: 3, height: 14, rx: 1.2 },
   lights: [{ x: 12.2, y: -5.4 }, { x: 12.2, y: 5.4 }],
   wingMount: -16.5,
-  liveryLen: 26,
-  liveryX: -11,
+  liveryLen: 28,
+  liveryX: -14,
 };
 
 export const CHASSIS = [GT, MONOPLAZA, CLASICO, PROTOTIPO];
