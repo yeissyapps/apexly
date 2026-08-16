@@ -18,6 +18,9 @@
       "autoIncrement": false,
       "ios": {
         "simulator": false
+      },
+      "android": {
+        "credentialsSource": "local"
       }
     }
   },

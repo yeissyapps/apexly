@@ -171,11 +171,15 @@ export async function getMyLoadout() {
   const user = await ensureSession();
   const { data } = await supabase
     .from('users')
-    .select('car_body_color, car_wing_shape, car_wing_color, car_livery, car_livery_pattern, car_lights_color')
+    .select('car_chassis, car_frame, car_body_color, car_wing_shape, car_wing_color, car_livery, car_livery_pattern, car_lights_color')
     .eq('id', user.id)
     .maybeSingle();
   if (!data) return { ...CAR_DEFAULTS };
   return {
+    // car_chassis solo existe si se corrió supabase/chassis.sql; sin él,
+    // `data.car_chassis` llega undefined y cae al GT de siempre.
+    chassis: data.car_chassis || CAR_DEFAULTS.chassis,
+    frame: data.car_frame || CAR_DEFAULTS.frame,
     bodyColor: data.car_body_color || CAR_DEFAULTS.bodyColor,
     wingShape: data.car_wing_shape || CAR_DEFAULTS.wingShape,
     wingColor: data.car_wing_color || CAR_DEFAULTS.wingColor,
@@ -192,6 +196,8 @@ export async function getMyLoadout() {
 export async function saveLoadout(loadout) {
   await ensureSession();
   const { error } = await supabase.rpc('save_loadout', {
+    p_chassis: loadout.chassis || 'gt',
+    p_frame: loadout.frame || 'sin_marco',
     p_body_color: loadout.bodyColor,
     p_wing_shape: loadout.wingShape,
     p_wing_color: loadout.wingColor,
@@ -530,11 +536,12 @@ export async function getGlobalBoard(day = todayKey()) {
   const { data: { session } } = await supabase.auth.getSession();
   const myId = session?.user?.id ?? null;
 
-  const SEL = 'best_ms, updated_at, user_id, users(nickname, current_streak)';
+  const SEL = 'best_ms, updated_at, user_id, users(nickname, current_streak, car_frame)';
   const mapRow = (r, rank, leaderMs) => ({
     userId: r.user_id,
     nickname: r.users?.nickname ?? '—',
     streak: r.users?.current_streak ?? 0,
+    frame: r.users?.car_frame || 'sin_marco',
     bestMs: r.best_ms,
     rank,
     isMe: r.user_id === myId,
@@ -555,7 +562,7 @@ export async function getGlobalBoard(day = todayKey()) {
   let me = null, aboveRows = [], belowRows = [];
   if (myId) {
     const { data: mine } = await supabase
-      .from('attempts').select('best_ms, users(nickname, current_streak)')
+      .from('attempts').select('best_ms, users(nickname, current_streak, car_frame)')
       .eq('day', day).eq('user_id', myId).maybeSingle();
     if (mine) {
       const myBest = mine.best_ms;
@@ -573,6 +580,7 @@ export async function getGlobalBoard(day = todayKey()) {
         userId: myId,
         nickname: mine.users?.nickname ?? 'Tú',
         streak: mine.users?.current_streak ?? 0,
+        frame: mine.users?.car_frame || 'sin_marco',
         bestMs: myBest,
         rank: myRank,
         isMe: true,
@@ -607,7 +615,7 @@ export async function getLeaderboard(scope = 'global', day = todayKey()) {
 
   let q = supabase
     .from('attempts')
-    .select('best_ms, updated_at, user_id, users(nickname, current_streak)')
+    .select('best_ms, updated_at, user_id, users(nickname, current_streak, car_frame)')
     .eq('day', day)
     .order('best_ms', { ascending: true });
   if (memberIds) q = q.in('user_id', memberIds);
@@ -624,6 +632,7 @@ export async function getLeaderboard(scope = 'global', day = todayKey()) {
       userId: r.user_id,
       nickname: r.users?.nickname ?? '—',
       streak: r.users?.current_streak ?? 0,
+      frame: r.users?.car_frame || 'sin_marco',
       bestMs: r.best_ms,
       rank,
       total,

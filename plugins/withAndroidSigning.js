@@ -3,9 +3,13 @@
 //  `expo prebuild`, para que no se pierda cuando android/ se regenera.
 //
 //  Lee las credenciales de `keystore.properties` (raíz del proyecto, fuera de
-//  git) y añade un signingConfigs.release a android/app/build.gradle. Si el
-//  archivo no existe (p. ej. en la máquina de otro dev sin la keystore), cae
-//  al firmado de debug para no romper el build.
+//  git) y añade un signingConfigs.release a android/app/build.gradle.
+//
+//  Si el archivo NO existe: las tareas de release revientan con un mensaje
+//  claro, y las de debug siguen funcionando con la keystore de debug. Antes
+//  caía a debug siempre, también en release — y eso significaba que compilar
+//  en una máquina sin la keystore te daba un AAB "correcto" firmado con la
+//  clave de debug, sin un solo aviso, que Play rechaza al subirlo.
 // ============================================================================
 
 const { withAppBuildGradle } = require('@expo/config-plugins');
@@ -27,7 +31,8 @@ function withAndroidSigning(config) {
       contents = contents.replace(/\napply plugin:.*\n/, (m) => m + SIGNING_SNIPPET);
     }
 
-    // Añade signingConfigs.release (con fallback a debug si no hay properties file)
+    // Añade signingConfigs.release. Sin keystore.properties, release peta y
+    // debug sigue vivo (ver cabecera).
     if (!contents.includes('signingConfigs.release')) {
       contents = contents.replace(
         /signingConfigs\s*\{\s*debug\s*\{[^}]*\}\s*\}/,
@@ -39,6 +44,21 @@ function withAndroidSigning(config) {
                 keyAlias keystoreProperties['keyAlias']
                 keyPassword keystoreProperties['keyPassword']
             } else {
+                // signingConfigs se evalua SIEMPRE, tambien al compilar debug,
+                // asi que no se puede lanzar el error aqui sin romperle el
+                // debug a quien no tenga la keystore. Miramos que tareas se han
+                // pedido de verdad y solo cortamos si alguna es de release.
+                def wantsRelease = gradle.startParameter.taskNames.any {
+                    it.toLowerCase().contains('release')
+                }
+                if (wantsRelease) {
+                    throw new GradleException(
+                        "No hay keystore.properties en la raiz del proyecto, asi que esta release " +
+                        "se firmaria con la keystore de DEBUG y Play la rechazaria. Copia " +
+                        "keystore.properties y el .jks que apunta (los dos estan fuera de git) " +
+                        "antes de compilar release."
+                    )
+                }
                 storeFile file('debug.keystore')
                 storePassword 'android'
                 keyAlias 'androiddebugkey'

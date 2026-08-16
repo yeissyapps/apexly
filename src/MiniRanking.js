@@ -17,6 +17,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { getGlobalBoard, getLeaderboard, listMyGroups } from './api';
 import { fmtTime } from './format';
 import { RD, RD_FONT } from './theme';
+import { frameById, frameStyle, frameGlyphColor } from './frames';
 
 export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageGroups }) {
   const [groups, setGroups] = useState([]);
@@ -153,14 +154,21 @@ function Tab({ label, active, dashed, onPress, color }) {
 }
 
 // Fila de lista horizontal: puesto — nombre — tiempo. Sin avatar.
+//
+// El MARCO va sobre el estilo de "tú" (fondo magenta), no en su lugar: el
+// magenta sigue diciendo "esta fila eres tú" y el marco añade el acabado. Y
+// se pinta el de TODOS, no solo el propio — es justo lo que hace que la
+// pieza tenga sentido: es la única de la colección que ve el resto.
 function RankRow({ r }) {
+  const f = frameById(r.frame);
   return (
-    <View style={[styles.row, r.isMe && styles.rowMe]}>
+    <View style={[styles.row, r.isMe && styles.rowMe, frameStyle(f, RD)]}>
       <View style={styles.rowLeft}>
         <Text style={[styles.rowRank, r.isMe && styles.rowRankMe]}>{String(r.rank).padStart(2, '0')}</Text>
         <Text style={[styles.rowName, r.isMe && styles.rowNameMe]} numberOfLines={1}>
           {r.isMe ? `${r.nickname} (tú)` : r.nickname}
         </Text>
+        {!!f.glyph && <Text style={[styles.rowGlyph, { color: frameGlyphColor(f, RD) }]}>{f.glyph}</Text>}
       </View>
       <Text style={styles.rowTime}>{fmtTime(r.bestMs)}</Text>
     </View>
@@ -235,6 +243,7 @@ const styles = StyleSheet.create({
   rowRank: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, width: 18 },
   rowRankMe: { color: RD.youMagenta },
   rowName: { color: RD.textPrimary, fontSize: 13, fontWeight: '700', flexShrink: 1 },
+  rowGlyph: { fontSize: 13, marginLeft: 5 },
   rowNameMe: { color: RD.textPrimary },
   rowTime: { color: RD.cream, fontSize: 12, fontFamily: RD_FONT.mono },
 

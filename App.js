@@ -61,6 +61,10 @@ import { loadAttempts, consumeAttempt, grantBatch, attemptsLeft as calcLeft, AD_
 import { PUSH_ENABLED, intentosTxt } from './src/features';
 import { CONFIG } from './src/config';
 import { prepareConsent, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError, wasConsentDenied } from './src/ads';
+// SIN import de './src/iap' a propósito: el IAP "ilimitado para siempre"
+// sigue desactivado en iOS por el bug de openiap/StoreKit (ver el commit de
+// revert). ./src/iap.js ni siquiera existe en esta rama — si esta línea
+// volviera, el bundle fallaría en el arranque.
 import {
   logOnboardingComplete, logRaceStart, logRaceFinish, logPaywallView,
   logAdWatched, logGarageOpen,
@@ -599,6 +603,7 @@ export default function App() {
       <Garage
         onBack={() => { setRefreshKey((k) => k + 1); setScreen('home'); }}
         onOpenTienda={() => setScreen('tienda')}
+        nickname={nickname}
       />
     );
   }

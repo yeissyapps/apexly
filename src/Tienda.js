@@ -16,24 +16,42 @@ import ShineBadge from './ShineBadge';
 import PackArt from './PackArt';
 import PackReveal from './PackReveal';
 import { RD, RD_FONT, RARITY_COLOR, RARITY_LABEL } from './theme';
-import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS } from './car';
+import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS, TOTAL_PIECES } from './car';
+import { CHASSIS } from './chassis';
+import { FRAMES } from './frames';
 import { getWallet, getInventory, getMyLoadout, saveLoadout, openPack } from './api';
 
 const PACK_COST = 125;
-const TOTAL_PIECES = 19;
 
+// Nombre bonito de la pieza que acaba de salir. Faltaban 'chassis' y 'frame'
+// desde que se añadieron: caían al genérico y el sobre anunciaba "Monoplaza"
+// por casualidad (el id se parecía) o "Filo" a secas.
 function pieceLabel(category, pieceId) {
-  if (category === 'wing') return WING_SHAPES.find((w) => w.id === pieceId)?.label ?? pieceId;
-  if (category === 'livery') return LIVERY_PATTERNS.find((l) => l.id === pieceId)?.label ?? pieceId;
+  const find = (list) => list.find((o) => o.id === pieceId)?.label;
+  if (category === 'wing') return find(WING_SHAPES) ?? pieceId;
+  if (category === 'livery') return find(LIVERY_PATTERNS) ?? pieceId;
+  if (category === 'chassis') return find(CHASSIS) ?? pieceId;
+  if (category === 'light') return find(LIGHT_COLORS) ?? pieceId;
+  if (category === 'frame') return find(FRAMES) ?? pieceId;
   return pieceId.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 }
 
+// Cómo se ve el coche con la pieza recién ganada puesta. Un chasis o un faro
+// que salía de un sobre no cambiaban NADA en la vista previa: enseñaba el
+// coche de siempre mientras el cartel decía que habías ganado algo.
 function previewLoadoutFor(base, category, pieceId) {
-  const entry = category === 'color' ? CAR_COLORS.find((c) => c.id === pieceId) : null;
-  if (category === 'color') return { ...base, bodyColor: entry?.c ?? base.bodyColor };
+  if (category === 'color') {
+    return { ...base, bodyColor: CAR_COLORS.find((c) => c.id === pieceId)?.c ?? base.bodyColor };
+  }
   if (category === 'wing') return { ...base, wingShape: pieceId };
-  if (category === 'livery') return { ...base, liveryPattern: pieceId, livery: base.livery || '#ffffff' };
-  return base;
+  // Sin color de franja no se vería el patrón, así que se pone uno por
+  // defecto solo para la vista previa.
+  if (category === 'livery') return { ...base, liveryPattern: pieceId, livery: base.livery || '#f0eee8' };
+  if (category === 'chassis') return { ...base, chassis: pieceId };
+  if (category === 'light') {
+    return { ...base, lightsColor: LIGHT_COLORS.find((l) => l.id === pieceId)?.c ?? base.lightsColor };
+  }
+  return base; // 'frame' no se ve en el coche: se ve en la fila del ranking
 }
 
 export default function Tienda({ onBack }) {

@@ -50,3 +50,6 @@ keystore.properties
 
 # Credenciales de firma (NUNCA subir)
 credentials.json
+
+# Salida de tools/contact-sheet.mjs — se regenera con un comando, no se versiona
+catalogo.svg

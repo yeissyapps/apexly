@@ -28,20 +28,27 @@
 
 import { memo, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Ellipse, Line, Path, Rect } from 'react-native-svg';
+import Svg, { Circle, Ellipse, G, Line, Path, Rect } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 
 import DangerStripe from './DangerStripe';
 import CarSprite from './CarSprite';
 import { RD, RD_FONT, RARITY_COLOR, RARITY_LABEL } from './theme';
-import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS } from './car';
+import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS, TOTAL_PIECES } from './car';
+import { CHASSIS } from './chassis';
+import { FRAMES, PACK_FRAMES, frameStyle, frameGlyphColor } from './frames';
 import { getMyLoadout, saveLoadout, getInventory } from './api';
 
+// Con 5 pestañas cada una tiene ~70dp: "CARROCERÍA" partía en dos líneas y
+// descuadraba la fila entera. "PINTURA" dice lo mismo (es el color del
+// cuerpo) y cabe — todas las etiquetas se mantienen en 7 caracteres o menos.
 const TABS = [
-  { id: 'body', label: 'CARROCERÍA' },
+  { id: 'chassis', label: 'CHASIS' },
+  { id: 'body', label: 'PINTURA' },
   { id: 'wing', label: 'ALERÓN' },
   { id: 'livery', label: 'LIBREA' },
   { id: 'lights', label: 'FAROS' },
+  { id: 'frame', label: 'MARCO' },
 ];
 
 // Orden de los grupos: primero lo que puedes usar ya, luego la escalera de
@@ -140,6 +147,50 @@ function LockIcon({ color }) {
       <Path d="M4,7 V5 A4,4 0 0,1 12,5 V7" fill="none" stroke={color} strokeWidth={1.9} />
       <Rect x={3} y={7} width={10} height={7} rx={1.5} fill={color} />
     </Svg>
+  );
+}
+
+// Muestra de CHASIS: a diferencia del resto de piezas, aquí lo que se elige
+// es una SILUETA, no un color. Un cuadrado de color no dice nada, así que la
+// muestra dibuja el propio contorno del chasis.
+function ChassisSwatch({ ch, isSelected, isPreviewing, isLocked, onPress }) {
+  const rc = ch.rarity ? RARITY_COLOR[ch.rarity] : null;
+  const stroke = isPreviewing ? RD.brand : isSelected ? '#ffffff' : (rc || RD.textTertiary);
+  return (
+    <Pressable style={s.chassisWrap} onPress={onPress}>
+      <View
+        style={[
+          s.chassisBox,
+          rc && { borderColor: rc },
+          isSelected && s.swatchSelected,
+          isPreviewing && s.swatchPreviewing,
+        ]}
+      >
+        {/* El coche se dibuja apuntando a +x (derecha) y aquí interesa verlo
+            de morro hacia arriba, como en pista, así que se gira -90°.
+            OJO CON EL viewBox: al girar, el largo del coche (~33) pasa a
+            necesitar ALTO, no ancho. Con el viewBox apaisado de antes
+            (40x24) se comía morro y cola y las cuatro siluetas parecían el
+            mismo tocho. Va en vertical y con margen para el alerón. */}
+        <Svg width="100%" height={54} viewBox="-11 -19 22 38">
+          <G transform="rotate(-90)">
+            {(ch.extras || []).map((r, i) => (
+              <Rect key={i} x={r.x} y={r.y} width={r.width} height={r.height} rx={r.rx}
+                fill={isLocked ? RD.textDisabled : stroke} opacity={isLocked ? 0.5 : 0.9} />
+            ))}
+            <Path d={ch.body} fill={isLocked ? RD.textDisabled : stroke} opacity={isLocked ? 0.5 : 0.9} />
+            <Rect {...ch.cabin} fill={RD.bg} opacity={0.55} />
+          </G>
+        </Svg>
+        {isLocked && !isPreviewing && (
+          <View style={s.chassisLock} pointerEvents="none"><LockIcon color={rc || RD.brand} /></View>
+        )}
+        {!isLocked && rc && <View style={[s.ownedPip, { backgroundColor: rc }]} pointerEvents="none" />}
+      </View>
+      <Text style={[s.swatchLabel, isPreviewing && s.swatchLabelPreviewing, !isLocked && rc && { color: rc }]}>
+        {isPreviewing ? 'Mirando' : ch.label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -245,10 +296,11 @@ function PieceGrid({ field, category, options, selected, getValue = (o) => o.c, 
   );
 }
 
-export default function Garage({ onBack, onOpenTienda }) {
+export default function Garage({ onBack, onOpenTienda, nickname }) {
   const [loadout, setLoadout] = useState(CAR_DEFAULTS);
   const [tab, setTab] = useState('body');
   const [preview, setPreview] = useState(null); // { field, value } de una pieza bloqueada, o null
+  const [saveError, setSaveError] = useState(null);
   const [owned, setOwned] = useState(new Set()); // "categoria:pieza" que ya tienes (sobres)
 
   useEffect(() => {
@@ -263,7 +315,21 @@ export default function Garage({ onBack, onOpenTienda }) {
     Haptics.selectionAsync().catch(() => {});
     const next = { ...loadout, ...patch };
     setLoadout(next);
-    saveLoadout(next).catch(() => {});
+    setSaveError(null);
+    // NO tragarse el fallo. Cuando esto era `.catch(() => {})`, el garaje
+    // enseñaba el cambio aplicado mientras el servidor lo rechazaba: 41 de 51
+    // usuarios llevaban sin poder guardar nada y no había forma de saberlo
+    // (ver el comentario de wingColor en car.js). Si el guardado falla, el
+    // coche vuelve a como estaba y se dice — mentir es peor que fallar.
+    saveLoadout(next).catch((e) => {
+      setLoadout(loadout);
+      const msg = String(e?.message || '');
+      setSaveError(
+        msg.includes('PIECE_NOT_OWNED')
+          ? 'Esa pieza todavía no es tuya.'
+          : 'No se pudo guardar. Comprueba la conexión.',
+      );
+    });
   }
 
   // Toca una pieza bloqueada: se ve en el coche un momento, pero no se guarda
@@ -280,13 +346,19 @@ export default function Garage({ onBack, onOpenTienda }) {
 
   const displayLoadout = preview ? { ...loadout, [preview.field]: preview.value } : loadout;
 
-  // Cuántas piezas premium tienes en total, para la línea de progreso.
-  const premium = [
+  // Cuántas piezas premium tienes, para la línea de progreso. El TOTAL sale
+  // de car.js (una sola fuente); aquí solo se cuenta cuántas son tuyas, y
+  // hay que recorrer las 4 categorías o el chasis no contaría.
+  const premiumOwned = [
     ...CAR_COLORS.map((o) => ['color', o]),
     ...WING_SHAPES.map((o) => ['wing', o]),
     ...LIVERY_PATTERNS.map((o) => ['livery', o]),
-  ].filter(([, o]) => o.locked);
-  const premiumOwned = premium.filter(([cat, o]) => owned.has(`${cat}:${o.id}`)).length;
+    ...CHASSIS.map((o) => ['chassis', o]),
+    ...LIGHT_COLORS.map((o) => ['light', o]),
+    // PACK_FRAMES y no FRAMES: la Corona es un logro y no entra en
+    // TOTAL_PIECES, así que contarla daría un 29/28 a quien la tenga.
+    ...PACK_FRAMES.map((o) => ['frame', o]),
+  ].filter(([cat, o]) => o.locked && owned.has(`${cat}:${o.id}`)).length;
 
   return (
     <View style={s.screen}>
@@ -299,9 +371,10 @@ export default function Garage({ onBack, onOpenTienda }) {
 
         <View style={s.titleRow}>
           <Text style={s.pageTitle}>Garaje</Text>
-          <Text style={s.collectionCount}>{premiumOwned}/{premium.length} piezas</Text>
+          <Text style={s.collectionCount}>{premiumOwned}/{TOTAL_PIECES} piezas</Text>
         </View>
         <Text style={s.disclaimer}>Solo estético — no afecta al rendimiento del coche</Text>
+        {!!saveError && <Text style={s.saveError}>{saveError}</Text>}
 
         <View style={s.preview}>
           <Showcase loadout={displayLoadout} />
@@ -322,10 +395,38 @@ export default function Garage({ onBack, onOpenTienda }) {
               style={[s.tab, tab === t.id && s.tabActive]}
               onPress={() => selectTab(t.id)}
             >
-              <Text style={[s.tabText, tab === t.id && s.tabTextActive]}>{t.label}</Text>
+              {/* numberOfLines + adjustsFontSizeToFit: si algún día una
+                  etiqueta crece, encoge en vez de partirse y descuadrar la
+                  fila (que es lo que pasó al meter la 5.ª pestaña). */}
+              <Text
+                style={[s.tabText, tab === t.id && s.tabTextActive]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
+                {t.label}
+              </Text>
             </Pressable>
           ))}
         </View>
+
+        {tab === 'chassis' && (
+          <View style={s.singleRow}>
+            {CHASSIS.map((c) => {
+              const locked = c.locked && !owned.has(`chassis:${c.id}`);
+              return (
+                <ChassisSwatch
+                  key={c.id}
+                  ch={c}
+                  isSelected={!preview && loadout.chassis === c.id}
+                  isPreviewing={!!preview && preview.field === 'chassis' && preview.value === c.id}
+                  isLocked={locked}
+                  onPress={() => (locked ? previewLocked('chassis', c.id) : apply({ chassis: c.id }))}
+                />
+              );
+            })}
+          </View>
+        )}
 
         {tab === 'body' && (
           <PieceGrid
@@ -397,11 +498,53 @@ export default function Garage({ onBack, onOpenTienda }) {
           </>
         )}
 
+        {tab === 'frame' && (
+          <View style={{ gap: 10 }}>
+            <Text style={s.frameHint}>
+              Es la única pieza que ven los demás: se pinta en tu fila del ranking.
+            </Text>
+            {FRAMES.map((f) => {
+              const locked = f.locked && !owned.has(`frame:${f.id}`);
+              const selected = !preview && (loadout.frame || 'sin_marco') === f.id;
+              const previewing = !!preview && preview.field === 'frame' && preview.value === f.id;
+              const rc = f.rarity ? RARITY_COLOR[f.rarity] : null;
+              return (
+                <Pressable
+                  key={f.id}
+                  onPress={() => (locked ? previewLocked('frame', f.id) : apply({ frame: f.id }))}
+                >
+                  {/* La muestra ES una fila de ranking de mentira: un swatch
+                      abstracto no diría dónde acaba apareciendo esto. */}
+                  <View style={[s.frameRow, frameStyle(f, RD), locked && s.frameRowLocked, selected && s.frameRowSelected, previewing && s.frameRowPreviewing]}>
+                    <Text style={s.frameRank}>01</Text>
+                    <Text style={s.frameNick}>{nickname || 'Tú'}</Text>
+                    {!!f.glyph && <Text style={{ color: frameGlyphColor(f, RD), fontSize: 13 }}>{f.glyph}</Text>}
+                    <View style={{ flex: 1 }} />
+                    {locked && <LockIcon color={rc || RD.brand} />}
+                  </View>
+                  <View style={s.frameMeta}>
+                    <Text style={[s.frameLabel, !locked && rc && { color: rc }]}>{f.label}</Text>
+                    <Text style={[s.frameTier, rc && { color: rc }]}>
+                      {f.achievement ? 'LOGRO · 1.º DEL MUNDO' : f.rarity ? f.rarity.toUpperCase() : 'LIBRE'}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
         {tab === 'lights' && (
           <PieceGrid
             field="lightsColor"
+            // Con `category` los faros bloqueados se comprueban contra el
+            // inventario, como el resto. Sin ella, PieceGrid daba por tuya
+            // cualquier pieza bloqueada — daba igual mientras el único faro
+            // bloqueado era inconseguible, pero ahora se ganan en sobres.
+            category="light"
             options={LIGHT_COLORS}
             selected={loadout.lightsColor}
+            owned={owned}
             preview={preview}
             onPreview={previewLocked}
             onSelect={(c) => apply({ lightsColor: c })}
@@ -423,6 +566,7 @@ const s = StyleSheet.create({
   },
   collectionCount: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono },
   disclaimer: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, marginBottom: -4 },
+  saveError: { color: RD.danger, fontSize: 11, fontFamily: RD_FONT.monoBold, marginBottom: -4 },
   sectionLabel: {
     color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono,
     letterSpacing: 0.8, marginBottom: -6,
@@ -442,10 +586,10 @@ const s = StyleSheet.create({
   tabsRow: { flexDirection: 'row', gap: 6 },
   tab: {
     flex: 1, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
-    paddingVertical: 9, alignItems: 'center',
+    paddingVertical: 9, paddingHorizontal: 2, alignItems: 'center', justifyContent: 'center',
   },
   tabActive: { borderColor: RD.brand },
-  tabText: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
+  tabText: { color: RD.textTertiary, fontSize: 9.5, fontFamily: RD_FONT.mono, letterSpacing: 0.3 },
   tabTextActive: { color: RD.textPrimary },
 
   groupHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -458,6 +602,26 @@ const s = StyleSheet.create({
 
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' },
   singleRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
+  chassisWrap: { flex: 1, alignItems: 'center' },
+  chassisBox: {
+    alignSelf: 'stretch', borderWidth: 2, borderColor: RD.panelBorder, borderRadius: 2,
+    paddingVertical: 6, alignItems: 'center', justifyContent: 'center',
+  },
+  chassisLock: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+
+  frameHint: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, lineHeight: 16 },
+  frameRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: RD.youMagentaBg, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 2,
+  },
+  frameRowLocked: { opacity: 0.45 },
+  frameRowSelected: { borderWidth: 1, borderColor: '#ffffff' },
+  frameRowPreviewing: { borderWidth: 1, borderColor: RD.brand },
+  frameRank: { color: RD.youMagenta, fontSize: 12, fontFamily: RD_FONT.mono },
+  frameNick: { color: RD.textPrimary, fontSize: 13, fontWeight: '700' },
+  frameMeta: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, paddingHorizontal: 2 },
+  frameLabel: { color: RD.textSecondary, fontSize: 11, fontFamily: RD_FONT.mono },
+  frameTier: { color: RD.textTertiary, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
   swatchFlex: { width: undefined, flex: 1 },
   swatchWrap: { width: 68, alignItems: 'center' },
   swatchStack: { width: 38, height: 38 },
