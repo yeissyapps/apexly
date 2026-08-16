@@ -60,7 +60,7 @@ import { loadGhost, saveGhostIfBest } from './src/ghost';
 import { loadAttempts, consumeAttempt, grantBatch, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
 import { PUSH_ENABLED, intentosTxt } from './src/features';
 import { CONFIG } from './src/config';
-import { initAds, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError } from './src/ads';
+import { prepareConsent, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError, wasConsentDenied } from './src/ads';
 import {
   logOnboardingComplete, logRaceStart, logRaceFinish, logPaywallView,
   logAdWatched, logGarageOpen,
@@ -168,11 +168,16 @@ export default function App() {
     getSectorBests(todayKey()).then(setSectorBests).catch(() => {});
   }, []);
 
-  // Cargar los intentos del día + inicializar anuncios (y, tras el consentimiento,
-  // saber si hay que ofrecer un punto para revisarlo/revocarlo más adelante).
+  // Cargar los intentos del día + preparar el consentimiento de anuncios.
+  //
+  // `prepareConsent()` NO enseña nada: solo consulta el estado (es la llamada
+  // que Google pide hacer en cada arranque). El formulario en sí sale la
+  // primera vez que se pide un anuncio — antes salía aquí, encima de la
+  // pantalla de bienvenida, y el usuario nuevo se encontraba la app bloqueada
+  // detrás de un muro legal antes de saber siquiera qué era Apexly.
   useEffect(() => {
     loadAttempts(todayKey()).then(setAtt).catch(() => {});
-    initAds().then(() => isPrivacyOptionsRequired()).then(setPrivacyOptional).catch(() => {});
+    prepareConsent().then(() => isPrivacyOptionsRequired()).then(setPrivacyOptional).catch(() => {});
   }, []);
 
   // Intentos de Modo Carrera: cupo propio POR NIVEL (misma `attempts.js`,
@@ -220,7 +225,21 @@ export default function App() {
     setAdMsg('');
     try {
       const ok = await showRewarded();
+      // El formulario de consentimiento puede haber salido en este mismo
+      // toque (es el primer anuncio de la instalación), así que a partir de
+      // aquí ya se sabe si toca ofrecer el enlace de privacidad.
+      isPrivacyOptionsRequired().then(setPrivacyOptional).catch(() => {});
       if (!ok) {
+        if (wasConsentDenied()) {
+          // Ha dicho que no en el formulario. Es decisión suya y es
+          // reversible, así que se le dice dónde: el enlace acaba de
+          // aparecer al pie de Inicio.
+          setAdMsg(
+            'Sin consentimiento para anuncios no podemos mostrarte ninguno. ' +
+            'Puedes cambiarlo en «Privacidad de anuncios», al final de Inicio.'
+          );
+          return false;
+        }
         // Sin relleno de AdMob, sin red, o el usuario cerró el vídeo antes de
         // ganarse la recompensa. Sin aviso, el botón volvía a su sitio sin
         // explicar nada y parecía que la app se había quedado colgada.
