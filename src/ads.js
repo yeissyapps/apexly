@@ -10,6 +10,7 @@
 //  app, sino la primera vez que el jugador pide ver un anuncio.
 // ============================================================================
 
+import { Platform } from 'react-native';
 import { REWARDED_UNIT } from './adsConfig';
 
 let admob = null;
@@ -17,6 +18,20 @@ try {
   admob = require('react-native-google-mobile-ads');
 } catch (_) {
   admob = null;
+}
+
+// ATT (App Tracking Transparency) — SOLO iOS. Sin esto, iOS nunca entrega el
+// IDFA y casi ningún comprador puja: en producción se veía eCPM 0,24€ (iOS)
+// contra 3,63€ (Android) con la MISMA app, mismos anuncios de test. `require`
+// perezoso y detrás de try/catch por el mismo motivo que `admob` arriba: que
+// falte el módulo nativo no debe romper Android ni el simulador de iOS.
+let att = null;
+if (Platform.OS === 'ios') {
+  try {
+    att = require('expo-tracking-transparency');
+  } catch (_) {
+    att = null;
+  }
 }
 
 // ============================================================================
@@ -81,6 +96,18 @@ export function ensureAdsReady() {
             return false;
           }
         } catch (_) {}
+      }
+      // ATT DESPUÉS del formulario UMP y ANTES de inicializar el SDK — en ese
+      // orden. Apple pide pedirlo antes del primer uso del identificador de
+      // publicidad; el SDK de AdMob lo lee al inicializarse, así que hacerlo
+      // después no serviría de nada. Si el usuario ya respondió (instalación
+      // anterior), esta llamada no vuelve a mostrar el diálogo, solo
+      // devuelve lo que ya eligió. Denegar ATT NO bloquea el anuncio como sí
+      // hace negar el consentimiento UMP: sin IDFA, iOS sigue sirviendo
+      // anuncios (limitados, sin atribución), así que aquí no se lee el
+      // resultado — solo hace falta que la petición ocurra.
+      if (att) {
+        try { await att.requestTrackingPermissionsAsync(); } catch (_) {}
       }
       await admob.default().initialize();
       return true;
@@ -195,9 +222,17 @@ export async function showRewarded() {
     };
 
     try {
-      const ad = RewardedAd.createForAdRequest(REWARDED_UNIT, {
-        requestNonPersonalizedAdsOnly: true,
-      });
+      // SIN requestNonPersonalizedAdsOnly a propósito. Estaba clavado a
+      // `true` siempre, así que TODO usuario recibía solo anuncios no
+      // personalizados — diera el consentimiento que diera en el formulario
+      // UMP de arriba. El propio tipo lo dice: "must be true if users...
+      // have only given consent to non-personalized ads" — es para el caso
+      // en que el consentimiento SOLO cubre lo no personalizado, no un
+      // valor por defecto. El SDK ya lee las señales TCF que UMP dejó
+      // escritas (ensureAdsReady corre antes) y elige él solo; forzarlo
+      // aquí tapaba esa lectura y tiraba el precio del anuncio abajo para
+      // todo el mundo, no solo EEE.
+      const ad = RewardedAd.createForAdRequest(REWARDED_UNIT);
       unsubs.push(ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
         // A partir de aquí manda el ciclo del anuncio (CLOSED), NO un
         // temporizador: un rewarded dura ~30s, y cortarlo a media reproducción
