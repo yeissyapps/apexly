@@ -26,6 +26,11 @@
 //  entran las placas laterales abiertas y los labios curvos.
 // ============================================================================
 
+// Declarado aquí arriba a propósito: LIVERY_SHAPES_GEOM lo usa al construirse
+// (el 7 del dorsal se traza al cargar el módulo). Más abajo caería en la zona
+// muerta del `const` y reventaría al importar.
+const round = (n) => Math.round(n * 100) / 100;
+
 // Silueta de la carrocería. Estilo 911 GT3 RS visto desde arriba: morro
 // afilado, costados con cintura, cola ancha.
 export const CAR_BODY =
@@ -139,6 +144,27 @@ for (let r = 0; r < DAMERO_ROWS; r++) {
   }
 }
 
+// El "7" del dorsal, trazado a mano. Sale de un cuadro de 3.6 x 5.0 centrado
+// en (cx, 0), que deja margen de sobra dentro de un disco de radio 4.2.
+//
+// ORIENTACIÓN: la cifra apunta hacia el MORRO, no hacia el costado. En pista
+// la cámara mantiene el coche siempre mirando hacia arriba de la pantalla
+// (gira el circuito, no el coche), así que un dorsal orientado al costado se
+// lee tumbado SIEMPRE — que es como estaba y por qué no había manera de
+// reconocer el número. Con el "arriba" de la cifra en +x, en carrera se lee
+// derecho; en el garaje gira con el plato, como todo lo demás.
+const NUM_CX = -10.6;
+function numeralPoints(cx) {
+  // Trazo en coordenadas de lectura (u = derecha, v = abajo)...
+  const p = [
+    [-1.8, -2.5], [1.8, -2.5],    // barra superior
+    [0.2, 2.5], [-1.0, 2.5],      // pie del trazo diagonal
+    [0.55, -1.35], [-1.8, -1.35], // vuelta por debajo de la barra
+  ];
+  // ...y girado para que "arriba" caiga hacia el morro: x = -v, y = u.
+  return p.map(([u, v]) => `${round(cx - v)},${round(u)}`).join(' ');
+}
+
 export const LIVERY_SHAPES_GEOM = {
   simple: [{ type: 'rect', x: -13, y: -1.5, width: 26, height: 3.0 }],
   doble: [
@@ -159,9 +185,25 @@ export const LIVERY_SHAPES_GEOM = {
   // que un dorsal bajo el techo es un dorsal invisible. Echado bien atrás,
   // además, deja de pelearse con la rejilla del motor y se lee el disco
   // entero. Es el sitio donde va en un coche de verdad.
+  //
+  // EL 7 ES GEOMETRÍA, NO TEXTO. Con <Text> lo resolvía la fuente del
+  // sistema, y react-native-svg y el navegador no eligen la misma: en la
+  // hoja de contactos salía centrado y del tamaño justo, y en el móvil salía
+  // enorme, bajo y tocando el borde del disco. O sea que la hoja daba por
+  // bueno algo que en el dispositivo estaba mal — el único caso del catálogo
+  // donde eso podía pasar, porque es la única primitiva que dependía de una
+  // fuente. Como polígono mide lo que dicen sus números en los dos sitios.
   numero: [
-    { type: 'circle', cx: -10.6, cy: 0, r: 4.6 },
-    { type: 'text', x: -10.6, y: 2.1, fontSize: 7, fontWeight: '700', anchor: 'middle', value: '7', knockout: true },
+    { type: 'circle', cx: NUM_CX, cy: 0, r: 4.2 },
+    {
+      type: 'polygon',
+      knockout: true,
+      // Trazado en X hacia el morro, igual que el resto: el dorsal se lee
+      // desde el costado izquierdo del coche.
+      rigid: true,
+      anchorX: NUM_CX,
+      points: numeralPoints(NUM_CX),
+    },
   ],
   damero: DAMERO,
 };
@@ -198,11 +240,15 @@ function mapShapes(shapes, mapX, scale, ky = 1) {
       return { ...p, x: mapX(p.x), width: p.width * scale, y: p.y * k, height: p.height * k };
     }
     if (p.type === 'polygon') {
+      // `rigid`: la pieza se MUEVE con el chasis pero no se estira. Lo usa el
+      // 7 del dorsal — una cifra escalada un 20% en un solo eje deja de ser
+      // una cifra y pasa a ser un borrón.
+      const dx = p.rigid ? mapX(p.anchorX) - p.anchorX : 0;
       return {
         ...p,
         points: p.points.split(' ').map((pt) => {
           const [px, py] = pt.split(',').map(Number);
-          return `${round(mapX(px))},${round(py * k)}`;
+          return `${round(p.rigid ? px + dx : mapX(px))},${round(py * k)}`;
         }).join(' '),
       };
     }
@@ -211,8 +257,6 @@ function mapShapes(shapes, mapX, scale, ky = 1) {
     return p;
   });
 }
-
-const round = (n) => Math.round(n * 100) / 100;
 
 // Medio ancho del GT: la referencia contra la que se estrechan las piezas
 // que abrazan la carrocería.
