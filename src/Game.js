@@ -152,7 +152,11 @@ function ghostTimeAtIdx(progress, idx) {
 // segundos, más soltar, más los "latigazos" que describe JC, más su tiempo de
 // reacción hasta pulsar el botón. Mejor sobrar margen que perder el disparo.
 const REC_N = 2400;
-const REC_FIELDS = 9;    // t, entrada, volante, velocidad, rumbo, muro, dt, dedos, ambos
+const REC_FIELDS = 10;   // t, entrada, volante, velocidad, rumbo, muro, dt, dedos, ambos, pieza
+// Tipo de pieza de pista en el que va el coche (índice en track.center[idx].type,
+// ver pieces.js) — para saber si el volantazo fantasma pega más en rectas,
+// curvas o horquillas. Mismo orden que BANK en pieces.js, sin duplicar nombres.
+const PIECE_TYPES = ['recta', 'curva_amplia', 'curva', 'curva_cerrada', 'horquilla'];
 const TOUCH_LOG_N = 150; // últimos eventos táctiles en crudo (solo con DIAG)
 
 const SCREEN = Dimensions.get('window');
@@ -380,30 +384,31 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
       const rumbo = b[o + 4];
       const nDedos = b[o + 7];
       const ambos = b[o + 8] ? 1 : 0;
+      const pieza = PIECE_TYPES[b[o + 9]] || '?';
 
       // EL CASO DELATOR: el coche recibe orden de girar con CERO dedos en
       // pantalla. Si esto aparece, el bug es del táctil, no de la física.
       const fantasma = nDedos === 0 && inp !== 0;
-      if (fantasma && !prevFantasma) eventos.push(`${t.toFixed(2)}s  *** GIRO FANTASMA (0 dedos, orden ${nombreIn(inp)}) ***`);
+      if (fantasma && !prevFantasma) eventos.push(`${t.toFixed(2)}s  *** GIRO FANTASMA (0 dedos, orden ${nombreIn(inp)}, ${pieza}) ***`);
       prevFantasma = fantasma;
 
       // EL OTRO CASO DELATOR (invisible hasta ahora): izq y der marcadas a la
       // vez. Con un solo dedo en pantalla, significa dedo fantasma en el otro
       // lado — la causa candidata de "aprieto y no gira" en las horquillas.
-      if (ambos && !prevAmbos) eventos.push(`${t.toFixed(2)}s  *** IZQ+DER A LA VEZ (dedos ${nDedos}) ***`);
+      if (ambos && !prevAmbos) eventos.push(`${t.toFixed(2)}s  *** IZQ+DER A LA VEZ (dedos ${nDedos}, ${pieza}) ***`);
       prevAmbos = ambos;
 
       if (prevIn !== null && inp !== prevIn) {
-        eventos.push(`${t.toFixed(2)}s  ${nombreIn(prevIn)} -> ${nombreIn(inp)}  (dedos ${nDedos})`);
+        eventos.push(`${t.toFixed(2)}s  ${nombreIn(prevIn)} -> ${nombreIn(inp)}  (dedos ${nDedos}, ${pieza})`);
       }
       if (prevMuro !== null && muro !== prevMuro) {
-        eventos.push(`${t.toFixed(2)}s  ${muro ? 'TOCA muro' : 'sale del muro'}`);
+        eventos.push(`${t.toFixed(2)}s  ${muro ? 'TOCA muro' : 'sale del muro'}  (${pieza})`);
       }
       if (prevRumbo !== null) {
         let d = rumbo - prevRumbo;
         while (d > 180) d -= 360;
         while (d < -180) d += 360;
-        if (Math.abs(d) > 20) eventos.push(`${t.toFixed(2)}s  VOLANTAZO ${d.toFixed(0)}°`);
+        if (Math.abs(d) > 20) eventos.push(`${t.toFixed(2)}s  VOLANTAZO ${d.toFixed(0)}°  (${pieza})`);
       }
       prevIn = inp; prevMuro = muro; prevRumbo = rumbo;
 
@@ -418,6 +423,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
           b[o + 6].toFixed(1),             // dt del frame (ms)
           nDedos,                          // dedos apoyados
           ambos ? 'AMBOS' : '-',           // izq y der marcadas a la vez
+          pieza,                           // tipo de pieza de pista
         ].join('\t'),
       );
     }
@@ -432,7 +438,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
       `EVENTOS (${eventos.length}):`,
       eventos.length ? eventos.join('\n') : '  (ninguno)',
       '',
-      't\tpulsa\tvolante\tvel\trumbo\tmuro\tdt\tdedos\tambos',
+      't\tpulsa\tvolante\tvel\trumbo\tmuro\tdt\tdedos\tambos\tpieza',
     ].join('\n');
     // Lo que entregó el sistema táctil en crudo. Es la pieza que nos faltaba:
     // dice si el problema entra ya mal por la puerta (touches vacío/incompleto)
@@ -552,6 +558,8 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
         b[o + 6] = dt * 1000;
         b[o + 7] = dedos.current;
         b[o + 8] = pressLeft.current && pressRight.current ? 1 : 0;
+        const pieza = track.center[s.trackIdx] && track.center[s.trackIdx].type;
+        b[o + 9] = Math.max(0, PIECE_TYPES.indexOf(pieza));
         recAt.current++;
       }
 
