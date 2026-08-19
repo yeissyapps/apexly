@@ -8,6 +8,7 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-firebase/analytics": "^26.0.0",
     "@react-native-firebase/app": "^26.0.0",
+    "@sentry/react-native": "~7.11.0",
     "@supabase/supabase-js": "^2.110.6",
     "@types/react": "~19.2.4",
     "expo": "~57.0.9",
