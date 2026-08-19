@@ -6,6 +6,8 @@ workflows:
     integrations:
       app_store_connect: apexly_asc # integración creada en Codemagic > Team settings > Integrations
     environment:
+      groups:
+        - sentry # SENTRY_AUTH_TOKEN, para subir mapas de fuente en el prebuild
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.yeissyapps.circuitodiario
