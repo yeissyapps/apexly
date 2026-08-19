@@ -88,51 +88,29 @@ export const CONFIG = {
   STEER_EASE_IN: 0.1, // s
   STEER_EASE_OUT: 0.03, // s
 
-  // SOLO como respaldo: duración que se le concede a un toque cuando el
-  // sistema no da un timestamp nativo usable. Lo normal es reconstruir la
-  // duración REAL del dedo desde `nativeEvent.timestamp` (ver applyTouches en
-  // Game.js) — que es lo que de verdad importa, porque la duración del toque
-  // ES la intención del jugador: ~55 ms para abrirse en recta, ~125 ms para
-  // ajustar en una chicane, 300-900 ms para una horquilla (medido leyendo el
-  // táctil por hardware en el Android de JC: 41 toques, mínimo 55 ms, mediana
-  // 125 ms, ninguno por debajo de 20 ms).
+  // Remate FIJO que recibe todo toque al soltar (independiente de cuánto
+  // duró de verdad el dedo abajo) — ver resolveEntrada en Game.js.
   //
-  // En iOS la mitad de los toques llegan con "pulsar" y "soltar" en el mismo
-  // instante, lo cual es falso. Darles a todos un valor fijo (como hacía la
-  // versión anterior de esto) rompe la proporción: un toque de 55 ms recibía
-  // más del doble de giro y una horquilla de 600 ms una quinta parte.
+  // Historia, porque costó varias vueltas: builds 45 a 61 fueron
+  // reconstruyendo la duración REAL del toque desde `nativeEvent.timestamp`,
+  // cada vez con menos error (el hueco nativo-vs-JS bajó de 200-400ms a
+  // 10-50ms según se fue arreglando el render, los botones y su distancia al
+  // borde). Pero el error, aunque cada vez más pequeño en ms absolutos, es
+  // proporcionalmente MUCHO más grande en un toque corto que en uno largo:
+  // 20ms de ruido son nada en una horquilla de 600ms, pero casi la mitad de
+  // un toquecito de 60ms — justo los toques de "centrar el coche en recta",
+  // que es donde JC seguía notando el fallo aun con el hueco ya pequeño.
+  //
+  // La salida: dejar de reconstruir. Mientras el dedo sigue apoyado de
+  // verdad, el volante ya gira proporcional en tiempo real, frame a frame,
+  // sin depender de ningún timestamp (por eso las horquillas, que dependen
+  // de mantener pulsado, iban bien incluso antes de este cambio). Al soltar,
+  // ya no se intenta adivinar cuánto duró el toque: se remata siempre con
+  // este mismo valor fijo, corto o largo el toque, pase lo que pase con el
+  // reloj. Con el ease de abajo (100ms para llegar a tope), da un toquecito
+  // de ~20-25°, similar en orden de magnitud a lo que pedía JC (~35°) pero
+  // calculado con la física que ya existe, no un número nuevo inventado.
   MIN_INPUT_MS: 130,
-
-  // Techo a cuánto se puede alargar el pulso HACIA EL FUTURO tras soltar
-  // (queFalta en resolveEntrada), para cuando el timestamp nativo dice que el
-  // dedo estuvo abajo más de lo que JS llegó a procesar.
-  //
-  // Build 45 (zona táctil única): el hueco entre pulsar/soltar nativo y lo que
-  // veía JS era de 200-400+ ms, y JS los recibía CASI JUNTOS (yaAplicado de
-  // 1-2 ms) — el hilo JS se atascaba y entregaba los dos eventos de golpe.
-  // Con eso, reconstruir el hueco entero como volante a tope, DESPUÉS de
-  // soltar y con 0 dedos en pantalla, disparaba el "GIRO FANTASMA". De ahí el
-  // techo original de 60 ms.
-  //
-  // Build 51 (dos botones, Pressable en vez de zona única): el hueco bajó a
-  // 60-240 ms y JS YA NO los ve juntos — mide un hueco real (132-359 ms) entre
-  // pulsar y soltar, solo que sigue siendo más corto que el nativo. Lectura:
-  // ya no es el hilo JS atascándose, es una asimetría real en la entrega
-  // (pulsar tarda más en llegar a JS que soltar, probablemente negociación de
-  // gesto de iOS en el toque inicial). Con un hueco más pequeño y consistente
-  // (no un atasco sin fondo), el techo puede subir sin volver a fabricar
-  // cientos de ms a ciegas.
-  MAX_PULSO_CATCHUP_MS: 150,
-
-  // Build 56 (botones a 50pt del borde): los huecos bajaron aún más, a 10-50
-  // ms — pero los GIRO FANTASMA y los golpes seguían pasando igual de mal.
-  // Con huecos ya del orden de UN FRAME (~17ms), alargar el pulso por ellos
-  // es ruido de medición, no una duración real que reconstruir: cualquier
-  // pequeña discrepancia entre el reloj de JS y el timestamp nativo (que no
-  // están perfectamente sincronizados) se convertía en volante a tope
-  // "de propina" justo al soltar — y a veces ese momento coincide con estar
-  // rozando un muro. Por debajo de este suelo, no se alarga nada.
-  MIN_PULSO_CATCHUP_MS: 20,
 
   // --- Colisión con muros -------------------------------------------------
   // Fracción de velocidad que se PIERDE en el IMPACTO (0.6 = pierde el 60%).
