@@ -156,6 +156,7 @@ const byId = Object.fromEntries(BANK.map((p) => [p.id, p]));
 export function assemble(ids, half) {
   const out = [];
   const halfW = [];
+  const pieceType = []; // tipo de la pieza de origen de cada punto (ver Game.js, diagnóstico)
   let pose = { x: 0, y: 0, angle: 0 };
   for (const id of ids) {
     const p = byId[id];
@@ -166,10 +167,11 @@ export function assemble(ids, half) {
     for (let i = out.length ? 1 : 0; i < placed.length; i++) {
       out.push(placed[i]);
       halfW.push(ww);
+      pieceType.push(p.type);
     }
     pose = transformPose(p.exit, pose);
   }
-  return out.map((pt, i) => ({ x: pt.x, y: pt.y, w: halfW[i] }));
+  return out.map((pt, i) => ({ x: pt.x, y: pt.y, w: halfW[i], type: pieceType[i] }));
 }
 
 // ---- Combinaciones de prueba ("circuitos del día") -------------------------
