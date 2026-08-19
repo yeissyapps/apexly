@@ -173,6 +173,10 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   // en un solo sitio. Ver applyTouches.
   const entrada = useRef(0);
   const ultimoLado = useRef(0); // último lado que pasó de suelto a pulsado
+  // Identifiers de los toques activos en el evento ANTERIOR — para saber cuáles
+  // son de verdad nuevos en este evento (ver applyTouches, resolución de
+  // "los dos empiezan en el mismo evento").
+  const touchIds = useRef(new Set());
   // Pulso: reconstrucción de la duración REAL del toque (ver applyTouches).
   const pulsoDir = useRef(0);
   const pulsoHasta = useRef(0);
@@ -257,6 +261,13 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     let left = false;
     let right = false;
     let n = 0;
+    // Toques que EMPIEZAN en este mismo evento (identifier no visto antes),
+    // con su lado y su timestamp NATIVO propio — no el del evento, el de CADA
+    // dedo (NativeTouchEvent.timestamp existe por toque, no solo a nivel de
+    // evento). Ver más abajo por qué hace falta esto y no basta con mirar
+    // pressLeft/pressRight.
+    const nuevos = [];
+    const idsAhora = new Set();
     for (let i = 0; i < activos.length; i++) {
       const tq = activos[i];
       if (soltados) {
@@ -267,12 +278,35 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
         if (yaSoltado) continue;
       }
       n++;
-      if (tq.pageX < playW / 2) left = true;
-      else right = true;
+      const lado = tq.pageX < playW / 2 ? -1 : 1;
+      if (lado === -1) left = true; else right = true;
+      idsAhora.add(tq.identifier);
+      if (!touchIds.current.has(tq.identifier)) nuevos.push({ lado, ts: tq.timestamp || 0 });
     }
-    // ¿Qué lado acaba de pasar de suelto a pulsado? (comparar ANTES de asignar)
-    if (left && !pressLeft.current) ultimoLado.current = -1;
-    if (right && !pressRight.current) ultimoLado.current = 1;
+    touchIds.current = idsAhora;
+
+    // ¿Qué lado acaba de pasar de suelto a pulsado?
+    //
+    // BUG REAL (no una corrección por sensación): antes esto comparaba
+    // left/right contra pressLeft.current/pressRight.current con dos `if`
+    // seguidos — si los DOS lados empezaban a la vez en el MISMO evento (iOS
+    // entrega toques en bloque, no uno a uno), los dos `if` se cumplían y
+    // ganaba SIEMPRE el segundo (derecha), sin mirar cuál pulsaste antes de
+    // verdad. Justo el escenario de una horquilla estrecha o corrigiendo
+    // viento: alternas dedos rápido, y "gana la derecha por estar más abajo
+    // en el código" no es una resolución, es un defecto.
+    //
+    // Con `nuevos` ya no hace falta adivinar: si dos dedos empiezan en el
+    // mismo evento, se compara el timestamp NATIVO de cada uno (que iOS sí
+    // rellena por toque) y gana el que de verdad empezó más tarde. Con un
+    // solo dedo nuevo, es el mismo comportamiento de siempre.
+    if (nuevos.length === 1) {
+      ultimoLado.current = nuevos[0].lado;
+    } else if (nuevos.length > 1) {
+      let mejor = nuevos[0];
+      for (let i = 1; i < nuevos.length; i++) if (nuevos[i].ts > mejor.ts) mejor = nuevos[i];
+      ultimoLado.current = mejor.lado;
+    }
 
     pressLeft.current = left;
     pressRight.current = right;
@@ -389,6 +423,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     dedos.current = 0;
     entrada.current = 0;
     ultimoLado.current = 0;
+    touchIds.current = new Set();
     // Cancelado por el sistema: no hay soltar de verdad, así que no se
     // reconstruye duración ninguna — se corta el pulso y se limpia.
     pulsoHasta.current = 0;
@@ -525,6 +560,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     dedos.current = 0;
     entrada.current = 0;
     ultimoLado.current = 0;
+    touchIds.current = new Set();
     pulsoDir.current = 0;
     pulsoHasta.current = 0;
     tsAbajo.current = 0;

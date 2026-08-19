@@ -3,14 +3,14 @@
     "name": "Apexly",
     "slug": "circuito-diario",
     "scheme": "circuitodiario",
-    "version": "2.3.1",
+    "version": "2.3.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.yeissyapps.circuitodiario",
-      "buildNumber": "43",
+      "buildNumber": "44",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
