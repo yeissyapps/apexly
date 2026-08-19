@@ -181,9 +181,6 @@ export const CONFIG = {
   DIAG: false,
 
   // --- Debug / ayudas visuales -------------------------------------------
-  // true => dibuja una flecha sutil en cada zona táctil (para comparar el
-  // "feel" con y sin pista visual de dónde tocar).
-  SHOW_TOUCH_HINTS: false,
   // true => dibuja los bordes del carril y el eje (para depurar la colisión).
   SHOW_DEBUG: false,
 };
