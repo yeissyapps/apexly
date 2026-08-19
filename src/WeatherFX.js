@@ -11,7 +11,7 @@
 //  (transform/opacity) → anima fuera del hilo JS, no pelea con el bucle del juego.
 // ============================================================================
 
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import Svg, { Defs, RadialGradient, Stop, Rect, Circle } from 'react-native-svg';
 
@@ -119,13 +119,17 @@ function SunLayer({ w, h }) {
 }
 
 // ------------------------------------------------------------- Despachador ---
-export default function WeatherFX({ weather, w, h }) {
+// memo: weather/w/h no cambian durante la vuelta (Game.js sí re-renderiza a
+// 60fps por el coche), y las gotas/rachas ya animan con driver nativo — sin
+// memo, las 52+22 lo volvían a montar/diffear en cada frame para nada.
+function WeatherFX({ weather, w, h }) {
   const id = weather && weather.id;
   if (id === 'rain') return <RainLayer w={w} h={h} />;
   if (id === 'wind') return <WindLayer w={w} h={h} windX={weather.windX} windY={weather.windY} />;
   if (id === 'dry') return <SunLayer w={w} h={h} />;
   return null;
 }
+export default memo(WeatherFX);
 
 const styles = StyleSheet.create({
   clip: { overflow: 'hidden' },
