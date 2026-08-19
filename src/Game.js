@@ -270,7 +270,10 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
       const realNat = tsNat && tsAbajo.current ? tsNat - tsAbajo.current : 0;
       const duracionReal = realNat > 0 && realNat < 3000 ? realNat : CONFIG.MIN_INPUT_MS;
       const queFalta = duracionReal - yaAplicado;
-      const catchUp = Math.min(queFalta, CONFIG.MAX_PULSO_CATCHUP_MS);
+      // Zona muerta: por debajo de esto es ruido de medición entre el reloj
+      // de JS y el timestamp nativo (no una duración real que falte por
+      // aplicar), ver MIN_PULSO_CATCHUP_MS en config.js.
+      const catchUp = queFalta > CONFIG.MIN_PULSO_CATCHUP_MS ? Math.min(queFalta, CONFIG.MAX_PULSO_CATCHUP_MS) : 0;
       pulsoHasta.current = catchUp > 0 ? now() + catchUp : 0;
       relojAbajo.current = 0;
       tsAbajo.current = 0;
