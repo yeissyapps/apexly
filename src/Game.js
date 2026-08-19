@@ -1265,8 +1265,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.14)',
     alignItems: 'center', justifyContent: 'center',
   },
-  steerBtnLeft: { left: 18 },
-  steerBtnRight: { right: 18 },
+  // Separados bastante más del borde (18 -> 50) como experimento: la franja
+  // exterior de la pantalla en iOS está reservada para gestos del sistema
+  // (volver atrás deslizando, Centro de Control) — iOS puede RETENER el
+  // toque ahí un rato antes de dárselo a la app mientras decide si es un
+  // gesto suyo. Descartado que el hilo se atasque (ver historial de
+  // MAX_PULSO_CATCHUP_MS y la integración de Sentry: ni JS ni nativo se
+  // cuelgan durante el volantazo fantasma, con dos herramientas distintas),
+  // esto es lo siguiente más probable: no es un bloqueo, es una entrega
+  // retrasada A PROPÓSITO por el sistema, que por eso no la detecta ningún
+  // vigilante de "hang".
+  steerBtnLeft: { left: 50 },
+  steerBtnRight: { right: 50 },
   steerBtnPressed: { backgroundColor: 'rgba(228,0,43,0.20)', borderColor: RD.brand },
   steerBtnGlyph: { fontSize: 44, fontWeight: '800', color: 'rgba(255,255,255,0.5)' },
   steerBtnGlyphPressed: { color: RD.textPrimary },
