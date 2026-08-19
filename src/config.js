@@ -103,6 +103,21 @@ export const CONFIG = {
   // más del doble de giro y una horquilla de 600 ms una quinta parte.
   MIN_INPUT_MS: 130,
 
+  // Techo a cuánto se puede alargar el pulso HACIA EL FUTURO tras soltar
+  // (queFalta en applyTouches), para el caso límite: el hilo JS se atasca y
+  // entrega pulsar+soltar casi juntos (0-1 ms de diferencia) aunque el
+  // timestamp nativo diga que el dedo estuvo abajo mucho más. Reconstruir esa
+  // diferencia entera como volante a tope, DESPUÉS de soltar y con 0 dedos en
+  // pantalla, dispara un "GIRO FANTASMA": el coche gira a tope apuntando a un
+  // trozo de pista que ya no es el de cuando tocaste. Medido en grabación real
+  // (build 45, iOS): un toque con 1 ms de yaAplicado y 84 ms nativos generó
+  // 83 ms de bloqueo total sin dedo, y encadenó con golpe contra muro 0,3 s
+  // después en otro caso similar. Con techo, el toque se sigue honrando casi
+  // entero (la mayoría de "toquecitos" reales miden 55-125 ms, ver arriba)
+  // pero el sistema deja de fabricar cientos de ms de giro a ciegas cuando el
+  // hilo se atasca de verdad.
+  MAX_PULSO_CATCHUP_MS: 60,
+
   // --- Colisión con muros -------------------------------------------------
   // Fracción de velocidad que se PIERDE en el IMPACTO (0.6 = pierde el 60%).
   // Solo se aplica en el primer frame del choque, no mientras rozas la pared.
