@@ -124,6 +124,16 @@ export const CONFIG = {
   // cientos de ms a ciegas.
   MAX_PULSO_CATCHUP_MS: 150,
 
+  // Build 56 (botones a 50pt del borde): los huecos bajaron aún más, a 10-50
+  // ms — pero los GIRO FANTASMA y los golpes seguían pasando igual de mal.
+  // Con huecos ya del orden de UN FRAME (~17ms), alargar el pulso por ellos
+  // es ruido de medición, no una duración real que reconstruir: cualquier
+  // pequeña discrepancia entre el reloj de JS y el timestamp nativo (que no
+  // están perfectamente sincronizados) se convertía en volante a tope
+  // "de propina" justo al soltar — y a veces ese momento coincide con estar
+  // rozando un muro. Por debajo de este suelo, no se alarga nada.
+  MIN_PULSO_CATCHUP_MS: 20,
+
   // --- Colisión con muros -------------------------------------------------
   // Fracción de velocidad que se PIERDE en el IMPACTO (0.6 = pierde el 60%).
   // Solo se aplica en el primer frame del choque, no mientras rozas la pared.
