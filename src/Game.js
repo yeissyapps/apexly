@@ -177,11 +177,10 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   // en un solo sitio. Ver resolveEntrada.
   const entrada = useRef(0);
   const ultimoLado = useRef(0); // último lado que pasó de suelto a pulsado
-  // Pulso: reconstrucción de la duración REAL del toque (ver resolveEntrada).
+  // Pulso: remate fijo al soltar, ver resolveEntrada.
   const pulsoDir = useRef(0);
   const pulsoHasta = useRef(0);
-  const tsAbajo = useRef(0); // timestamp NATIVO del evento de pulsar
-  const relojAbajo = useRef(0); // Date.now() cuando lo procesó el JS
+  const relojAbajo = useRef(0); // Date.now() de cuando empezó el toque actual
   const entradaEfectiva = useRef(0); // lo que realmente lee la física
   const rec = useRef(new Float64Array(REC_N * REC_FIELDS)); // grabadora (beta)
   const recAt = useRef(0); // nº total de frames escritos (el índice va en módulo)
@@ -246,7 +245,7 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   // (obvio); si tienes los dos pulsados, manda el ÚLTIMO que pulsaste, para
   // que un dedo fantasma en un lado nunca pueda dejarte con volante muerto
   // (-1+1 = 0) mientras el otro lado sigue de verdad pulsado.
-  function resolveEntrada(ne) {
+  function resolveEntrada() {
     const left = pressLeft.current;
     const right = pressRight.current;
     dedos.current = (left ? 1 : 0) + (right ? 1 : 0);
@@ -256,31 +255,34 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     else if (right) entrada.current = 1;
     else entrada.current = 0;
 
-    // RECONSTRUIR LA DURACIÓN REAL DEL TOQUE — mismo mecanismo que antes
-    // (ver MAX_PULSO_CATCHUP_MS en config.js), ahora alimentado por el evento
-    // de pulsar/soltar del botón en vez del array de touches. El botón sigue
-    // dando `nativeEvent.timestamp` (mismo NativeTouchEvent de siempre), así
-    // que la reconstrucción por timestamp nativo se mantiene igual.
-    const tsNat = (ne && ne.timestamp) || 0;
+    // REMATE AL SOLTAR: fijo (MIN_INPUT_MS desde que empezó el toque), NUNCA
+    // calculado a partir de cuánto duró "de verdad" el dedo abajo.
+    //
+    // Se probó reconstruir la duración real por timestamp nativo (historial
+    // completo: builds 45 a 61 — tope al pulso, memoizar el render, botones
+    // en vez de zona única, alejar del borde, zona muerta de 20ms). El hueco
+    // nativo-vs-JS se fue reduciendo en cada vuelta, pero seguía siendo un
+    // % grande justo en los toques MÁS cortos — los de "centrar el coche en
+    // recta", que es donde más se notaba: 20ms de ruido son nada en una
+    // horquilla de 600ms, pero casi la mitad de un toquecito de 60ms. Un
+    // toque de "0,45s" reconstruido con 20-50ms de más giraba de más
+    // justo lo suficiente para notarse, aunque la medición ya fuera buena.
+    //
+    // Mientras el dedo sigue apoyado de verdad, el volante YA gira
+    // proporcional en tiempo real, frame a frame — sin depender de ningún
+    // timestamp, por eso las horquillas (mantener pulsado) van bien. Al
+    // soltar, ya no se intenta adivinar cuánto duró de verdad: cada toque,
+    // corto o largo, se remata con el mismo MIN_INPUT_MS fijo desde que
+    // empezó — nunca menos, nunca más, pase lo que pase con el reloj.
     if (entrada.current !== 0) {
       if (pulsoDir.current !== entrada.current || relojAbajo.current === 0) {
-        tsAbajo.current = tsNat;
         relojAbajo.current = now();
       }
       pulsoDir.current = entrada.current;
-      pulsoHasta.current = now() + CONFIG.MIN_INPUT_MS;
     } else if (relojAbajo.current !== 0) {
-      const yaAplicado = now() - relojAbajo.current;
-      const realNat = tsNat && tsAbajo.current ? tsNat - tsAbajo.current : 0;
-      const duracionReal = realNat > 0 && realNat < 3000 ? realNat : CONFIG.MIN_INPUT_MS;
-      const queFalta = duracionReal - yaAplicado;
-      // Zona muerta: por debajo de esto es ruido de medición entre el reloj
-      // de JS y el timestamp nativo (no una duración real que falte por
-      // aplicar), ver MIN_PULSO_CATCHUP_MS en config.js.
-      const catchUp = queFalta > CONFIG.MIN_PULSO_CATCHUP_MS ? Math.min(queFalta, CONFIG.MAX_PULSO_CATCHUP_MS) : 0;
-      pulsoHasta.current = catchUp > 0 ? now() + catchUp : 0;
+      const hasta = relojAbajo.current + CONFIG.MIN_INPUT_MS;
+      pulsoHasta.current = hasta > now() ? hasta : 0;
       relojAbajo.current = 0;
-      tsAbajo.current = 0;
     }
   }
 
@@ -288,14 +290,14 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     const yaEstaba = lado === -1 ? pressLeft.current : pressRight.current;
     if (!yaEstaba) ultimoLado.current = lado; // pasó de suelto a pulsado
     if (lado === -1) pressLeft.current = true; else pressRight.current = true;
-    resolveEntrada(evt.nativeEvent);
+    resolveEntrada();
     logTouch(lado === -1 ? 'IZQ ⬇' : 'DER ⬇', evt.nativeEvent);
     startRun();
   }
 
   function onSideRelease(lado, evt) {
     if (lado === -1) pressLeft.current = false; else pressRight.current = false;
-    resolveEntrada(evt.nativeEvent);
+    resolveEntrada();
     logTouch(lado === -1 ? 'IZQ ⬆' : 'DER ⬆', evt.nativeEvent);
   }
 
@@ -460,7 +462,6 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     ultimoLado.current = 0;
     pulsoDir.current = 0;
     pulsoHasta.current = 0;
-    tsAbajo.current = 0;
     relojAbajo.current = 0;
     entradaEfectiva.current = 0;
     touchLog.current = [];
