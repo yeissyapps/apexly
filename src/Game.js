@@ -355,7 +355,11 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
       const queFalta = duracionReal - yaAplicado;
       // Solo se alarga si el coche giró MENOS de lo que duró el dedo. Un toque
       // entregado bien (dedo abajo 600 ms, coche girando 600 ms) no se toca.
-      pulsoHasta.current = queFalta > 0 ? now() + queFalta : 0;
+      // Techo: si el hilo JS se atascó tanto que casi no vivió el toque
+      // (yaAplicado ~0), no se fabrica el hueco entero a ciegas — eso es
+      // exactamente el "GIRO FANTASMA" (ver MAX_PULSO_CATCHUP_MS en config.js).
+      const catchUp = Math.min(queFalta, CONFIG.MAX_PULSO_CATCHUP_MS);
+      pulsoHasta.current = catchUp > 0 ? now() + catchUp : 0;
       relojAbajo.current = 0;
       tsAbajo.current = 0;
     }
