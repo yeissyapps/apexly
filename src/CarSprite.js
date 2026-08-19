@@ -13,6 +13,7 @@
 //  del juego), así que el degradado se recalcula gratis en cada frame.
 // ============================================================================
 
+import { useMemo } from 'react';
 import { Defs, Ellipse, G, LinearGradient, Path, Polygon, Rect, Circle, Stop, Text as SvgText } from 'react-native-svg';
 import { CAR_DEFAULTS, findColorEntry } from './car';
 // La FORMA del coche vive en carGeometry.js, como datos puros: así la puede
@@ -126,17 +127,20 @@ export default function CarSprite({ x, y, deg, scale = 1, loadout }) {
   const ch = chassisById(lo.chassis);
   const body = resolveFill(lo.bodyColor, 'body');
   const wing = resolveFill(lo.wingColor, 'wing');
-  const gradients = [body.gradient, wing.gradient].filter(Boolean);
-  const highlights = [body.highlight].filter(Boolean); // solo el cuerpo (las piezas del alerón son pequeñas, no lo necesitan)
 
-  return (
-    <G transform={`translate(${x} ${y}) rotate(${deg}) scale(${scale})`}>
-      {(gradients.length > 0 || highlights.length > 0) && (
-        <Defs>
-          {gradients.map((g) => <GradientDef key={g.id} {...g} />)}
-          {highlights.map((h) => <HighlightGradientDef key={h.id} {...h} />)}
-        </Defs>
-      )}
+  // La forma y el color del coche (~20 elementos SVG: alerón, cuerpo,
+  // rejilla, librea, cabina, splitter, faros) solo cambian cuando cambia el
+  // loadout — x/y/deg cambian en CADA frame porque el coche se mueve, pero
+  // eso es solo el transform del <G> de fuera. Sin memoizar, react-native-svg
+  // reconstruía y recomitía TODA esta geometría 60 veces/segundo solo para
+  // desplazarla, compitiendo por el hilo principal de iOS con la entrega de
+  // los toques: medido en grabación real, el frame JS nunca pasaba de 67ms
+  // pero el toque nativo tardaba hasta 467ms en llegar a JS — la causa real
+  // de los GIRO FANTASMA / "no responde" de Game.js, no un problema de
+  // reconstrucción de duración. Memoizado, el único cambio por frame es el
+  // transform.
+  const shapeTree = useMemo(() => (
+    <>
       {/* Alerón trasero (forma y color personalizables), recolocado al
           anclaje del chasis */}
       <Shapes shapes={wingGeomFor(ch, lo.wingShape)} color={wing.fill} under={body.fill} />
@@ -178,6 +182,29 @@ export default function CarSprite({ x, y, deg, scale = 1, loadout }) {
       {ch.lights.map((b, i) => (
         <Circle key={i} cx={b.x} cy={b.y} r={lightRadius(ch)} fill={lo.lightsColor} />
       ))}
+    </>
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [lo.chassis, lo.wingShape, lo.bodyColor, lo.wingColor, lo.livery, lo.liveryPattern, lo.lightsColor]);
+
+  // El metalizado/cromado (highlight) no anima — entra en el memo de arriba.
+  // Solo el holográfico gira con Date.now() (ver holoPhase) y por eso se
+  // queda FUERA del memo, recalculándose cada frame como hasta ahora.
+  const highlightDef = useMemo(() => (
+    body.highlight ? <HighlightGradientDef {...body.highlight} /> : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [lo.bodyColor]);
+  const hasHolo = !!(body.gradient || wing.gradient);
+
+  return (
+    <G transform={`translate(${x} ${y}) rotate(${deg}) scale(${scale})`}>
+      {(hasHolo || highlightDef) && (
+        <Defs>
+          {body.gradient && <GradientDef {...body.gradient} />}
+          {wing.gradient && <GradientDef {...wing.gradient} />}
+          {highlightDef}
+        </Defs>
+      )}
+      {shapeTree}
     </G>
   );
 }
