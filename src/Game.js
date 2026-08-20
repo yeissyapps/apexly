@@ -8,6 +8,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, AppState, Dimensions, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
 import Svg, { G, Line, Path, Polygon, Polyline, Rect, Circle } from 'react-native-svg';
@@ -159,6 +160,7 @@ const REC_FIELDS = 10;   // t, entrada, volante, velocidad, rumbo, muro, dt, ded
 // curvas o horquillas. Mismo orden que BANK en pieces.js, sin duplicar nombres.
 const PIECE_TYPES = ['recta', 'curva_amplia', 'curva', 'curva_cerrada', 'horquilla'];
 const TOUCH_LOG_N = 150; // últimos eventos táctiles en crudo (solo con DIAG)
+const LIDER_VISTO_KEY = 'apexly_lider_explicado'; // ya se explicó qué es el coche del líder
 
 const SCREEN = Dimensions.get('window');
 
@@ -220,6 +222,24 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, at
   // queremos que la animación dependa de eso.
   const [moradoIdx, setMoradoIdx] = useState(null);
   const moradoAnim = useRef(new Animated.Value(0)).current;
+
+  // ¿Toca explicar qué es el coche del líder? Solo la primerísima vez que el
+  // jugador se encuentra uno. Empieza en false y se enciende si el flag no
+  // está puesto — así, mientras se consulta AsyncStorage, no parpadea el
+  // texto en pantalla.
+  const [explicarLider, setExplicarLider] = useState(false);
+  useEffect(() => {
+    if (!leaderRun) return;
+    let alive = true;
+    AsyncStorage.getItem(LIDER_VISTO_KEY)
+      .then((v) => {
+        if (!alive || v) return;
+        setExplicarLider(true);
+        AsyncStorage.setItem(LIDER_VISTO_KEY, '1').catch(() => {});
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [leaderRun]);
 
   function celebrarMorado(index) {
     setMoradoIdx(index);
@@ -664,6 +684,26 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, at
     `translate(${playW / 2} ${playH * CAM_ANCHOR}) ` +
     `scale(${camZoom}) rotate(${camRot}) translate(${-view.x} ${-view.y})`;
 
+  // Dónde cae el coche del líder EN PANTALLA. Hace falta calcularlo a mano
+  // (aplicando la misma cadena que camTransform) porque la etiqueta con su
+  // nombre NO puede ir dentro del <G> de cámara: ese grupo rota con el rumbo
+  // del coche, así que el texto saldría torcido o boca abajo, y además se
+  // escalaría con el zoom. Fuera del grupo, el cartelito siempre se lee recto.
+  let leaderTagPos = null;
+  if (view.leader && leaderRun) {
+    const rad = (camRot * Math.PI) / 180;
+    const dx = view.leader.x - view.x;
+    const dy = view.leader.y - view.y;
+    const sx = playW / 2 + camZoom * (dx * Math.cos(rad) - dy * Math.sin(rad));
+    const sy = playH * CAM_ANCHOR + camZoom * (dx * Math.sin(rad) + dy * Math.cos(rad));
+    // Solo si está realmente a la vista; si no, el cartel se quedaría pegado
+    // a un borde señalando a un coche que no está en pantalla.
+    const margin = 60;
+    if (sx > -margin && sx < playW + margin && sy > -margin && sy < playH + margin) {
+      leaderTagPos = { x: sx, y: sy };
+    }
+  }
+
   return (
     <View style={styles.root}>
       <StatusBar hidden />
@@ -739,6 +779,26 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, at
           {({ pressed }) => <Text style={[styles.steerBtnGlyph, pressed && styles.steerBtnGlyphPressed]}>›</Text>}
         </Pressable>
 
+        {/* Nombre flotando sobre el coche del líder. Es lo que evita que un
+            coche sólido que te atraviesa se lea como un fallo de colisión:
+            con el nombre encima queda claro que es la vuelta grabada de otra
+            persona, no un rival físico. */}
+        {leaderTagPos && (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.leaderNameWrap,
+              { left: leaderTagPos.x - 70, top: leaderTagPos.y - 42 },
+            ]}
+          >
+            <View style={styles.leaderNamePill}>
+              <Text style={styles.leaderNameText} numberOfLines={1}>
+                {leaderRun.nickname}
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Efecto visual del clima del día (lluvia / viento / seco) */}
         <WeatherFX weather={wx} w={playW} h={playH} />
 
@@ -802,6 +862,16 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, at
           <View pointerEvents="none" style={styles.startPanel}>
             <Text style={styles.startTitle}>Toca para arrancar</Text>
             <Text style={styles.startSub}>Izquierda gira ‹    ·    derecha gira ›</Text>
+            {/* Explicación LA PRIMERA VEZ que te toca correr contra alguien:
+                sin esto, un coche sólido que se cruza contigo y al que
+                atraviesas parece un bug de colisión. Después de la primera
+                vez basta con el nombre flotando sobre el coche. */}
+            {leaderRun && explicarLider && (
+              <Text style={styles.startLeaderNote}>
+                Hoy corres contra la vuelta de {leaderRun.nickname}, primero del
+                mundo. Es una repetición: podéis atravesaros.
+              </Text>
+            )}
             <View style={styles.startMeta}>
               {Number.isFinite(attemptsLeft) && (
                 <View style={styles.startTag}>
@@ -1380,6 +1450,16 @@ const styles = StyleSheet.create({
   // y no en el centro: el coche va a 250 u/s y taparle la pista sería
   // castigar al jugador justo por hacerlo bien.
   moradoWrap: { position: 'absolute', top: 12, left: 0, right: 0, alignItems: 'center' },
+  // Etiqueta con el nombre del líder, anclada sobre su coche. Ancho fijo +
+  // centrado para poder posicionarla restando la mitad, sin medir el texto.
+  leaderNameWrap: { position: 'absolute', width: 140, alignItems: 'center' },
+  leaderNamePill: {
+    backgroundColor: 'rgba(13,15,19,0.82)', borderWidth: 1, borderColor: RD.gold1st,
+    borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3, maxWidth: 140,
+  },
+  leaderNameText: {
+    color: RD.gold1st, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 0.4,
+  },
   moradoPill: {
     backgroundColor: 'rgba(13,15,19,0.88)', borderWidth: 1.5, borderColor: SECTOR_COLORS.purple,
     borderRadius: 12, paddingHorizontal: 16, paddingVertical: 9, alignItems: 'center',
@@ -1421,6 +1501,9 @@ const styles = StyleSheet.create({
   },
   startTitle: { color: '#ffffff', fontSize: 20, fontWeight: '800', letterSpacing: 0.3 },
   startSub: { color: 'rgba(255,255,255,0.62)', fontSize: 13, marginTop: 6 },
+  startLeaderNote: {
+    color: RD.gold1st, fontSize: 12, marginTop: 10, textAlign: 'center', lineHeight: 17,
+  },
   startMeta: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap', justifyContent: 'center' },
   startTag: { backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
   startTagText: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '700' },

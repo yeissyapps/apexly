@@ -174,6 +174,16 @@ export const CONFIG = {
   // a escribir nada del instrumental.
   DIAG: false,
 
+  // true => `getLeaderRun` te devuelve TU PROPIA vuelta en vez de null cuando
+  // el líder eres tú. Sirve para ver en solitario cómo queda el coche del
+  // líder en pista (opacidad, etiqueta con el nombre, si estorba) sin
+  // necesitar a otra persona que te gane hoy.
+  //
+  // OJO: en el juego real esto NO puede quedarse encendido — verías tu propio
+  // coche corriendo contra ti además de tu fantasma, que es justo lo que
+  // getLeaderRun evita a propósito. Va en false para publicar.
+  LIDER_DE_PRUEBA: false,
+
   // --- Debug / ayudas visuales -------------------------------------------
   // true => dibuja los bordes del carril y el eje (para depurar la colisión).
   SHOW_DEBUG: false,

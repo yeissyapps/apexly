@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { todayKey, dayOffset } from './daily';
 import { CAR_DEFAULTS } from './car';
+import { CONFIG } from './config';
 
 const NICK_KEY = 'nickname';
 
@@ -249,7 +250,10 @@ export async function getLeaderRun(day = todayKey()) {
     .order('ms', { ascending: true })
     .limit(1)
     .maybeSingle();
-  if (!run || run.user_id === user.id) return null;
+  // Con LIDER_DE_PRUEBA encendido, tu propia vuelta vale como "la del líder":
+  // es la única forma de ver esto en solitario (ver config.js).
+  if (!run) return null;
+  if (run.user_id === user.id && !CONFIG.LIDER_DE_PRUEBA) return null;
 
   const { data: who } = await supabase
     .from('users')
