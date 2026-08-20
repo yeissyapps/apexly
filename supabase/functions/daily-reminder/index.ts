@@ -35,11 +35,27 @@ Deno.serve(async (_req) => {
 
     // Un mismo dispositivo puede tener varias filas (una por cada identidad
     // anónima que dejó atrás, p. ej. al reinstalar la app en pruebas) — todas
-    // con el mismo token físico. Deduplicar por token para no mandar el mismo
-    // aviso 2-3 veces al mismo móvil.
+    // con el mismo token físico, porque push_tokens tiene user_id como clave
+    // primaria y `token` SIN unicidad.
+    //
+    // Por eso el "¿ha jugado?" se decide por TOKEN y no por fila. Un aviso se
+    // manda a un DISPOSITIVO, así que basta con que UNA de las identidades de
+    // ese móvil haya jugado hoy para que no haya nada que recordar.
+    //
+    // Antes esto se filtraba fila a fila (`playedIds.has(t.user_id)`) y se
+    // deduplicaba DESPUÉS: si la identidad vieja —que no juega nunca— salía
+    // antes en la consulta, se quedaba ella con el token, la identidad buena
+    // se descartaba por duplicada y el aviso salía igualmente. Como el orden
+    // de las filas lo decide Postgres, el fallo era intermitente y parecía
+    // cosa de iOS, cuando en realidad pasaba en las dos plataformas.
+    const playedTokens = new Set<string>();
+    for (const t of toks ?? []) {
+      if (t.token && playedIds.has(t.user_id)) playedTokens.add(t.token);
+    }
+
     const seenTokens = new Set<string>();
     const pending = (toks ?? []).filter((t) => {
-      if (!t.token || playedIds.has(t.user_id)) return false;
+      if (!t.token || playedTokens.has(t.token)) return false;
       if (seenTokens.has(t.token)) return false;
       seenTokens.add(t.token);
       return true;
