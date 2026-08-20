@@ -73,6 +73,17 @@ import { checkForceUpdate, getStoreUrl } from './src/forceUpdate';
 const PAD = 50; // hueco superior (barra de estado oculta)
 const UNLIMITED_FALLBACK_PRICE = '2,99 €'; // si la tienda no responde con el precio localizado
 const RECAP_SEEN_KEY = 'apexly_recap_seen_day'; // último día (todayKey) en que ya se mostró el pop-up de premios
+const RANK_SEEN_KEY = 'apexly_last_rank';       // { day, rank } del último resultado visto, para "has adelantado a N"
+
+// Umbral del "casi": por debajo de esto, no batir tu récord deja de ser un
+// fracaso y pasa a ser un incentivo para tirar otra vuelta. 300ms es poco más
+// de una décima por sector — lo bastante cerca como para que duela.
+const CASI_MS = 300;
+
+// Ritmo del reveal escalonado del resultado (ver Results). 150ms deja unos
+// 750ms de escalera con 3 sectores: se nota que caen uno a uno sin que se
+// haga esperar a quien solo quiere ver su tiempo y tirar otra vuelta.
+const REVEAL_MS = 150;
 
 // Fecha corta "DD·MM" para tarjetas.
 function dayShort() {
@@ -568,7 +579,11 @@ export default function App() {
       let streak = null;
       try { streak = await bumpStreak(); } catch (_) {}
       claimDailyReward().catch(() => {}); // monedas de racha si toca hoy (idempotente en servidor)
-      setResult({ ms, isBest, submitting: false, streak, impacts, sectorColors, sectorDeltas });
+      // prevMs = tu mejor tiempo de hoy ANTES de esta vuelta (null si es la
+      // primera). Se guarda en el resultado porque es lo que permite decir
+      // "te has quedado a 0.043s de tu récord" cuando NO mejoras — sin él,
+      // quedarte a 43 milésimas se ve igual que quedarte a seis segundos.
+      setResult({ ms, isBest, prevMs, submitting: false, streak, impacts, sectorColors, sectorDeltas });
       logRaceFinish({ ms, isBest });
       if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs); // fire-and-forget: avisa a quien adelantaste
       // Sube la traza de tu mejor vuelta para que, si vas 1.º, los demás
@@ -1427,6 +1442,10 @@ const rd = StyleSheet.create({
   sectorSplitValue: { fontSize: 14, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
   resultDivider: { alignSelf: 'stretch', height: 1, backgroundColor: RD.gridLine, marginVertical: 2 },
   resultRank: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.mono },
+  // Puesto anterior tachado + puesto nuevo en verde: la lectura es "de aquí a
+  // aquí", que es lo que hace que se sienta como avanzar y no como un dato.
+  resultRankFrom: { color: RD.textDisabled, textDecorationLine: 'line-through' },
+  resultRankTo: { color: RD.successGreen, fontFamily: RD_FONT.monoBold },
   resultChase: {
     color: RD.textPrimary, fontSize: 13, fontFamily: RD_FONT.monoBold,
     textAlign: 'center', marginTop: 2,
@@ -1641,6 +1660,26 @@ function ShareIcon({ color }) {
 // Variantes del texto de reto (rotan al azar para no repetirse siempre igual).
 const SHARE_TAGLINES = ['¿Me superas?', 'No creo que la superes.', 'A ver si la bates.'];
 
+// Una celda del reveal escalonado: entra con un empujoncito hacia arriba
+// cuando le toca su turno. Solo se revela el VALOR — la etiqueta (S1, TOTAL)
+// se queda fija desde el principio para que la fila no baile mientras se
+// llena, igual que una pantalla de tiempos de verdad.
+function RevealValue({ shown, style, children }) {
+  const a = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!shown) return;
+    Animated.spring(a, { toValue: 1, friction: 6, tension: 160, useNativeDriver: true }).start();
+  }, [shown]);
+  const clamped = a.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: 'clamp' });
+  return (
+    <Animated.Text
+      style={[style, { opacity: clamped, transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }] }]}
+    >
+      {children}
+    </Animated.Text>
+  );
+}
+
 // ---------------------------------------------------------------------------
 //  Resultado: tiempo + stats + tarjeta para compartir. Micro-recompensa si récord.
 // ---------------------------------------------------------------------------
@@ -1653,6 +1692,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   const timeScale = useRef(new Animated.Value(1)).current;
   const [standing, setStanding] = useState(null);      // global { rank, total, gapToLeaderMs, above }
   const [groupRank, setGroupRank] = useState(null);     // puesto en tu grupo principal
+  const [rankFrom, setRankFrom] = useState(null);       // puesto que tenías antes de esta vuelta (solo si has subido)
 
   // Logro conseguido. La celebración exige HABER MEJORADO en esta vuelta
   // (result.isBest): si corres más lento sigues 1.º del ranking, pero no es
@@ -1662,8 +1702,14 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   const isGlobalTop = improved && standing?.rank === 1;
   const isGroupTop = improved && !isGlobalTop && groupRank === 1;
   const isPersonalBest = improved && !isGlobalTop && !isGroupTop;
-  const vibe = isGlobalTop ? 'global' : isGroupTop ? 'group' : isPersonalBest ? 'best' : 'flat';
-  const celebrate = vibe !== 'flat';
+  // "Casi": no has mejorado, pero por tan poco que la reacción natural es
+  // volver a intentarlo. Se queda FUERA de `celebrate` a propósito — no es un
+  // logro, es un enganche, y darle la misma fanfarria que a un récord
+  // devaluaría el récord.
+  const casiMs = !improved && result.prevMs != null ? result.ms - result.prevMs : null;
+  const isCasi = casiMs != null && casiMs <= CASI_MS;
+  const vibe = isGlobalTop ? 'global' : isGroupTop ? 'group' : isPersonalBest ? 'best' : isCasi ? 'casi' : 'flat';
+  const celebrate = improved;
 
   // Peor sector respecto al mejor de hoy (no morado) con más pérdida frente al
   // fantasma — es la mejor aproximación que tenemos a "tu sector más flojo
@@ -1697,6 +1743,39 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     return candidates[Math.floor(Math.random() * candidates.length)];
   }, [standing, showWorstSectorTip, worstSectorIdx]);
 
+  // Reveal escalonado, estilo pantalla de tiempos de carrera: los sectores no
+  // aparecen de golpe, van cayendo uno a uno (S1… S2… S3… TOTAL) y el
+  // veredicto — badge y color del tiempo — llega al final de la escalera. Los
+  // datos son exactamente los mismos que antes; lo único que cambia es que se
+  // sirven en orden, que es lo que convierte "aquí tienes tus números" en un
+  // momento con tensión.
+  //
+  // `step`: 0 = nada; 1..sectorCount = sectores visibles; +1 = TOTAL;
+  // +2 = veredicto. Si no hay sectores (vuelta con error) no hay nada que
+  // escalonar y se va directo al veredicto.
+  const sectorCount = result.sectorDeltas?.length || 0;
+  const [step, setStep] = useState(0);
+  const verdict = step >= sectorCount + 2;
+
+  useEffect(() => {
+    if (result.submitting) return;
+    if (sectorCount === 0) { setStep(2); return; }
+    const timers = [];
+    for (let i = 1; i <= sectorCount + 2; i++) {
+      timers.push(setTimeout(() => {
+        setStep(i);
+        if (i > sectorCount) return; // el TOTAL y el veredicto tienen su propia reacción
+        // Un tic por sector, para que el ritmo se sienta además de verse. El
+        // morado pega algo más fuerte; el resto es un tic neutro, porque
+        // cuatro vibraciones seguidas de la misma intensidad se convierten en
+        // un zumbido y dejan de significar nada.
+        if (result.sectorColors?.[i - 1] === 'purple') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        else Haptics.selectionAsync().catch(() => {});
+      }, i * REVEAL_MS));
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [result.submitting]);
+
   // Recompensa al cruzar meta. Antes solo pasaba algo si BATÍAS un récord
   // (`celebrate`), y en un juego diario la mayoría de tus vueltas la mayoría de
   // los días no baten nada: se terminaba en seco, sin un mínimo "clic" de
@@ -1704,17 +1783,20 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   // logro — el brillo grande sigue reservado al récord, para que siga
   // significando algo.
   useEffect(() => {
-    if (result.submitting) return;
-    if (celebrate) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    if (!verdict) return;
+    if (celebrate) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    // El "casi" es un golpe seco, no una fanfarria: transmite "lo has tenido
+    // ahí" sin sonar a premio.
+    else if (vibe === 'casi') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    else Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+
+    if (vibe !== 'flat') {
       scale.setValue(0.6);
       opacity.setValue(0);
       Animated.parallel([
         Animated.spring(scale, { toValue: 1, friction: 4, tension: 90, useNativeDriver: true }),
         Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
       ]).start();
-    } else {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
     // El tiempo late en las dos ramas: fuerte si hay récord, discreto si no.
     timeScale.setValue(celebrate ? 0.82 : 0.94);
@@ -1724,7 +1806,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
       tension: celebrate ? 90 : 140,
       useNativeDriver: true,
     }).start();
-  }, [result.submitting, vibe]);
+  }, [verdict, vibe]);
 
   // Posición global (para color del tiempo + compartir).
   useEffect(() => {
@@ -1764,6 +1846,32 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     return () => { alive = false; };
   }, [result.submitting, refreshKey]);
 
+  // Puestos ganados desde tu vuelta anterior de HOY. "12.º de 40" es un dato;
+  // "18.º → 12.º, has adelantado a 6" es movimiento, que es lo que engancha.
+  // Se guarda el puesto junto al día para que cada jornada empiece limpia (en
+  // la primera vuelta del día no hay con qué comparar y no se muestra nada).
+  //
+  // El ref es necesario: el efecto de `standing` se relanza con `refreshKey`,
+  // y sin él la segunda pasada leería el puesto que acaba de escribir, vería
+  // que no ha cambiado y borraría el adelantamiento recién mostrado.
+  const rankDeltaDone = useRef(false);
+  useEffect(() => {
+    if (!standing || rankDeltaDone.current) return;
+    rankDeltaDone.current = true;
+    const day = todayKey();
+    let alive = true;
+    AsyncStorage.getItem(RANK_SEEN_KEY)
+      .then((raw) => {
+        const prev = raw ? JSON.parse(raw) : null;
+        // Solo hacia arriba: bajar de puesto (porque otro ha corrido más que
+        // tú) no es culpa de esta vuelta y restregárselo no aporta nada.
+        if (alive && prev && prev.day === day && prev.rank > standing.rank) setRankFrom(prev.rank);
+        return AsyncStorage.setItem(RANK_SEEN_KEY, JSON.stringify({ day, rank: standing.rank }));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [standing]);
+
   const rankText = standing ? `${standing.rank}.º de ${standing.total} en el mundo` : null;
 
   const [tagline] = useState(() => SHARE_TAGLINES[Math.floor(Math.random() * SHARE_TAGLINES.length)]);
@@ -1787,9 +1895,17 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     vibe === 'global' ? { text: '◆  MEJOR TIEMPO MUNDIAL  ◆', bg: RD.gold1st } :
     vibe === 'group' ? { text: '★ 1.º DE TU GRUPO', bg: RD.trackBlue } :
     vibe === 'best' ? { text: '★ NUEVO RÉCORD', bg: RD.successGreen } :
+    // El amarillo es el mismo que ya significa "sector no mejorado" en pista:
+    // reutilizarlo aquí dice "no llegaste" sin necesidad de explicarlo.
+    vibe === 'casi' ? { text: casiMs === 0 ? 'HAS IGUALADO TU RÉCORD' : `A ${fmtSecs(casiMs)}s DE TU RÉCORD`, bg: SECTOR_RESULT_COLORS.yellow } :
     null;
-  const timeColor =
-    vibe === 'global' ? RD.gold1st : vibe === 'group' ? RD.trackBlue : vibe === 'best' ? RD.successGreen : RD.cream;
+  const vibeColor =
+    vibe === 'global' ? RD.gold1st : vibe === 'group' ? RD.trackBlue : vibe === 'best' ? RD.successGreen :
+    vibe === 'casi' ? SECTOR_RESULT_COLORS.yellow : RD.cream;
+  // El tiempo se queda neutro mientras cae la escalera de sectores y se
+  // colorea justo con el latido del veredicto, para que el color sea el
+  // remate del reveal y no un spoiler.
+  const timeColor = verdict ? vibeColor : RD.cream;
 
   return (
     <ScrollView style={rd.screen} contentContainerStyle={rd.screenContent}>
@@ -1833,7 +1949,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
                 return (
                   <View key={i} style={rd.sectorSplitCol}>
                     <Text style={rd.sectorSplitLabel}>S{i + 1}</Text>
-                    <Text style={[rd.sectorSplitValue, { color }]}>{value}</Text>
+                    <RevealValue shown={step >= i + 1} style={[rd.sectorSplitValue, { color }]}>{value}</RevealValue>
                   </View>
                 );
               })}
@@ -1842,9 +1958,9 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
                   <View style={rd.sectorSplitDivider} />
                   <View style={rd.sectorSplitCol}>
                     <Text style={rd.sectorSplitLabel}>TOTAL</Text>
-                    <Text style={[rd.sectorSplitValue, { color: total <= 0 ? RD.successGreen : RD.danger }]}>
+                    <RevealValue shown={step >= sectorCount + 1} style={[rd.sectorSplitValue, { color: total <= 0 ? RD.successGreen : RD.danger }]}>
                       {`${total <= 0 ? '−' : '+'}${(Math.abs(total) / 1000).toFixed(3)}s`}
-                    </Text>
+                    </RevealValue>
                   </View>
                 </>
               )}
@@ -1855,7 +1971,16 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
         {standing && (
           <>
             <View style={rd.resultDivider} />
-            <Text style={rd.resultRank}>{standing.rank}.º de {standing.total} en el mundo</Text>
+            {rankFrom != null ? (
+              <Text style={rd.resultRank}>
+                <Text style={rd.resultRankFrom}>{rankFrom}.º</Text>
+                {'  →  '}
+                <Text style={rd.resultRankTo}>{standing.rank}.º</Text>
+                {`  ·  ${rankFrom - standing.rank === 1 ? 'has adelantado a 1' : `has adelantado a ${rankFrom - standing.rank}`}`}
+              </Text>
+            ) : (
+              <Text style={rd.resultRank}>{standing.rank}.º de {standing.total} en el mundo</Text>
+            )}
             {finalLine && <Text style={rd.resultChase}>{finalLine}</Text>}
           </>
         )}
@@ -1863,7 +1988,11 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
 
       <Pressable style={rd.cta} onPress={onRetry}>
         <Text style={rd.ctaText}>
-          {outOfAttempts ? `Ver anuncio · +${intentosTxt(AD_BATCH)}` : unlimited ? 'Reintentar' : `Reintentar (${attemptsLeft}/${total})`}
+          {outOfAttempts
+            ? `Ver anuncio · +${intentosTxt(AD_BATCH)}`
+            // Tras un "casi", el botón deja de ser un "reintentar" neutro y
+            // pasa a decir lo que de verdad te apetece hacer en ese momento.
+            : `${vibe === 'casi' ? 'Otra vuelta' : 'Reintentar'}${unlimited ? '' : ` (${attemptsLeft}/${total})`}`}
         </Text>
       </Pressable>
 
@@ -1876,7 +2005,9 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
       <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING DE HOY</Text>
       <MiniRanking refreshKey={refreshKey} showTabs={false} />
 
-      {/* Tarjeta para compartir: renderizada fuera de pantalla y capturada a PNG. */}
+      {/* Tarjeta para compartir: renderizada fuera de pantalla y capturada a PNG.
+          Usa vibeColor y no timeColor, para que el acento no dependa de en qué
+          punto del reveal escalonado se capture. */}
       <View style={styles.offscreen} pointerEvents="none">
         <ShareCard
           ref={cardRef}
@@ -1886,7 +2017,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
           weather={wx}
           nickname={nickname}
           day={dayShort()}
-          accent={timeColor}
+          accent={vibeColor}
           tagline={tagline}
         />
       </View>
