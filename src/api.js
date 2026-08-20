@@ -21,6 +21,19 @@ export async function ensureSession() {
   return data.user;
 }
 
+// Build mínimo exigido para `platform` ('ios'|'android'), o null si no hay
+// fila (no bloquea) o si falla la red (nunca queremos tumbar el arranque
+// por esto — ver app_version.sql).
+export async function getMinBuild(platform) {
+  const { data, error } = await supabase
+    .from('app_version')
+    .select('min_build')
+    .eq('platform', platform)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.min_build;
+}
+
 export async function getLocalNickname() {
   return AsyncStorage.getItem(NICK_KEY);
 }

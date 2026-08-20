@@ -8,7 +8,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Dimensions, Linking, Modal, Pressable, ScrollView,
+  ActivityIndicator, Animated, Dimensions, Linking, Modal, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
@@ -68,6 +68,7 @@ import {
 } from './src/analytics';
 import ShareCard from './src/ShareCard';
 import { shareCardImage } from './src/share';
+import { checkForceUpdate, getStoreUrl } from './src/forceUpdate';
 
 const PAD = 50; // hueco superior (barra de estado oculta)
 const UNLIMITED_FALLBACK_PRICE = '2,99 €'; // si la tienda no responde con el precio localizado
@@ -101,7 +102,8 @@ export default function App() {
     BarlowCondensed_600SemiBold, BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold,
     IBMPlexMono_500Medium, IBMPlexMono_600SemiBold, IBMPlexMono_700Bold,
   });
-  const [screen, setScreen] = useState('loading'); // loading|error|onboarding|home|playing|results
+  const [screen, setScreen] = useState('loading'); // loading|error|force-update|onboarding|home|playing|results
+  const [storeUrl, setStoreUrl] = useState(null);
   const [nickname, setNickname] = useState(null);
   const [result, setResult] = useState(null); // { ms, isBest, submitting, error }
   const [refreshKey, setRefreshKey] = useState(0);
@@ -494,11 +496,18 @@ export default function App() {
     if (PUSH_ENABLED && nickname && tourOn === false) registerPushToken().catch(() => {});
   }, [nickname, tourOn]);
 
-  // Init: sesión anónima + ¿tenemos nickname?
+  // Init: version gate + sesión anónima + ¿tenemos nickname?
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
+        const minBuild = await checkForceUpdate();
+        if (!alive) return;
+        if (minBuild != null) {
+          setScreen('force-update');
+          getStoreUrl().then((u) => { if (alive) setStoreUrl(u); }).catch(() => {});
+          return;
+        }
         await ensureSession();
         ensureDailyTrack(daily.label).catch(() => {});
         const nick = await getLocalNickname();
@@ -573,6 +582,23 @@ export default function App() {
       <View style={styles.centerScreen}>
         <StatusBar hidden />
         <ActivityIndicator color={C.hot} size="large" />
+      </View>
+    );
+  }
+
+  if (screen === 'force-update') {
+    return (
+      <View style={styles.centerScreen}>
+        <StatusBar hidden />
+        <Text style={styles.errTitle}>Nueva versión disponible</Text>
+        <Text style={styles.errSub}>Hay que actualizar Apexly para seguir jugando.</Text>
+        {storeUrl ? (
+          <Pressable style={styles.primaryBtn} onPress={() => Linking.openURL(storeUrl)}>
+            <Text style={styles.primaryBtnText}>Actualizar</Text>
+          </Pressable>
+        ) : (
+          <Text style={styles.errSub}>Búscalo como "Apexly" en la tienda de tu móvil.</Text>
+        )}
       </View>
     );
   }

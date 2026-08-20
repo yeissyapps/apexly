@@ -161,7 +161,11 @@ function generateSpec(dateKey, opts = {}) {
   let fallback = null;
   for (let attempt = 0; attempt < 16; attempt++) {
     const rng = mulberry32(hashStr(dateKey + '#' + attempt));
-    const half = forcedHalf != null ? forcedHalf : (chance(rng, 0.22) ? NARROW : WIDE);
+    // La sensación de velocidad se nota mucho más en estrecho (NARROW) que en
+    // ancho (WIDE) — JC: "el estrecho está perfecto... el ancho se hace muy
+    // aburrido". Antes era 22% NARROW / 78% WIDE; se invierte para que
+    // ESTRECHO sea el caso normal y ANCHO quede como variedad ocasional.
+    const half = forcedHalf != null ? forcedHalf : (chance(rng, 0.75) ? NARROW : WIDE);
     const ids = ['straight_s'];
     const types = [];
     let len = pieceLen['straight_s'];
