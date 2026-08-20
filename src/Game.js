@@ -868,8 +868,8 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, at
                 vez basta con el nombre flotando sobre el coche. */}
             {leaderRun && explicarLider && (
               <Text style={styles.startLeaderNote}>
-                Hoy corres contra la vuelta de {leaderRun.nickname}, primero del
-                mundo. Es una repetición: podéis atravesaros.
+                Hoy corres contra la vuelta de {leaderRun.nickname}, el tiempo
+                más rápido en pista. Es una repetición: podéis atravesaros.
               </Text>
             )}
             <View style={styles.startMeta}>

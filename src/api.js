@@ -241,6 +241,15 @@ export async function submitDailyRun(ms, trace, day = todayKey()) {
 // Vuelta del líder de hoy: { userId, nickname, ms, trace, loadout } o null.
 // Devuelve null también si el líder eres TÚ (no hay coche ajeno que enseñar,
 // y tu propio fantasma local ya está en pista).
+//
+// OJO con la palabra "líder": esto es el más rápido DE LOS QUE HAN SUBIDO
+// TRAZA hoy, que no siempre es el primero del ranking. Las trazas solo se
+// suben desde la versión que estrenó daily_runs, así que un jugador en una
+// versión vieja puede ir 1.º en `attempts` y no tener fila aquí. El force
+// update (ver app_version.sql) es lo que hace que esa diferencia tienda a
+// cero. Mientras tanto se prefiere enseñar al más rápido disponible antes que
+// no enseñar a nadie — por eso el texto en pantalla NO afirma que sea el 1.º
+// del mundo, solo que es el tiempo más rápido en pista.
 export async function getLeaderRun(day = todayKey()) {
   const user = await ensureSession();
   const { data: run } = await supabase
