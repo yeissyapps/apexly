@@ -53,7 +53,7 @@ import {
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
   getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
   getMyLoadout, getWallet, claimDailyReward, getRecentRewards, claimShareReward, claimCareerLevel,
-  submitGpResult, notifyGpOvertake, recordLap,
+  submitGpResult, notifyGpOvertake, recordLap, submitDailyRun, getLeaderRun,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -122,6 +122,7 @@ export default function App() {
   const [nomoreReturn, setNomoreReturn] = useState('playing'); // a qué screen volver tras ver el anuncio en 'nomore'
   const [ghost, setGhost] = useState(null); // { ms, trace } de tu mejor vuelta de hoy
   const [sectorBests, setSectorBests] = useState(null); // { [sector]: ms } mejor del mundo hoy
+  const [leaderRun, setLeaderRun] = useState(null);     // { nickname, ms, trace, loadout } del 1.º de hoy
   const [loadout, setLoadout] = useState(CAR_DEFAULTS); // personalización del coche (garaje)
 
   const [att, setAtt] = useState({ used: 0, bonus: 0 }); // intentos del día (circuito diario)
@@ -292,6 +293,11 @@ export default function App() {
 
   // Intentar jugar: ilimitado o con intentos → a jugar; si no, ofrecer el anuncio/IAP.
   function tryPlay() {
+    // La vuelta del líder se pide aquí y no al abrir la app: la traza pesa
+    // (~800 muestras) y solo hace falta si de verdad vas a correr. Si falla o
+    // el líder eres tú, `leaderRun` se queda a null y en pista no aparece
+    // ningún coche extra — nunca bloquea el poder jugar.
+    getLeaderRun(todayKey()).then(setLeaderRun).catch(() => setLeaderRun(null));
     if (unlimited || left > 0) setScreen('playing');
     else { logPaywallView(); setNomoreReturn('playing'); setScreen('nomore'); }
   }
@@ -565,6 +571,10 @@ export default function App() {
       setResult({ ms, isBest, submitting: false, streak, impacts, sectorColors, sectorDeltas });
       logRaceFinish({ ms, isBest });
       if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs); // fire-and-forget: avisa a quien adelantaste
+      // Sube la traza de tu mejor vuelta para que, si vas 1.º, los demás
+      // puedan correr contra tu coche. Mismo disparador que el aviso de
+      // adelantamiento y también fire-and-forget: el tiempo ya está a salvo.
+      if (isBest && trace) submitDailyRun(ms, trace, todayKey()).catch(() => {});
       // Valoración: mejorar tu propia marca es el mejor momento del diario
       // para pedirla (ver src/rate.js). Va después de pintar el resultado,
       // para que el diálogo del sistema caiga sobre la pantalla de Resultado
@@ -678,6 +688,7 @@ export default function App() {
       <Game
         track={daily.track}
         ghost={ghost?.trace}
+        leaderRun={leaderRun}
         weather={weather}
         sectorBests={sectorBests}
         loadout={loadout}
@@ -1639,6 +1650,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   const cardRef = useRef(null);
   const scale = useRef(new Animated.Value(0.6)).current;
   const opacity = useRef(new Animated.Value(0)).current;
+  const timeScale = useRef(new Animated.Value(1)).current;
   const [standing, setStanding] = useState(null);      // global { rank, total, gapToLeaderMs, above }
   const [groupRank, setGroupRank] = useState(null);     // puesto en tu grupo principal
 
@@ -1685,8 +1697,15 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     return candidates[Math.floor(Math.random() * candidates.length)];
   }, [standing, showWorstSectorTip, worstSectorIdx]);
 
+  // Recompensa al cruzar meta. Antes solo pasaba algo si BATÍAS un récord
+  // (`celebrate`), y en un juego diario la mayoría de tus vueltas la mayoría de
+  // los días no baten nada: se terminaba en seco, sin un mínimo "clic" de
+  // satisfacción. Ahora siempre hay respuesta, con la intensidad escalada al
+  // logro — el brillo grande sigue reservado al récord, para que siga
+  // significando algo.
   useEffect(() => {
-    if (!result.submitting && celebrate) {
+    if (result.submitting) return;
+    if (celebrate) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       scale.setValue(0.6);
       opacity.setValue(0);
@@ -1694,7 +1713,17 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
         Animated.spring(scale, { toValue: 1, friction: 4, tension: 90, useNativeDriver: true }),
         Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
       ]).start();
+    } else {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
+    // El tiempo late en las dos ramas: fuerte si hay récord, discreto si no.
+    timeScale.setValue(celebrate ? 0.82 : 0.94);
+    Animated.spring(timeScale, {
+      toValue: 1,
+      friction: celebrate ? 4 : 6,
+      tension: celebrate ? 90 : 140,
+      useNativeDriver: true,
+    }).start();
   }, [result.submitting, vibe]);
 
   // Posición global (para color del tiempo + compartir).
@@ -1785,7 +1814,9 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
         ) : result.submitting ? (
           <Text style={rd.resultNeutral}>Guardando…</Text>
         ) : null}
-        <Text style={[rd.resultTime, { color: timeColor }]}>{fmtTime(result.ms)}</Text>
+        <Animated.Text style={[rd.resultTime, { color: timeColor, transform: [{ scale: timeScale }] }]}>
+          {fmtTime(result.ms)}
+        </Animated.Text>
 
         <View style={rd.trackMapBox}>
           <MiniTrackMap track={track} w={TRACKMAP_W} h={80} worstSector={showWorstSectorTip ? worstSectorIdx : null} />

@@ -7,8 +7,9 @@
 // ============================================================================
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Dimensions, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Animated, AppState, Dimensions, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import * as Haptics from 'expo-haptics';
 import Svg, { G, Line, Path, Polygon, Polyline, Rect, Circle } from 'react-native-svg';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -161,7 +162,7 @@ const TOUCH_LOG_N = 150; // últimos eventos táctiles en crudo (solo con DIAG)
 
 const SCREEN = Dimensions.get('window');
 
-export default function Game({ track, ghost, weather, sectorBests, attemptsLeft = Infinity, loadout, onAttemptStart, onNeedMore, onFinish, onExit }) {
+export default function Game({ track, ghost, leaderRun, weather, sectorBests, attemptsLeft = Infinity, loadout, onAttemptStart, onNeedMore, onFinish, onExit }) {
   const insets = useSafeAreaInsets();
   const HUD_H = insets.top + HUD_CONTENT_H;
   const playW = SCREEN.width;
@@ -190,6 +191,12 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   onExitRef.current = onExit;
   const ghostRef = useRef(ghost);
   ghostRef.current = ghost;
+  // Vuelta del líder de hoy (traza + su livery real). Puntero propio: se
+  // interpola igual que el fantasma pero con su propio avance, porque su
+  // vuelta dura otra cosa que la tuya.
+  const leaderTraceRef = useRef(null);
+  leaderTraceRef.current = leaderRun ? leaderRun.trace : null;
+  const leaderIdxRef = useRef(0);
   const weatherRef = useRef(wx);
   weatherRef.current = wx;
   const sectorBestsRef = useRef(sectorBests);
@@ -207,11 +214,34 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
   const [view, setView] = useState(null);
   const [snap, setSnap] = useState(null); // foto de diagnóstico (solo beta)
 
+  // Celebración del sector morado: qué sector fue (para el texto) + el valor
+  // animado que lo hace aparecer y desvanecerse. `useRef` y no estado para el
+  // valor animado, porque el bucle de frame ya re-renderiza a 60fps y no
+  // queremos que la animación dependa de eso.
+  const [moradoIdx, setMoradoIdx] = useState(null);
+  const moradoAnim = useRef(new Animated.Value(0)).current;
+
+  function celebrarMorado(index) {
+    setMoradoIdx(index);
+    moradoAnim.setValue(0);
+    Animated.sequence([
+      Animated.spring(moradoAnim, { toValue: 1, useNativeDriver: true, friction: 5, tension: 90 }),
+      Animated.delay(900),
+      Animated.timing(moradoAnim, { toValue: 0, duration: 220, useNativeDriver: true }),
+    ]).start(({ finished }) => { if (finished) setMoradoIdx(null); });
+  }
+
   function resetRun() {
     traceRef.current = [];
     lastSampleRef.current = -999;
     ghostIdxRef.current = 0;
+    leaderIdxRef.current = 0;
     recAt.current = 0; // la grabación es por intento
+    // Que un morado del intento anterior no se quede colgado en pantalla al
+    // empezar el siguiente.
+    moradoAnim.stopAnimation();
+    moradoAnim.setValue(0);
+    setMoradoIdx(null);
   }
 
   function startRun() {
@@ -465,7 +495,12 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
     relojAbajo.current = 0;
     entradaEfectiva.current = 0;
     touchLog.current = [];
-    setView(toView(g.current, false, ghostPoseAt(ghostRef.current, 0, ghostIdxRef)));
+    setView(toView(
+      g.current,
+      false,
+      ghostPoseAt(ghostRef.current, 0, ghostIdxRef),
+      ghostPoseAt(leaderTraceRef.current, 0, leaderIdxRef),
+    ));
 
     let raf;
     let mounted = true;
@@ -513,6 +548,23 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
         if (s.touching) s.contactMs += dt * 1000;
         if (s.touching && !wasTouching) s.impacts++;
         s.elapsed = t - s.startTime;
+
+        // Acabas de cerrar un sector: darle cuerpo al momento. El morado (mejor
+        // del mundo hoy en ese sector) es el mejor instante del juego y hasta
+        // ahora solo cambiaba el color de una barra de 5px — pasaba
+        // desapercibido justo cuando más mérito tiene.
+        if (s.sectorJustClosed) {
+          const ev = s.sectorJustClosed;
+          s.sectorJustClosed = null;
+          if (ev.color === 'purple') {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+            celebrarMorado(ev.index);
+          } else if (ev.color === 'green') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          }
+          // Amarillo (no mejoras) no vibra: reservamos la respuesta táctil para
+          // lo que es una buena noticia, si no deja de significar nada.
+        }
 
         // Grabar la traza de la vuelta (para el fantasma), con throttle.
         const tr = traceRef.current;
@@ -571,7 +623,10 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
       s.camAngle += da * Math.min(1, dt * CAM_TURN_LERP);
 
       const gp = ghostPoseAt(ghostRef.current, s.elapsed, ghostIdxRef);
-      setView(toView(s, t < s.flashUntil, gp));
+      // Mismo interpolador que el fantasma: una traza es una traza, venga de
+      // AsyncStorage (la tuya) o de Supabase (la del líder).
+      const lp = ghostPoseAt(leaderTraceRef.current, s.elapsed, leaderIdxRef);
+      setView(toView(s, t < s.flashUntil, gp, lp));
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
@@ -630,6 +685,17 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
                 transform={`rotate(${(view.ghost.h * 180) / Math.PI} ${view.ghost.x} ${view.ghost.y})`}
               />
             )}
+            {/* Coche del LÍDER de hoy: su livery real y opacidad completa —
+                no es un fantasma, es "compartís circuito". Va por debajo del
+                tuyo para que el tuyo nunca quede tapado. */}
+            {view.leader && leaderRun && (
+              <CarSprite
+                x={view.leader.x}
+                y={view.leader.y}
+                deg={(view.leader.h * 180) / Math.PI}
+                loadout={leaderRun.loadout}
+              />
+            )}
             <CarSprite x={view.x} y={view.y} deg={carDeg} loadout={carLoadout} />
             {CONFIG.SHOW_DEBUG && (
               <Line
@@ -675,6 +741,28 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
 
         {/* Efecto visual del clima del día (lluvia / viento / seco) */}
         <WeatherFX weather={wx} w={playW} h={playH} />
+
+        {/* SECTOR MORADO: mejor del mundo hoy en ese sector. Va bajo el HUD y
+            con pointerEvents none — no puede robar ni un toque del volante. */}
+        {moradoIdx != null && (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.moradoWrap,
+              {
+                opacity: moradoAnim,
+                transform: [
+                  { scale: moradoAnim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.moradoPill}>
+              <Text style={styles.moradoTitle}>SECTOR {moradoIdx + 1} MORADO</Text>
+              <Text style={styles.moradoSub}>MEJOR DEL MUNDO HOY</Text>
+            </View>
+          </Animated.View>
+        )}
 
         {/* FPS — solo con CONFIG.DIAG */}
         {CONFIG.DIAG && (
@@ -783,6 +871,13 @@ export default function Game({ track, ghost, weather, sectorBests, attemptsLeft 
                 {view.ghostDeltaMs <= 0 ? 'FANTASMA −' : 'FANTASMA +'}{Math.abs(view.ghostDeltaMs / 1000).toFixed(2)}
               </Text>
             )}
+            {/* Sin esto, el coche del líder parece un rival inventado. Con el
+                nombre delante, adelantarlo (o comértelo) tiene destinatario. */}
+            {view.phase === 'ready' && leaderRun && (
+              <Text style={rd.leaderTag} numberOfLines={1}>
+                EN PISTA · {leaderRun.nickname.toUpperCase()} {fmt(leaderRun.ms)}
+              </Text>
+            )}
           </View>
         </View>
       </View>
@@ -823,6 +918,10 @@ const rd = StyleSheet.create({
   sectorLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sectorLabel: { color: RD.textDisabled, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 0.5 },
   sectorDelta: { fontSize: 12, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
+  leaderTag: {
+    color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.mono,
+    letterSpacing: 0.5, maxWidth: 200,
+  },
 });
 
 // --- Paleta de la pista (solo render) --------------------------------------
@@ -1067,12 +1166,13 @@ function initialState(track) {
     sectorColors: [],       // 'purple'|'green'|'yellow'|null por sector completado
     sectorDeltas: [],       // ms vs el fantasma por sector (null si no había fantasma)
     ghostDeltaMs: null,     // delta en vivo contra el fantasma (null si no hay fantasma)
+    sectorJustClosed: null, // buzón {index,color,ms} que consume el bucle de frame
   };
 }
 
-function toView(s, flash, ghost) {
+function toView(s, flash, ghost, leader) {
   return {
-    x: s.x, y: s.y, heading: s.heading, camAngle: s.camAngle, elapsed: s.elapsed, phase: s.phase, flash, ghost, fps: s.fps,
+    x: s.x, y: s.y, heading: s.heading, camAngle: s.camAngle, elapsed: s.elapsed, phase: s.phase, flash, ghost, leader, fps: s.fps,
     sector: s.sector, sectorColors: s.sectorColors, ghostDeltaMs: s.ghostDeltaMs, impacts: s.impacts,
   };
 }
@@ -1133,6 +1233,12 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
     s.sectorDeltas.push(ghostSplit != null ? mySplit - ghostSplit : null);
     s.lastSectorElapsed = elapsedNow;
     s.sector++;
+    // Buzón de un solo hueco para que el bucle de frame reaccione (háptico +
+    // celebración del morado). Se pone aquí y NO se dispara nada desde dentro
+    // de la física: stepSimulation corre hasta 10 veces por frame a paso fijo,
+    // así que llamar a Haptics desde aquí podría vibrar varias veces por el
+    // mismo sector. El frame lo consume y lo limpia.
+    s.sectorJustClosed = { index: s.sector - 1, color, ms: mySplit };
   }
 
   // Si hay que cerrar varios sectores de golpe (p. ej. la meta llega antes de
@@ -1269,6 +1375,22 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0d0f13' },
   playArea: { position: 'absolute', left: 0, backgroundColor: '#0d0f13' },
+  // Celebración del sector morado. Arriba del todo del área de juego (justo
+  // bajo el HUD, cerca de la barra de sectores que acaba de cambiar de color)
+  // y no en el centro: el coche va a 250 u/s y taparle la pista sería
+  // castigar al jugador justo por hacerlo bien.
+  moradoWrap: { position: 'absolute', top: 12, left: 0, right: 0, alignItems: 'center' },
+  moradoPill: {
+    backgroundColor: 'rgba(13,15,19,0.88)', borderWidth: 1.5, borderColor: SECTOR_COLORS.purple,
+    borderRadius: 12, paddingHorizontal: 16, paddingVertical: 9, alignItems: 'center',
+  },
+  moradoTitle: {
+    color: SECTOR_COLORS.purple, fontSize: 15, fontFamily: RD_FONT.monoBold, letterSpacing: 1,
+  },
+  moradoSub: {
+    color: 'rgba(255,255,255,0.6)', fontSize: 10, fontFamily: RD_FONT.mono,
+    letterSpacing: 1.2, marginTop: 3,
+  },
   // Botones de volante: paleta ~120x150, holgados para el pulgar sin mirar.
   // Sin transición: un control de dirección tiene que sentirse instantáneo,
   // no animado — sería latencia percibida encima de la que ya sufrimos.

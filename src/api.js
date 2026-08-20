@@ -221,6 +221,62 @@ export async function saveLoadout(loadout) {
   if (error) throw error;
 }
 
+// ---- Vuelta del líder (coche real en carrera) -------------------------------
+// Sube la traza de tu vuelta, para que quien vaya por detrás pueda correr
+// contra TU coche si eres el líder. Solo se llama cuando has mejorado tu marca
+// (mismo disparador que notifyOvertakes), y el servidor vuelve a comprobar que
+// mejora antes de sobrescribir. Fire-and-forget: si falla no pasa nada, el
+// tiempo ya está guardado por submitTime — esto es solo el adorno.
+export async function submitDailyRun(ms, trace, day = todayKey()) {
+  await ensureSession();
+  const { error } = await supabase.rpc('submit_daily_run', {
+    p_day: day,
+    p_ms: Math.round(ms),
+    p_trace: trace,
+  });
+  if (error) throw error;
+}
+
+// Vuelta del líder de hoy: { userId, nickname, ms, trace, loadout } o null.
+// Devuelve null también si el líder eres TÚ (no hay coche ajeno que enseñar,
+// y tu propio fantasma local ya está en pista).
+export async function getLeaderRun(day = todayKey()) {
+  const user = await ensureSession();
+  const { data: run } = await supabase
+    .from('daily_runs')
+    .select('user_id, ms, trace')
+    .eq('day', day)
+    .order('ms', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!run || run.user_id === user.id) return null;
+
+  const { data: who } = await supabase
+    .from('users')
+    .select('nickname, car_chassis, car_frame, car_body_color, car_wing_shape, car_wing_color, car_livery, car_livery_pattern, car_lights_color')
+    .eq('id', run.user_id)
+    .maybeSingle();
+
+  return {
+    userId: run.user_id,
+    nickname: who?.nickname || 'Líder',
+    ms: run.ms,
+    trace: run.trace,
+    loadout: who
+      ? {
+          chassis: who.car_chassis || CAR_DEFAULTS.chassis,
+          frame: who.car_frame || CAR_DEFAULTS.frame,
+          bodyColor: who.car_body_color || CAR_DEFAULTS.bodyColor,
+          wingShape: who.car_wing_shape || CAR_DEFAULTS.wingShape,
+          wingColor: who.car_wing_color || CAR_DEFAULTS.wingColor,
+          livery: who.car_livery,
+          liveryPattern: who.car_livery_pattern || CAR_DEFAULTS.liveryPattern,
+          lightsColor: who.car_lights_color || CAR_DEFAULTS.lightsColor,
+        }
+      : { ...CAR_DEFAULTS },
+  };
+}
+
 // ---- Economía (monedas / sobres) --------------------------------------------
 // Saldo + sobres pendientes. Fallback a 0 si el usuario aún no tiene fila en
 // wallet (se crea sola en el primer grant_daily_reward/open_pack).
