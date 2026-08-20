@@ -982,7 +982,7 @@ function DiarioTab({
             ) : homeStanding.above ? (
               <>
                 Vas <Text style={rd.rivalryStrong}>{homeStanding.rank}.º</Text> · a{' '}
-                <Text style={rd.rivalryStrong}>{(homeStanding.above.gapMs / 1000).toFixed(1)}s</Text> de {homeStanding.above.nickname}
+                <Text style={rd.rivalryStrong}>{fmtSecs(homeStanding.above.gapMs)}s</Text> de {homeStanding.above.nickname}
               </>
             ) : (
               <>Vas <Text style={rd.rivalryStrong}>{homeStanding.rank}.º</Text> de {homeStanding.total}</>
