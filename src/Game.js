@@ -241,6 +241,27 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, at
     return () => { alive = false; };
   }, [leaderRun]);
 
+  // Tanda de N vibraciones seguidas. El NÚMERO es el mensaje: uno para
+  // amarillo, dos para verde, tres para morado. Un solo golpe más fuerte no
+  // se distingue de otro más flojo con el móvil en las manos y el coche en
+  // movimiento; contar golpes sí, y encadenarlos pone nervioso, que es justo
+  // lo que se busca al cerrar sector.
+  //
+  // 70ms es el hueco: por debajo se funden en una sola vibración larga, por
+  // encima dejan de leerse como una tanda.
+  const pulsoTimers = useRef([]);
+  function pulsos(n, estilo) {
+    for (let i = 0; i < n; i++) {
+      if (i === 0) { Haptics.impactAsync(estilo).catch(() => {}); continue; }
+      pulsoTimers.current.push(setTimeout(() => Haptics.impactAsync(estilo).catch(() => {}), i * 70));
+    }
+  }
+  // Que una tanda a medias no siga sonando con el juego ya cerrado.
+  useEffect(() => () => {
+    pulsoTimers.current.forEach(clearTimeout);
+    pulsoTimers.current = [];
+  }, []);
+
   function celebrarMorado(index) {
     setMoradoIdx(index);
     moradoAnim.setValue(0);
@@ -573,17 +594,25 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, at
         // del mundo hoy en ese sector) es el mejor instante del juego y hasta
         // ahora solo cambiaba el color de una barra de 5px — pasaba
         // desapercibido justo cuando más mérito tiene.
-        if (s.sectorJustClosed) {
-          const ev = s.sectorJustClosed;
-          s.sectorJustClosed = null;
-          if (ev.color === 'purple') {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-            celebrarMorado(ev.index);
-          } else if (ev.color === 'green') {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        if (s.sectorEvents.length > 0) {
+          // Si en el mismo paso se cerraron varios sectores, manda el mejor:
+          // vibrar tres veces seguidas no se distingue de vibrar una, y la
+          // celebración en pantalla es una sola. El morado gana al verde.
+          const evs = s.sectorEvents;
+          s.sectorEvents = [];
+          const morado = evs.find((e) => e.color === 'purple');
+          if (morado) {
+            pulsos(3, Haptics.ImpactFeedbackStyle.Heavy);
+            celebrarMorado(morado.index);
+          } else if (evs.some((e) => e.color === 'green')) {
+            pulsos(2, Haptics.ImpactFeedbackStyle.Medium);
+          } else {
+            // El amarillo TAMBIÉN vibra ahora, con un solo golpe suave. Antes
+            // se callaba, con la idea de reservar el tacto para las buenas
+            // noticias; en pista resulta que enterarte de que has cerrado
+            // sector —fuera bien o mal— es lo que mantiene la tensión.
+            pulsos(1, Haptics.ImpactFeedbackStyle.Light);
           }
-          // Amarillo (no mejoras) no vibra: reservamos la respuesta táctil para
-          // lo que es una buena noticia, si no deja de significar nada.
         }
 
         // Grabar la traza de la vuelta (para el fantasma), con throttle.
@@ -1236,7 +1265,7 @@ function initialState(track) {
     sectorColors: [],       // 'purple'|'green'|'yellow'|null por sector completado
     sectorDeltas: [],       // ms vs el fantasma por sector (null si no había fantasma)
     ghostDeltaMs: null,     // delta en vivo contra el fantasma (null si no hay fantasma)
-    sectorJustClosed: null, // buzón {index,color,ms} que consume el bucle de frame
+    sectorEvents: [],       // cola de {index,color,ms} que vacía el bucle de frame
   };
 }
 
@@ -1303,12 +1332,17 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
     s.sectorDeltas.push(ghostSplit != null ? mySplit - ghostSplit : null);
     s.lastSectorElapsed = elapsedNow;
     s.sector++;
-    // Buzón de un solo hueco para que el bucle de frame reaccione (háptico +
-    // celebración del morado). Se pone aquí y NO se dispara nada desde dentro
-    // de la física: stepSimulation corre hasta 10 veces por frame a paso fijo,
-    // así que llamar a Haptics desde aquí podría vibrar varias veces por el
-    // mismo sector. El frame lo consume y lo limpia.
-    s.sectorJustClosed = { index: s.sector - 1, color, ms: mySplit };
+    // COLA (no un buzón de un hueco) para que el bucle de frame reaccione
+    // (háptico + celebración del morado). Se encola aquí y NO se dispara nada
+    // desde dentro de la física: stepSimulation corre hasta 10 veces por frame
+    // a paso fijo, así que llamar a Haptics desde aquí podría vibrar varias
+    // veces por el mismo sector. El frame la vacía.
+    //
+    // Tiene que ser una cola porque closeSectorsUpTo puede cerrar dos o tres
+    // sectores dentro del mismo paso: con un solo hueco, los primeros se
+    // pisaban antes de que nadie los leyera y se perdía su celebración —
+    // justo la del morado, que es la que más importa.
+    s.sectorEvents.push({ index: s.sector - 1, color, ms: mySplit });
   }
 
   // Si hay que cerrar varios sectores de golpe (p. ej. la meta llega antes de

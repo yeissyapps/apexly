@@ -42,13 +42,28 @@ Deno.serve(async (_req) => {
       .eq('reason', 'ranking');
     if (already && already > 0) return json({ skipped: true, day: yesterday });
 
-    const { data: attempts, error } = await admin
-      .from('attempts')
-      .select('user_id, best_ms')
-      .eq('day', yesterday)
-      .order('best_ms', { ascending: true });
-    if (error) return json({ error: error.message }, 500);
-    if (!attempts || attempts.length === 0) return json({ day: yesterday, rewarded: 0 });
+    // Paginado a proposito: PostgREST corta la respuesta en el tope de filas
+    // del proyecto (1000 por defecto en Supabase). Sin esto, en cuanto se
+    // pasen las 1000 partidas en un dia los tercios se calcularian sobre una
+    // lista TRUNCADA y la gente cobraria lo que no le toca, sin ningun error
+    // visible. El desempate por user_id es imprescindible: ordenar solo por
+    // best_ms deja las paginas inestables cuando hay tiempos repetidos, y se
+    // colarian filas duplicadas o perdidas entre pagina y pagina.
+    let attempts: { user_id: string; best_ms: number }[];
+    try {
+      attempts = await fetchAll((from, to) =>
+        admin
+          .from('attempts')
+          .select('user_id, best_ms', { count: 'exact' })
+          .eq('day', yesterday)
+          .order('best_ms', { ascending: true })
+          .order('user_id', { ascending: true })
+          .range(from, to)
+      );
+    } catch (e) {
+      return json({ error: String(e) }, 500);
+    }
+    if (attempts.length === 0) return json({ day: yesterday, rewarded: 0 });
 
     const n = attempts.length;
     const topCount = Math.max(1, Math.round(n / 3));
@@ -77,4 +92,27 @@ Deno.serve(async (_req) => {
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+// Trae TODAS las filas de una consulta, pagina a pagina.
+//
+// Avanza por lo realmente recibido y no por el tamano de pagina pedido, y usa
+// el `count` exacto como condicion de parada. Asi funciona igual sea cual sea
+// el tope de filas configurado en el proyecto: si el servidor devuelve menos
+// de lo pedido porque lo ha recortado, el bucle sigue desde donde toca en vez
+// de creerse que ya no hay mas.
+async function fetchAll<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null; count: number | null }>): Promise<T[]> {
+  const PAGE = 1000;
+  const out: T[] = [];
+  let total = Infinity;
+  let from = 0;
+  while (out.length < total) {
+    const { data, error, count } = await page(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (count != null) total = count;
+    if (!data || data.length === 0) break;
+    out.push(...data);
+    from += data.length;
+  }
+  return out;
 }

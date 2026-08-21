@@ -35,6 +35,13 @@ export async function getMinBuild(platform) {
   return data.min_build;
 }
 
+// Id del usuario actual. Hace falta para saber cuál de las filas de un
+// ranking eres tú cuando la consulta no lo marca (grupos, Grand Prix).
+export async function getMyId() {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user?.id ?? null;
+}
+
 export async function getLocalNickname() {
   return AsyncStorage.getItem(NICK_KEY);
 }
@@ -83,28 +90,23 @@ export async function ensureDailyTrack(label) {
 }
 
 // Envía un tiempo (ms). Solo guarda si mejora el mejor del día.
-// Devuelve { isBest, bestMs } (bestMs = mejor del día tras el envío).
+// Devuelve { isBest, bestMs, prevMs } (prevMs = tu mejor ANTES de esta vuelta,
+// null si era la primera del día).
+//
+// Va por RPC y no por upsert directo desde que se cerró A-01: la comprobación
+// de "solo si mejora" estaba aquí, en el cliente, o sea en ningún sitio. Con
+// la clave anon —que es pública y viaja dentro del APK— se podía escribir un
+// best_ms arbitrario. Ver supabase/submit_time.sql.
 export async function submitTime(ms) {
-  const user = await ensureSession();
-  const day = todayKey();
-  const { data: existing } = await supabase
-    .from('attempts')
-    .select('best_ms')
-    .eq('user_id', user.id)
-    .eq('day', day)
-    .maybeSingle();
-
-  if (existing && existing.best_ms <= ms) {
-    return { isBest: false, bestMs: existing.best_ms, prevMs: existing.best_ms };
-  }
-  const { error } = await supabase
-    .from('attempts')
-    .upsert(
-      { user_id: user.id, day, best_ms: ms, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id,day' }
-    );
+  await ensureSession();
+  const { data, error } = await supabase.rpc('submit_time', {
+    p_day: todayKey(),
+    p_ms: Math.round(ms),
+  });
   if (error) throw error;
-  return { isBest: true, bestMs: ms, prevMs: existing?.best_ms ?? null };
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error('SUBMIT_TIME_EMPTY');
+  return { isBest: row.is_best, bestMs: row.best_ms, prevMs: row.prev_ms };
 }
 
 // Mejor tiempo de cada sector HOY, entre todos los jugadores (para el morado
@@ -126,10 +128,13 @@ export async function submitSectorSplits(sectorMs, day = todayKey()) {
   await ensureSession();
   await Promise.all(sectorMs.map((ms, i) =>
     supabase.rpc('submit_sector_best', { p_day: day, p_sector: i, p_ms: Math.round(ms) })
+      // Los sectores son accesorios: si uno falla, la vuelta ya está guardada
+      // y no hay nada que hacer al respecto. El log se queda solo en modo
+      // diagnóstico, que es cuando sirve para algo.
       .then(({ error }) => {
-        if (error) console.log('[sector_submit_err]', i, error.code, error.message);
+        if (error && CONFIG.DIAG) console.log('[sector_submit_err]', i, error.code, error.message);
       })
-      .catch((e) => console.log('[sector_submit_throw]', i, e?.message || String(e)))
+      .catch((e) => { if (CONFIG.DIAG) console.log('[sector_submit_throw]', i, e?.message || String(e)); })
   ));
 }
 

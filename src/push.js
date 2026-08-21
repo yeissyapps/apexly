@@ -41,10 +41,15 @@ export async function registerPushToken() {
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: EAS_PROJECT_ID });
     if (!token) return null;
 
-    const user = await ensureSession();
-    await supabase
-      .from('push_tokens')
-      .upsert({ user_id: user.id, token, updated_at: new Date().toISOString() });
+    await ensureSession();
+    // Por RPC y no por upsert directo: además de guardar el token, suelta las
+    // identidades anteriores que colgaban de este mismo móvil. El upsert de
+    // antes solo tocaba tu fila, así que cada reinstalación dejaba una
+    // identidad huérfana apuntando al mismo token — hasta once llegaron a
+    // acumularse en un solo dispositivo, y eso hacía que el recordatorio de
+    // las 20:00 llegara aunque hubieras jugado.
+    // Ver supabase/register_push_token.sql.
+    await supabase.rpc('register_push_token', { p_token: token });
     return token;
   } catch (e) {
     return null; // sin push no pasa nada crítico
