@@ -40,7 +40,7 @@ import Tienda from './src/Tienda';
 import Profile from './src/Profile';
 import CareerMode from './src/CareerMode';
 import { levelSpec, gapMsFor, weatherForLevel, CAREER_AD_BATCH } from './src/career';
-import { GroupHome, GrandPrixStandings } from './src/GrandPrix';
+import { GroupHome, GrandPrixStandings, RoundStart } from './src/GrandPrix';
 import { gpCircuitSpec, gpWeather, GP_AD_BATCH } from './src/gpData';
 import ShineBadge from './src/ShineBadge';
 import Tour, { tourRef, isTourDone } from './src/Tour';
@@ -53,7 +53,7 @@ import {
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
   getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
   getMyLoadout, getWallet, claimDailyReward, getRecentRewards, claimShareReward, claimCareerLevel,
-  submitGpResult, notifyGpOvertake, recordLap, submitDailyRun, getLeaderRun,
+  submitGpResult, notifyGpOvertake, recordLap, submitDailyRun, getLeaderRun, getMyGpRoundSectors,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -75,6 +75,16 @@ const PAD = 50; // hueco superior (barra de estado oculta)
 const UNLIMITED_FALLBACK_PRICE = '2,99 €'; // si la tienda no responde con el precio localizado
 const RECAP_SEEN_KEY = 'apexly_recap_seen_day'; // último día (todayKey) en que ya se mostró el pop-up de premios
 const RANK_SEEN_KEY = 'apexly_last_rank';       // { day, rank } del último resultado visto, para "has adelantado a N"
+
+// Modo elegido para una ronda del GP: 'practica' (2 de calentamiento + la que
+// cuenta) o 'directo' (una sola vuelta, y cuenta). Se guarda por ronda.
+const gpModeKey = (gpId, roundIdx) => `gp_mode_${gpId}_${roundIdx}`;
+
+// Intentos que quedan en una ronda del GP. 'directo' cambia el cupo gratis de
+// 3 a 1: es el precio de saltarse el ensayo, y lo que convierte la elección en
+// una decisión de verdad y no en "la opción obviamente mejor".
+const gpLeftFor = (modo, att) =>
+  (modo === 'directo' ? 1 : FREE_ATTEMPTS) + (att?.bonus || 0) - (att?.used || 0);
 
 // Umbral del "casi": por debajo de esto, no batir tu récord deja de ser un
 // fracaso y pasa a ser un incentivo para tirar otra vuelta. 300ms es poco más
@@ -154,7 +164,8 @@ export default function App() {
   const left = calcLeft(att);
   const total = FREE_ATTEMPTS + (att?.bonus || 0);
   const careerLeft = calcLeft(careerAtt);
-  const gpLeft = calcLeft(gpAtt);
+  const [gpMode, setGpMode] = useState(null);   // 'practica' | 'directo' de la ronda en curso
+  const gpLeft = gpLeftFor(gpMode, gpAtt);
   const daily = useMemo(() => dailyCircuit(todayKey()), []);
   // Igual que `daily`: memoizado por nivel, NO recalculado en cada render.
   // Sin esto, `levelSpec()` devolvía un objeto `track` nuevo en cada
@@ -233,6 +244,20 @@ export default function App() {
       setBuying(false);
     }
   }
+
+  // Referencia por sector dentro de la ronda: tus splits del mejor intento que
+  // ya tengas hoy. Es lo que da color a los sectores en el GP, donde no hay ni
+  // mejor mundial ni fantasma. Se recarga con `gpResult` para que, en cuanto
+  // mejores, el siguiente intento se mida contra la marca nueva.
+  const [gpRefSectors, setGpRefSectors] = useState(null);
+  useEffect(() => {
+    if (gpActive == null || gpRoundIndex == null) { setGpRefSectors(null); return; }
+    let alive = true;
+    getMyGpRoundSectors(gpActive.id, gpRoundIndex)
+      .then((s) => { if (alive) setGpRefSectors(s); })
+      .catch(() => { if (alive) setGpRefSectors(null); });
+    return () => { alive = false; };
+  }, [gpActive?.id, gpRoundIndex, gpResult]);
 
   // Consume un intento al empezar una vuelta (con ilimitado, no hace falta llevar la cuenta).
   function startAttempt() {
@@ -382,8 +407,25 @@ export default function App() {
     setGpRoundIndex(dayIndex);
     const a = await loadAttempts('gp-' + gp.id + '-' + dayIndex);
     setGpAtt(a);
-    if (unlimited || calcLeft(a) > 0) setScreen('gp-playing');
+
+    // La primera vez que entras a una ronda se elige si calentar o jugártela a
+    // una vuelta. Se pregunta por RONDA y no una sola vez: cada una es un
+    // circuito distinto, así que la decisión tampoco es la misma cada día.
+    const modo = await AsyncStorage.getItem(gpModeKey(gp.id, dayIndex)).catch(() => null);
+    if (!modo) {
+      setGpMode(null);
+      setScreen('gp-mode');
+      return;
+    }
+    setGpMode(modo);
+    if (unlimited || gpLeftFor(modo, a) > 0) setScreen('gp-playing');
     else { setNomoreReturn('gp-playing'); setScreen('nomore'); }
+  }
+
+  async function chooseGpMode(modo) {
+    await AsyncStorage.setItem(gpModeKey(gpActive.id, gpRoundIndex), modo).catch(() => {});
+    setGpMode(modo);
+    setScreen('gp-playing');
   }
 
   // Las 2 primeras vueltas de cada ronda son práctica (no se mandan al
@@ -393,7 +435,10 @@ export default function App() {
   async function handleGpFinish(ms, trace, sectorSplits, impacts) {
     const gp = gpActive;
     const dayIndex = gpRoundIndex;
-    const isPractice = gpAtt.used < 3;
+    // En 'directo' no hay calentamiento: la primera vuelta ya clasifica. En
+    // 'practica', las dos primeras no se mandan y desde la 3.ª cuenta (`used`
+    // ya incluye el intento que se acaba de gastar en startGpAttempt).
+    const isPractice = gpMode !== 'directo' && gpAtt.used < 3;
     // También las vueltas de práctica: has estado en pista y te has chocado
     // igual, aunque esa vuelta no clasifique.
     recordLap(ms, impacts);
@@ -748,6 +793,17 @@ export default function App() {
     );
   }
 
+  if (screen === 'gp-mode') {
+    return (
+      <RoundStart
+        gp={gpActive}
+        roundIdx={gpRoundIndex}
+        onChoose={chooseGpMode}
+        onBack={() => setScreen('group-home')}
+      />
+    );
+  }
+
   if (screen === 'gp-playing') {
     return (
       <Game
@@ -755,6 +811,7 @@ export default function App() {
         ghost={null}
         weather={gpWeatherVal}
         sectorBests={null}
+        refSectors={gpRefSectors}
         loadout={loadout}
         attemptsLeft={unlimited ? Infinity : gpLeft}
         onAttemptStart={startGpAttempt}

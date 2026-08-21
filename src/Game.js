@@ -164,7 +164,7 @@ const LIDER_VISTO_KEY = 'apexly_lider_explicado'; // ya se explicó qué es el c
 
 const SCREEN = Dimensions.get('window');
 
-export default function Game({ track, ghost, leaderRun, weather, sectorBests, attemptsLeft = Infinity, loadout, onAttemptStart, onNeedMore, onFinish, onExit }) {
+export default function Game({ track, ghost, leaderRun, weather, sectorBests, refSectors, attemptsLeft = Infinity, loadout, onAttemptStart, onNeedMore, onFinish, onExit }) {
   const insets = useSafeAreaInsets();
   const HUD_H = insets.top + HUD_CONTENT_H;
   const playW = SCREEN.width;
@@ -203,6 +203,12 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, at
   weatherRef.current = wx;
   const sectorBestsRef = useRef(sectorBests);
   sectorBestsRef.current = sectorBests;
+  // Referencia por sector cuando NO hay fantasma. En el Grand Prix son tus
+  // propios splits de tu mejor vuelta de esa ronda: en una ronda tiras varios
+  // intentos y solo cuenta el mejor, asi que "¿voy mejor que mi mejor intento
+  // de hoy?" es justo la pregunta que te haces conduciendo.
+  const refSectorsRef = useRef(refSectors);
+  refSectorsRef.current = refSectors;
   const traceRef = useRef([]); // grabación de la vuelta actual
   const lastSampleRef = useRef(-999);
   const ghostIdxRef = useRef(0);
@@ -579,7 +585,7 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, at
               ? pulsoDir.current
               : 0;
         while (s.acc >= FIXED_DT && guard < 10) {
-          stepSimulation(s, FIXED_DT, t, track, entradaEfectiva, weatherRef.current, ghostProgressRef.current, sectorBestsRef.current);
+          stepSimulation(s, FIXED_DT, t, track, entradaEfectiva, weatherRef.current, ghostProgressRef.current, sectorBestsRef.current, refSectorsRef.current);
           s.acc -= FIXED_DT;
           guard++;
           if (s.phase !== 'running') break;
@@ -607,10 +613,12 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, at
           } else if (evs.some((e) => e.color === 'green')) {
             pulsos(2, Haptics.ImpactFeedbackStyle.Medium);
           } else {
-            // El amarillo TAMBIÉN vibra ahora, con un solo golpe suave. Antes
-            // se callaba, con la idea de reservar el tacto para las buenas
-            // noticias; en pista resulta que enterarte de que has cerrado
-            // sector —fuera bien o mal— es lo que mantiene la tensión.
+            // Amarillo, y también el sector SIN color (Grand Prix y Carrera,
+            // donde no hay ni mejor mundial ni fantasma contra los que
+            // medirse): un solo golpe suave. Antes el amarillo se callaba,
+            // con la idea de reservar el tacto para las buenas noticias; en
+            // pista resulta que enterarte de que has cerrado sector —fuera
+            // bien o mal— es lo que mantiene la tensión.
             pulsos(1, Haptics.ImpactFeedbackStyle.Light);
           }
         }
@@ -1298,7 +1306,7 @@ function ghostPoseAt(trace, e, idxRef) {
 // --- Un paso de simulación (feel del coche; no tocar) ----------------------
 //  El clima entra SOLO como modificadores (steerMul/speedMul/viento) encima de
 //  las constantes; con NEUTRAL el comportamiento es idéntico al de siempre.
-function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sectorBests) {
+function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sectorBests, refSectors) {
   const C = CONFIG;
   const W = weather || NEUTRAL;
 
@@ -1316,20 +1324,40 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
     const ghostSplit = ghostProgress
       ? ghostTimeAtIdx(ghostProgress, boundaryIdx) - ghostTimeAtIdx(ghostProgress, startIdx)
       : null;
-    const worldBest = sectorBests ? sectorBests[s.sector] : null;
+    // `sectorBests` distingue DOS cosas que antes se confundían, y de ahí
+    // salía que en Grand Prix y Modo Carrera se pintara morado todo, siempre:
+    //
+    //   - un OBJETO (aunque esté vacío) = este modo sí tiene mejores del
+    //     mundo. Que falte el sector significa "nadie lo ha marcado hoy", así
+    //     que lo que mandes ES el mejor del momento -> morado. Es el Diario.
+    //   - null = este modo NO tiene mejores del mundo. Es el caso del GP y de
+    //     Carrera, donde cada circuito es de un grupo o de un nivel y no hay
+    //     una tabla mundial contra la que medirse.
+    //
+    // Antes solo se miraba `worldBest == null`, así que la AUSENCIA de tabla
+    // se leía igual que "eres el primero del día" y todo salía morado en cada
+    // vuelta, aunque fueras más lento en todos los sectores.
+    const hayMundial = sectorBests != null;
+    const worldBest = hayMundial ? sectorBests[s.sector] : null;
+    // Referencia de respaldo cuando no hay fantasma: en el GP, tus propios
+    // splits del mejor intento de esa ronda.
+    const refSplit = refSectors ? refSectors[s.sector] : null;
     let color = null;
-    // Sin nadie (ni tú) registrado hoy en este sector -> lo que envíes ES el
-    // mejor del mundo del momento, sea el tiempo que sea (submit_sector_best
-    // hace INSERT si no existe fila). Sin este caso, la primerísima vez que
-    // se marca un sector en el día caía al verde por descarte, nunca morado.
-    if (worldBest == null || mySplit <= worldBest) color = 'purple';
+    if (hayMundial && (worldBest == null || mySplit <= worldBest)) color = 'purple';
     else if (ghostSplit != null) color = mySplit < ghostSplit ? 'green' : 'yellow';
+    else if (refSplit != null) color = mySplit < refSplit ? 'green' : 'yellow';
     // Hay mejor mundial pero no lo bates, y no hay fantasma propio que batir:
     // no hay nada "peor" contra lo que perder -> cuenta como mejora.
-    else color = 'green';
+    else if (hayMundial) color = 'green';
+    // Sin mundial, sin fantasma y sin referencia (primera vuelta de una ronda
+    // de GP, Carrera): no hay nada contra lo que comparar, así que el sector
+    // se queda sin color en vez de inventarse un veredicto.
     s.sectorSplits.push(mySplit);
     s.sectorColors.push(color);
-    s.sectorDeltas.push(ghostSplit != null ? mySplit - ghostSplit : null);
+    // La diferencia sigue la misma jerarquía que el color: fantasma primero,
+    // y si no hay, la referencia de la ronda.
+    const contra = ghostSplit != null ? ghostSplit : refSplit;
+    s.sectorDeltas.push(contra != null ? mySplit - contra : null);
     s.lastSectorElapsed = elapsedNow;
     s.sector++;
     // COLA (no un buzón de un hueco) para que el bucle de frame reaccione

@@ -604,6 +604,26 @@ export async function submitGpResult(gpId, dayIndex, ms, sectorMs) {
   return { isBest: !!row?.is_best, prevMs: row?.prev_ms ?? null };
 }
 
+// Tus splits de sector del MEJOR intento que ya tienes en esta ronda del GP.
+// Sirven de referencia en pista: sin mejor mundial (cada circuito es de un
+// grupo) ni fantasma cargado, es lo unico contra lo que tiene sentido medirse
+// dentro de una ronda donde solo cuenta tu mejor vuelta.
+//
+// null si aun no has clasificado en esa ronda, o si la vuelta que clasifico
+// se guardo antes de que existiera la columna sector_ms.
+export async function getMyGpRoundSectors(gpId, dayIndex) {
+  const user = await ensureSession();
+  const { data, error } = await supabase
+    .from('gp_results')
+    .select('sector_ms')
+    .eq('gp_id', gpId)
+    .eq('day_index', dayIndex)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.sector_ms ?? null;
+}
+
 // Avisa (push) a tu grupo que les has adelantado EN EL GP. Fire-and-forget,
 // mismo contrato que notifyOvertakes.
 export async function notifyGpOvertake(gpId, dayIndex, newMs, prevMs) {
