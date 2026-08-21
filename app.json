@@ -10,7 +10,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.yeissyapps.circuitodiario",
-      "buildNumber": "19",
+      "buildNumber": "65",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -42,7 +42,6 @@
       "expo-sharing",
       "./plugins/withAndroidSigning.js",
       "expo-status-bar",
-      "expo-iap",
       "@react-native-firebase/app",
       "@react-native-firebase/analytics",
       [
