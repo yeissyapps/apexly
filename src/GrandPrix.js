@@ -418,6 +418,62 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
 }
 
 // ---------------------------------------------------------------------------
+//  Antesala de una ronda: calentar o jugártela a una vuelta.
+//
+//  Sale UNA vez por ronda, la primera que entras. Cada una de las 7 rondas es
+//  un circuito distinto, así que la decisión no es la misma cada día: hay
+//  trazados que pides calentar y otros que te ves capaz de bordar a la
+//  primera.
+//
+//  No es una eleccion "cual es mejor" — a una vuelta tienes menos intentos y
+//  ninguna red. Es "cuanto quieres arriesgar hoy", y por eso se enseña el
+//  circuito antes de decidir.
+// ---------------------------------------------------------------------------
+export function RoundStart({ gp, roundIdx, onChoose, onBack }) {
+  const spec = gpCircuitSpec(gp.id, roundIdx, gp.circuit_count);
+
+  return (
+    <View style={s.screen}>
+      <StatusBar hidden />
+      <ScrollView contentContainerStyle={s.content}>
+        <Pressable onPress={onBack} hitSlop={12}>
+          <Text style={s.backLink}>‹ VOLVER</Text>
+        </Pressable>
+
+        <SeasonRail total={gp.circuit_count} current={roundIdx} />
+        <Text style={s.pageTitle}>{roundLabel(roundIdx, spec)}</Text>
+
+        {spec?.track && (
+          <View style={[s.panel, { paddingVertical: 10 }]}>
+            <View style={s.trackBox}>
+              <MiniTrackMap track={spec.track} w={TRACK_W} h={110} />
+            </View>
+          </View>
+        )}
+
+        <Text style={s.hint}>Solo se pregunta la primera vez que entras a esta ronda.</Text>
+
+        <Pressable style={s.choiceCard} onPress={() => onChoose('practica')}>
+          <Text style={s.choiceTitle}>Calentar primero</Text>
+          <Text style={s.choiceBody}>
+            Dos vueltas de prueba que no cuentan y luego la que clasifica. Tres intentos en total.
+          </Text>
+          <Text style={s.choiceMeta}>3 VUELTAS · LA 3.ª CUENTA</Text>
+        </Pressable>
+
+        <Pressable style={[s.choiceCard, s.choiceCardRisk]} onPress={() => onChoose('directo')}>
+          <Text style={s.choiceTitle}>A la primera</Text>
+          <Text style={s.choiceBody}>
+            Sales y lo que marques es tu tiempo de la ronda. Sin ensayo y sin segunda oportunidad.
+          </Text>
+          <Text style={[s.choiceMeta, { color: RD.danger }]}>1 VUELTA · CUENTA</Text>
+        </Pressable>
+      </ScrollView>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 //  Clasificación de la temporada.
 //
 //  Aquí manda el PUNTO, no el tiempo — es la diferencia de fondo con el
@@ -538,6 +594,18 @@ const s = StyleSheet.create({
   cta: { backgroundColor: GP_ACCENT, borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
   ctaDisabled: { opacity: 0.4 },
   ctaText: { color: RD.bg, fontSize: 14, fontFamily: RD_FONT.monoBold, textTransform: 'uppercase', letterSpacing: 0.5 },
+
+  // Las dos opciones pesan lo mismo en pantalla: no hay una "recomendada".
+  // Lo único que las separa es el filete rojo de la arriesgada, que es un
+  // aviso, no una jerarquía.
+  choiceCard: {
+    borderWidth: 1, borderColor: GP_ACCENT, borderRadius: 2,
+    backgroundColor: '#12161b', padding: 16, gap: 7,
+  },
+  choiceCardRisk: { borderColor: RD.danger },
+  choiceTitle: { color: RD.textPrimary, fontSize: 21, fontFamily: RD_FONT.displayBold },
+  choiceBody: { color: RD.textSecondary, fontSize: 13, fontFamily: RD_FONT.mono, lineHeight: 19 },
+  choiceMeta: { color: GP_ACCENT, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 1.2 },
 
   membersWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   memberChip: {
