@@ -1,32 +1,62 @@
 // ============================================================================
-//  Grand Prix — GroupHome (pantalla propia de un grupo: miembros+arrancar si
-//  no hay GP, o la info del GP directamente si ya lo hay) y la clasificación
-//  general. Jugar una ronda es responsabilidad de App.js (pantalla completa,
-//  como el circuito diario y Modo Carrera) — esto solo pinta el "antes" y el
-//  "después".
+//  Grand Prix — GroupHome (pantalla propia de un grupo) y la clasificación de
+//  la temporada. Jugar una ronda es responsabilidad de App.js (pantalla
+//  completa, como el circuito diario y Modo Carrera) — esto pinta el "antes"
+//  y el "después".
 //
-//  Pasada visual "épica": reveal del líder con ShineBadge en la
-//  clasificación, batalla de sectores (tú vs el líder de la ronda) en el
-//  resultado, y resultados de la ronda con gap al líder. La cabecera se
-//  quedó con DangerStripe de siempre (la bandera a cuadros no convenció).
-//  Tarjeta de podio para compartir: pendiente, no la pide nada más de la
-//  app, mejor esperar a ver si hace falta antes de construirla.
+//  POR QUÉ NO SE PARECE AL DIARIO
+//  ------------------------------
+//  Antes sí se parecía, y ese era el problema: misma cabecera de rayas, mismo
+//  rojo, misma lista vertical de filas ordenadas. Parecía el ranking global
+//  en pequeño.
+//
+//  Pero son cosas distintas. El Diario es una CLASIFICACIÓN: una foto de hoy,
+//  ordenada por tiempo, sin memoria y sin final. El Grand Prix es una
+//  TEMPORADA: siete rondas, puntos que se acumulan, y un campeón al acabar.
+//
+//  Todo lo de aquí sale de esa diferencia:
+//   - SeasonRail arriba: por dónde vas del recorrido. El Diario no puede
+//     tener esto porque no va a ningún sitio.
+//   - Azul (RD.trackBlue) en vez del rojo de marca: en esta app el azul ya
+//     significaba "tu grupo".
+//   - En la clasificación manda el PUNTO, no el tiempo, y cada jugador
+//     arrastra su tira de rondas — de dónde vienen sus puntos. Eso es una
+//     temporada contada de un vistazo, y es justo lo que una lista ordenada
+//     por tiempo no dice.
 // ============================================================================
 
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, Pressable, ScrollView, Share, StatusBar, StyleSheet, Text, View } from 'react-native';
 
-import DangerStripe from './DangerStripe';
+import SeasonRail, { GP_ACCENT } from './SeasonRail';
 import ShineBadge from './ShineBadge';
+import MiniTrackMap from './MiniTrackMap';
 import { RD, RD_FONT } from './theme';
+import { CONFIG } from './config';
 import { fmtTime, fmtSecs, fmtGap, fmtCountdown } from './format';
-import { getActiveGrandPrix, startGrandPrix, getGroupMembers, getGpResults, getGpRoundLeader, leaveGroup } from './api';
+import { getActiveGrandPrix, startGrandPrix, getGroupMembers, getGpResults, getGpRoundLeader, leaveGroup, getMyId } from './api';
 import { gpCircuitSpec, roundLabel, currentRoundIndex, nextRoundUnlockAt, gpFinished, computeStandings } from './gpData';
 
-// Comparativa tú-vs-líder de la ronda, sector a sector. Colores propios
-// (verde/rojo simples) — NO reutiliza el morado/verde/amarillo del HUD de
-// carrera, que significa otra cosa (mejor del día / mejoras tu fantasma):
-// aquí es solo "vas por delante o por detrás de esta persona en concreto".
+// Ancho útil del mapa: pantalla menos el padding del ScrollView (18×2) menos
+// el de la tarjeta de ronda (16×2).
+const TRACK_W = Dimensions.get('window').width - 18 * 2 - 16 * 2;
+
+// Diferencia con signo: negativo = vas más rápido. fmtSecs no lleva signo
+// (recorta a 0), así que aquí se compone a mano.
+function signed(ms) {
+  return `${ms <= 0 ? '−' : '+'}${fmtSecs(Math.abs(ms))}s`;
+}
+
+// ---------------------------------------------------------------------------
+//  Comparativa tú-vs-líder de la ronda, sector a sector.
+//
+//  Antes esto enseñaba TUS tiempos de sector coloreados en verde o rojo, y no
+//  había forma de saber qué significaban: veías "13.402" en rojo sin saber
+//  respecto a qué. Ahora se enseña LA DIFERENCIA, que es el dato que
+//  importaba, con su signo, y con una línea que dice cómo se lee. El tiempo
+//  absoluto no aportaba nada aquí: nadie compara 13.402 contra 13.615 de
+//  cabeza, lo que quieres saber es que perdiste dos décimas.
+// ---------------------------------------------------------------------------
 function SectorBattle({ gpId, dayIndex, myMs, mySectors }) {
   const [leader, setLeader] = useState(undefined); // undefined = cargando
 
@@ -40,27 +70,46 @@ function SectorBattle({ gpId, dayIndex, myMs, mySectors }) {
 
   if (!leader || !leader.sectorMs || leader.ms >= myMs) {
     return (
-      <View style={s.sectorBattle}>
-        <Text style={s.labelMono}>SECTORES</Text>
+      <View style={s.panel}>
+        <Text style={s.panelLabel}>SECTORES</Text>
         <Text style={s.body}>Vas líder de esta ronda — todavía no hay con quién comparar.</Text>
       </View>
     );
   }
 
+  const totalDelta = myMs - leader.ms;
+
   return (
-    <View style={s.sectorBattle}>
-      <Text style={s.labelMono}>TUS SECTORES VS {leader.nickname.toUpperCase()}</Text>
-      <View style={s.sectorRow}>
+    <View style={s.panel}>
+      <Text style={s.panelLabel}>DÓNDE PIERDES CONTRA {leader.nickname.toUpperCase()}</Text>
+      <Text style={s.hint}>En verde ganas tiempo, en rojo lo pierdes.</Text>
+
+      <View style={s.deltaList}>
         {mySectors.map((ms, i) => {
           const theirs = leader.sectorMs[i];
-          const color = theirs == null ? RD.textTertiary : ms < theirs ? RD.successGreen : RD.danger;
+          if (theirs == null) {
+            return (
+              <View key={i} style={s.deltaRow}>
+                <Text style={s.deltaSector}>SECTOR {i + 1}</Text>
+                <Text style={s.deltaNone}>sin dato</Text>
+              </View>
+            );
+          }
+          const d = ms - theirs;
           return (
-            <View key={i} style={s.sectorChip}>
-              <Text style={s.sectorChipLabel}>S{i + 1}</Text>
-              <Text style={[s.sectorChipTime, { color }]}>{fmtSecs(ms)}</Text>
+            <View key={i} style={s.deltaRow}>
+              <Text style={s.deltaSector}>SECTOR {i + 1}</Text>
+              <Text style={[s.deltaValue, { color: d <= 0 ? RD.successGreen : RD.danger }]}>{signed(d)}</Text>
             </View>
           );
         })}
+        <View style={s.deltaRule} />
+        <View style={s.deltaRow}>
+          <Text style={[s.deltaSector, s.deltaSectorTotal]}>VUELTA COMPLETA</Text>
+          <Text style={[s.deltaValue, s.deltaValueTotal, { color: totalDelta <= 0 ? RD.successGreen : RD.danger }]}>
+            {signed(totalDelta)}
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -84,10 +133,59 @@ function useCountdownTo(targetTs) {
   return label;
 }
 
-// Pantalla propia de un grupo. Sin GP activo: miembros + Invitar + Iniciar
-// Grand Prix (el grupo "en reposo"). Con GP activo (o terminado): la info
-// del GP directamente — es lo primero que se quiere ver al entrar, no un
-// paso intermedio.
+// La frase que SOLO puede decir un campeonato.
+//
+// El ranking del Diario nunca puede escribir esto: no tiene acumulado ni
+// final, así que lo máximo que sabe decir es en qué puesto vas hoy. Aquí hay
+// un marcador que se arrastra y unas rondas que se acaban, y eso es lo que
+// genera la tensión — "a 12 puntos y quedan dos" es una situación, no un dato.
+//
+// Devuelve null si no hay nada que contar todavía (nadie ha puntuado).
+function fraseCampeonato(standings, myId, roundIdx, total) {
+  if (!standings || standings.length === 0 || !myId) return null;
+  const quedan = total - roundIdx + 1; // incluye la ronda en curso
+  const cola = quedan === 1 ? 'última ronda' : `quedan ${quedan} rondas`;
+
+  const i = standings.findIndex((r) => r.userId === myId);
+  if (i < 0) return null;
+  const yo = standings[i];
+
+  // Nadie ha puntuado aún: no hay campeonato del que hablar.
+  if (standings[0].points === 0) return null;
+
+  if (yo.points === 0) return `Todavía sin puntuar · ${cola}`;
+
+  if (i === 0) {
+    const segundo = standings[1];
+    const ventaja = segundo ? yo.points - segundo.points : 0;
+    if (!segundo || ventaja === 0) return `Vas líder · ${cola}`;
+    return `Vas líder · ${ventaja} pts sobre ${segundo.nickname} · ${cola}`;
+  }
+
+  const lider = standings[0];
+  return `Vas ${i + 1}.º · a ${lider.points - yo.points} pts de ${lider.nickname} · ${cola}`;
+}
+
+// Tira de la temporada de un jugador: un hueco por ronda con los puntos que
+// sacó. Es lo que convierte "tiene 61 puntos" en "de dónde salen esos 61".
+function RoundStrip({ rounds, total }) {
+  const cells = [];
+  for (let i = 1; i <= total; i++) {
+    const r = rounds[i];
+    cells.push(
+      <View key={i} style={[s.stripCell, r && s.stripCellRun, r && r.pos === 1 && s.stripCellWin]}>
+        <Text style={[s.stripText, r && s.stripTextRun, r && r.pos === 1 && s.stripTextWin]}>
+          {r ? r.pts : '·'}
+        </Text>
+      </View>
+    );
+  }
+  return <View style={s.strip}>{cells}</View>;
+}
+
+// ---------------------------------------------------------------------------
+//  Pantalla propia de un grupo.
+// ---------------------------------------------------------------------------
 export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewStandings, onBack, onLeave }) {
   const [gp, setGp] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -121,28 +219,35 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
 
   useEffect(() => { refresh(); }, [refresh, result]);
 
-  // Miembros solo hacen falta cuando NO hay GP activo (es lo que se enseña
-  // en su lugar) — no merece la pena cargarlos si ya se va a ver el GP.
+  // Los miembros se cargan SIEMPRE (antes solo sin GP activo): ahora la lista
+  // vive al pie de la pantalla en las dos situaciones, porque "quién está en
+  // este grupo" es la pregunta que uno se hace también con el GP en marcha.
   useEffect(() => {
-    if (loading || gp) { setMembers(null); return; }
+    if (loading) return;
     let alive = true;
     getGroupMembers(group.id).then((m) => { if (alive) setMembers(m); }).catch(() => { if (alive) setMembers([]); });
     return () => { alive = false; };
-  }, [group.id, loading, gp]);
+  }, [group.id, loading]);
 
-  // Tiempos de la ronda EN CURSO (no solo puntos) — quién ha clasificado hoy
-  // y con qué gap al líder. Se recarga tras cada intento (cambia `result`).
+  // De la MISMA consulta salen dos cosas: los tiempos de la ronda en curso y
+  // la general acumulada (para la frase de campeonato). Antes solo se sacaba
+  // lo primero y se tiraba el resto.
   const [roundResults, setRoundResults] = useState(null);
+  const [standings, setStandings] = useState(null);
+  const [myId, setMyId] = useState(null);
+  useEffect(() => { getMyId().then(setMyId).catch(() => {}); }, []);
+
   useEffect(() => {
-    if (!gp || gpFinished(gp)) { setRoundResults(null); return; }
+    if (!gp || gpFinished(gp)) { setRoundResults(null); setStandings(null); return; }
     const dayIndex = currentRoundIndex(gp);
     let alive = true;
     getGpResults(gp.id).then((rows) => {
       if (!alive) return;
       setRoundResults(rows.filter((r) => r.dayIndex === dayIndex).sort((a, b) => a.ms - b.ms));
-    }).catch(() => { if (alive) setRoundResults([]); });
+      setStandings(computeStandings(rows, members || []));
+    }).catch(() => { if (alive) { setRoundResults([]); setStandings([]); } });
     return () => { alive = false; };
-  }, [gp?.id, result]);
+  }, [gp?.id, result, members]);
 
   async function handleStart() {
     if (starting) return;
@@ -163,23 +268,38 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
   const unlockAt = gp && !finished ? nextRoundUnlockAt(gp) : null;
   const countdown = useCountdownTo(unlockAt);
   const spec = gp && roundIdx != null ? gpCircuitSpec(gp.id, roundIdx, gp.circuit_count) : null;
+  const frase = gp && !finished ? fraseCampeonato(standings, myId, roundIdx, gp.circuit_count) : null;
 
   return (
     <View style={s.screen}>
       <StatusBar hidden />
-      <DangerStripe height={6} />
       <ScrollView contentContainerStyle={s.content}>
+
+        {/* Cabecera: el grupo es el sujeto, el GP es lo que le está pasando. */}
         <Pressable onPress={onBack} hitSlop={12}>
           <Text style={s.backLink}>‹ AMIGOS</Text>
         </Pressable>
-        <Text style={s.pageTitle}>{group.name}</Text>
-        <Text style={s.subtitle}>CÓDIGO {group.join_code}</Text>
+        <View style={s.titleRow}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={s.pageTitle} numberOfLines={1}>{group.name}</Text>
+            <Text style={s.subtitle}>CÓDIGO {group.join_code}</Text>
+          </View>
+          {/* Compartir SIEMPRE visible. Antes solo salía cuando NO había un GP
+              activo, así que en cuanto arrancabas la temporada desaparecía la
+              única forma de meter gente — justo cuando más ganas dan. */}
+          <Pressable style={s.inviteBtn} onPress={() => shareInvite(group)} hitSlop={8}>
+            <Text style={s.inviteBtnText}>COMPARTIR</Text>
+          </Pressable>
+        </View>
+
+        {gp && <SeasonRail total={gp.circuit_count} current={roundIdx} finished={!!finished} />}
 
         {result && (
           <View style={[s.resultBanner, result.error ? s.resultErr : result.isPractice ? s.resultPractice : s.resultOk]}>
             <Text style={s.resultText}>
               {result.error
-                ? 'No se pudo enviar el tiempo. Prueba otra vez.'
+                ? 'No se pudo enviar el tiempo. Prueba otra vez.' +
+                  (CONFIG.DIAG && result.errorMsg ? `\n(${result.errorMsg})` : '')
                 : result.isPractice
                 ? `Práctica — ${fmtTime(result.ms)} (no cuenta, quedan vueltas de práctica o ya clasifica la siguiente)`
                 : `Clasificación ronda ${result.dayIndex} — ${fmtTime(result.ms)}${result.isBest ? ' · ¡mejor tiempo!' : ''}`}
@@ -195,74 +315,99 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
         )}
 
         {loading ? (
-          <ActivityIndicator color={RD.brand} style={{ marginTop: 24 }} />
+          <ActivityIndicator color={GP_ACCENT} style={{ marginTop: 24 }} />
         ) : !gp ? (
-          <>
-            <View style={s.actionsRow}>
-              <Pressable style={[s.secondaryBtn, s.actionBtnFlex]} onPress={() => shareInvite(group)}>
-                <Text style={s.secondaryBtnText}>Invitar</Text>
-              </Pressable>
-              <Pressable style={[s.cta, s.ctaFlex, starting && s.ctaDisabled]} disabled={starting} onPress={handleStart}>
-                <Text style={s.ctaText}>{starting ? 'Arrancando…' : 'Iniciar Grand Prix'}</Text>
-              </Pressable>
-            </View>
-            {!!err && <Text style={s.err}>{err}</Text>}
+          <View style={s.panel}>
+            <Text style={s.panelLabel}>TEMPORADA</Text>
+            <Text style={s.bigStatement}>7 circuitos que solo existen para este grupo.</Text>
             <Text style={s.body}>
-              7 circuitos exclusivos de este grupo, uno nuevo cada 24h desde que arranque. Clasificación
-              estilo F1: 2 vueltas de práctica + la que cuenta.
+              Uno nuevo cada 24 h desde que arranque. Formato clasificación: 2 vueltas de práctica y
+              la siguiente ya cuenta. Puntos como en la F1 — 25 al primero, 18 al segundo — y quien
+              más sume en las 7 rondas gana.
             </Text>
-
-            <Text style={s.labelMono}>MIEMBROS</Text>
-            {members == null ? (
-              <ActivityIndicator color={RD.brand} style={{ marginTop: 8 }} />
-            ) : (
-              <View style={s.membersList}>
-                {members.map((m) => (
-                  <View key={m.userId} style={s.memberRow}>
-                    <Text style={s.memberName}>{m.nickname}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-          </>
+            <Pressable style={[s.cta, starting && s.ctaDisabled]} disabled={starting} onPress={handleStart}>
+              <Text style={s.ctaText}>{starting ? 'Arrancando…' : 'Arrancar temporada'}</Text>
+            </Pressable>
+            {!!err && <Text style={s.err}>{err}</Text>}
+          </View>
         ) : finished ? (
           <View style={s.panel}>
-            <Text style={s.labelMono}>GRAND PRIX TERMINADO</Text>
+            <Text style={s.panelLabel}>TEMPORADA TERMINADA</Text>
+            <Text style={s.bigStatement}>Ya hay campeón.</Text>
             <Pressable style={s.cta} onPress={() => onViewStandings(gp)}>
               <Text style={s.ctaText}>Ver clasificación final</Text>
             </Pressable>
           </View>
         ) : (
-          <View style={s.panel}>
-            <Text style={s.labelMono}>{roundLabel(roundIdx, spec)}</Text>
-            <Text style={s.body}>Ronda {roundIdx} de {gp.circuit_count}</Text>
-            {!!countdown && <Text style={s.countdown}>Siguiente ronda en {countdown}</Text>}
-            <Pressable style={s.cta} onPress={() => onPlayRound(gp, roundIdx)}>
-              <Text style={s.ctaText}>Jugar</Text>
-            </Pressable>
-            <Pressable style={s.secondaryBtn} onPress={() => onViewStandings(gp)}>
-              <Text style={s.secondaryBtnText}>Ver clasificación</Text>
-            </Pressable>
+          <>
+            {/* La ronda de hoy es lo único accionable de la pantalla, así que
+                es lo único que va sobre fondo elevado y con el CTA lleno. */}
+            <View style={s.roundCard}>
+              <Text style={s.roundKicker}>{roundLabel(roundIdx, spec)}</Text>
+              {/* El circuito, dibujado. El argumento del modo es "7 circuitos
+                  que solo existen para este grupo" y la pantalla no enseñaba
+                  ninguno: era una promesa en texto. Verlo es lo que lo hace
+                  exclusivo, y además cada ronda pasa a tener cara propia. */}
+              {spec?.track && (
+                <View style={s.trackBox}>
+                  <MiniTrackMap track={spec.track} w={TRACK_W} h={92} />
+                </View>
+              )}
+              {!!countdown && <Text style={s.countdown}>La ronda {roundIdx + 1} abre en {countdown}</Text>}
+              <Pressable style={s.cta} onPress={() => onPlayRound(gp, roundIdx)}>
+                <Text style={s.ctaText}>Correr la ronda {roundIdx}</Text>
+              </Pressable>
+            </View>
 
-            <Text style={[s.labelMono, { marginTop: 4 }]}>RESULTADOS DE HOY</Text>
-            {roundResults == null ? (
-              <ActivityIndicator color={RD.brand} style={{ marginTop: 8 }} />
-            ) : roundResults.length === 0 ? (
-              <Text style={s.body}>Nadie ha clasificado todavía en esta ronda.</Text>
-            ) : (
-              <View style={s.roundList}>
-                {roundResults.map((r, i) => (
-                  <View key={r.userId} style={s.roundRow}>
-                    <Text style={s.roundPos}>{i + 1}</Text>
-                    <Text style={s.roundName} numberOfLines={1}>{r.nickname}</Text>
-                    <Text style={s.roundTime}>{fmtTime(r.ms)}</Text>
-                    <Text style={s.roundGap}>{i === 0 ? '' : fmtGap(r.ms - roundResults[0].ms)}</Text>
-                  </View>
-                ))}
+            {!!frase && (
+              <View style={s.tensionBar}>
+                <Text style={s.tensionText}>{frase}</Text>
               </View>
             )}
-          </View>
+
+            <View style={s.panel}>
+              <View style={s.panelHead}>
+                <Text style={s.panelLabel}>RONDA {roundIdx} · EN PISTA</Text>
+                <Pressable onPress={() => onViewStandings(gp)} hitSlop={8}>
+                  <Text style={s.linkAccent}>CLASIFICACIÓN ›</Text>
+                </Pressable>
+              </View>
+              {roundResults == null ? (
+                <ActivityIndicator color={GP_ACCENT} style={{ marginTop: 8 }} />
+              ) : roundResults.length === 0 ? (
+                <Text style={s.body}>Nadie ha marcado tiempo todavía. Sé el primero y sal en cabeza.</Text>
+              ) : (
+                <View style={s.roundList}>
+                  {roundResults.map((r, i) => (
+                    <View key={r.userId} style={s.roundRow}>
+                      <Text style={[s.roundPos, i === 0 && s.roundPosLead]}>{i + 1}</Text>
+                      <Text style={s.roundName} numberOfLines={1}>{r.nickname}</Text>
+                      <Text style={s.roundTime}>{fmtTime(r.ms)}</Text>
+                      <Text style={[s.roundGap, i === 0 && s.roundGapLead]}>
+                        {i === 0 ? 'LÍDER' : fmtGap(r.ms - roundResults[0].ms)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          </>
         )}
+
+        <View style={s.panel}>
+          <Text style={s.panelLabel}>EN EL GRUPO {members ? `· ${members.length}` : ''}</Text>
+          {members == null ? (
+            <ActivityIndicator color={GP_ACCENT} style={{ marginTop: 8 }} />
+          ) : (
+            <View style={s.membersWrap}>
+              {members.map((m) => (
+                <View key={m.userId} style={s.memberChip}>
+                  <Text style={s.memberName}>{m.nickname}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
 
         <Pressable style={{ marginTop: 4 }} onPress={confirmLeave} disabled={leaving} hitSlop={8}>
           <Text style={s.leaveLink}>{leaving ? 'Saliendo…' : 'Salir del grupo'}</Text>
@@ -272,6 +417,13 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
   );
 }
 
+// ---------------------------------------------------------------------------
+//  Clasificación de la temporada.
+//
+//  Aquí manda el PUNTO, no el tiempo — es la diferencia de fondo con el
+//  ranking del Diario. Y cada jugador arrastra su tira de rondas, que es de
+//  dónde salen sus puntos: una temporada contada de un vistazo.
+// ---------------------------------------------------------------------------
 export function GrandPrixStandings({ group, gp, onBack }) {
   const [rows, setRows] = useState(null);
 
@@ -284,49 +436,48 @@ export function GrandPrixStandings({ group, gp, onBack }) {
   }, [group.id, gp.id]);
 
   const leaderPoints = rows && rows.length ? rows[0].points : 0;
+  const finished = gpFinished(gp);
+  const roundIdx = finished ? null : currentRoundIndex(gp);
 
   return (
     <View style={s.screen}>
       <StatusBar hidden />
-      <DangerStripe height={6} />
       <ScrollView contentContainerStyle={s.content}>
         <Pressable onPress={onBack} hitSlop={12}>
-          <Text style={s.backLink}>‹ GRAND PRIX</Text>
+          <Text style={s.backLink}>‹ {group.name.toUpperCase()}</Text>
         </Pressable>
-        <Text style={s.pageTitle}>Clasificación</Text>
-        <Text style={s.subtitle}>{group.name}</Text>
+        <Text style={s.pageTitle}>{finished ? 'Campeonato' : 'Clasificación'}</Text>
+        <SeasonRail total={gp.circuit_count} current={roundIdx} finished={finished} />
 
         {rows == null ? (
-          <ActivityIndicator color={RD.brand} style={{ marginTop: 24 }} />
+          <ActivityIndicator color={GP_ACCENT} style={{ marginTop: 24 }} />
         ) : (
-          <View style={s.standingsList}>
-            {rows.map((r, i) => {
-              const row = (
-                <View
-                  style={[
-                    s.standingRow,
-                    i === 0 && s.standingRowGold,
-                    i === 1 && s.standingRowSilver,
-                    i === 2 && s.standingRowBronze,
-                  ]}
-                >
-                  <Text style={[s.standingPos, i === 0 && s.standingPosGold, i === 1 && s.standingPosSilver, i === 2 && s.standingPosBronze]}>
-                    {i + 1}
-                  </Text>
-                  <View style={s.standingInfo}>
-                    <Text style={s.standingName} numberOfLines={1}>{r.nickname}</Text>
-                    {i > 0 && <Text style={s.standingGap}>-{leaderPoints - r.points} pts al líder</Text>}
+          <>
+            <Text style={s.hint}>Cada hueco es una ronda. El número, los puntos que sacaste.</Text>
+            <View style={s.standingsList}>
+              {rows.map((r, i) => {
+                const row = (
+                  <View style={[s.standingRow, i === 0 && s.standingRowLead]}>
+                    <Text style={[s.standingPos, i === 0 && s.standingPosLead]}>{i + 1}</Text>
+                    <View style={s.standingInfo}>
+                      <View style={s.standingNameRow}>
+                        <Text style={s.standingName} numberOfLines={1}>{r.nickname}</Text>
+                        {i > 0 && <Text style={s.standingGap}>−{leaderPoints - r.points}</Text>}
+                      </View>
+                      <RoundStrip rounds={r.rounds} total={gp.circuit_count} />
+                    </View>
+                    <View style={s.pointsBox}>
+                      <Text style={[s.standingPoints, i === 0 && s.standingPointsLead]}>{r.points}</Text>
+                      <Text style={s.pointsUnit}>PTS</Text>
+                    </View>
                   </View>
-                  <Text style={s.standingPoints}>{r.points}</Text>
-                </View>
-              );
-              // El líder se revela con el brillo en bucle — mismo componente
-              // que el reveal de sobres legendarios en Tienda.js.
-              return i === 0
-                ? <ShineBadge key={r.userId} style={s.standingRowShineWrap}>{row}</ShineBadge>
-                : <View key={r.userId}>{row}</View>;
-            })}
-          </View>
+                );
+                return i === 0
+                  ? <ShineBadge key={r.userId} style={{ borderRadius: 2 }}>{row}</ShineBadge>
+                  : <View key={r.userId}>{row}</View>;
+              })}
+            </View>
+          </>
         )}
       </ScrollView>
     </View>
@@ -335,44 +486,80 @@ export function GrandPrixStandings({ group, gp, onBack }) {
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: RD.bg },
-  content: { paddingHorizontal: 18, paddingTop: 50, paddingBottom: 40, gap: 14 },
-  backLink: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, marginBottom: 8 },
-  pageTitle: {
-    color: RD.textPrimary, fontSize: 28, fontFamily: RD_FONT.displayBlack,
-    textTransform: 'uppercase', marginBottom: -8,
-  },
-  subtitle: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.mono },
+  content: { paddingHorizontal: 18, paddingTop: 50, paddingBottom: 40, gap: 16 },
+  backLink: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, marginBottom: 4 },
 
-  panel: {
-    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 16, gap: 10,
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  pageTitle: {
+    color: RD.textPrimary, fontSize: 30, fontFamily: RD_FONT.displayBlack,
+    textTransform: 'uppercase', marginBottom: -6,
   },
-  labelMono: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 0.6 },
-  body: { color: RD.textSecondary, fontSize: 13, fontFamily: RD_FONT.mono, lineHeight: 19 },
-  countdown: { color: RD.brand, fontSize: 12, fontFamily: RD_FONT.monoBold },
-  cta: { backgroundColor: RD.brand, borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
-  ctaFlex: { flex: 1.4 },
-  ctaDisabled: { opacity: 0.4 },
-  ctaText: { color: RD.bg, fontSize: 14, fontFamily: RD_FONT.monoBold, textTransform: 'uppercase' },
-  secondaryBtn: { borderWidth: 1, borderColor: RD.trackBlue, borderRadius: 2, paddingVertical: 12, alignItems: 'center' },
-  secondaryBtnText: { color: RD.trackBlue, fontSize: 13, fontFamily: RD_FONT.monoBold },
-  actionsRow: { flexDirection: 'row', gap: 10 },
-  actionBtnFlex: { flex: 1 },
+  subtitle: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono },
+
+  inviteBtn: {
+    borderWidth: 1, borderColor: GP_ACCENT, borderRadius: 2,
+    paddingHorizontal: 12, paddingVertical: 7, marginTop: 4,
+  },
+  inviteBtnText: { color: GP_ACCENT, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 1 },
+
+  panel: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 10 },
+  panelHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  panelLabel: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 1.2 },
+  linkAccent: { color: GP_ACCENT, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.8 },
+  body: { color: RD.textSecondary, fontSize: 13, fontFamily: RD_FONT.mono, lineHeight: 20 },
+  hint: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, lineHeight: 16 },
+  bigStatement: {
+    color: RD.textPrimary, fontSize: 22, fontFamily: RD_FONT.displayBold,
+    lineHeight: 25,
+  },
   err: { color: RD.danger, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' },
   leaveLink: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' },
 
-  membersList: { gap: 1, backgroundColor: RD.gridLine },
-  memberRow: { backgroundColor: RD.bg, paddingVertical: 10, paddingHorizontal: 12 },
-  memberName: { color: RD.textPrimary, fontSize: 14, fontFamily: RD_FONT.monoBold },
+  // La ronda de hoy: lo único con fondo elevado de la pantalla.
+  roundCard: {
+    backgroundColor: '#12161b', borderWidth: 1, borderColor: GP_ACCENT,
+    borderRadius: 2, padding: 16, gap: 10,
+  },
+  roundKicker: {
+    color: RD.textPrimary, fontSize: 20, fontFamily: RD_FONT.displayBold,
+    textTransform: 'uppercase',
+  },
+  countdown: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono },
+  trackBox: { alignItems: 'center', paddingVertical: 4 },
+
+  // La frase de campeonato va en su propia banda, pegada bajo la ronda: es
+  // una situación, no un dato más de un panel.
+  tensionBar: {
+    borderLeftWidth: 3, borderLeftColor: GP_ACCENT,
+    paddingLeft: 11, paddingVertical: 3,
+  },
+  tensionText: { color: RD.textPrimary, fontSize: 14, fontFamily: RD_FONT.monoBold, lineHeight: 19 },
+
+  cta: { backgroundColor: GP_ACCENT, borderRadius: 2, paddingVertical: 14, alignItems: 'center' },
+  ctaDisabled: { opacity: 0.4 },
+  ctaText: { color: RD.bg, fontSize: 14, fontFamily: RD_FONT.monoBold, textTransform: 'uppercase', letterSpacing: 0.5 },
+
+  membersWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  memberChip: {
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
+  memberName: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.monoBold },
 
   roundList: { gap: 1, backgroundColor: RD.gridLine },
   roundRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: RD.bg, paddingVertical: 9, paddingHorizontal: 12,
+    backgroundColor: RD.bg, paddingVertical: 10, paddingHorizontal: 10,
   },
-  roundPos: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, width: 16 },
-  roundName: { color: RD.textPrimary, fontSize: 13, fontWeight: '700', flex: 1 },
-  roundTime: { color: RD.cream, fontSize: 12, fontFamily: RD_FONT.mono },
-  roundGap: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, width: 56, textAlign: 'right' },
+  roundPos: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.monoBold, width: 14 },
+  roundPosLead: { color: GP_ACCENT },
+  roundName: { color: RD.textPrimary, fontSize: 13, fontFamily: RD_FONT.monoBold, flex: 1 },
+  roundTime: { color: RD.cream, fontSize: 12, fontFamily: RD_FONT.mono, fontVariant: ['tabular-nums'] },
+  roundGap: {
+    color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono,
+    width: 58, textAlign: 'right', fontVariant: ['tabular-nums'],
+  },
+  roundGapLead: { color: GP_ACCENT, fontFamily: RD_FONT.monoBold },
 
   resultBanner: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -384,31 +571,51 @@ const s = StyleSheet.create({
   resultText: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.mono, flex: 1, marginRight: 8 },
   resultClose: { color: RD.textSecondary, fontSize: 14 },
 
-  sectorBattle: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 12, gap: 8 },
-  sectorRow: { flexDirection: 'row', gap: 10 },
-  sectorChip: { flex: 1, alignItems: 'center', gap: 2, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, paddingVertical: 8 },
-  sectorChipLabel: { color: RD.textTertiary, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 0.6 },
-  sectorChipTime: { fontSize: 14, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
+  deltaList: { gap: 1, backgroundColor: RD.gridLine },
+  deltaRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: RD.bg, paddingVertical: 9, paddingHorizontal: 10,
+  },
+  deltaSector: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
+  deltaSectorTotal: { color: RD.textPrimary, fontFamily: RD_FONT.monoBold },
+  deltaValue: { fontSize: 15, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
+  deltaValueTotal: { fontSize: 18 },
+  deltaNone: { color: RD.textDisabled, fontSize: 12, fontFamily: RD_FONT.mono },
+  deltaRule: { height: 1, backgroundColor: RD.panelBorder },
 
   standingsList: { gap: 8 },
-  standingRowShineWrap: { borderRadius: 2 },
   standingRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, paddingVertical: 12, paddingHorizontal: 14,
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    paddingVertical: 12, paddingHorizontal: 12, backgroundColor: RD.bg,
   },
-  standingRowGold: { borderColor: RD.gold1st },
-  standingRowSilver: { borderColor: RD.silver2nd },
-  standingRowBronze: { borderColor: RD.bronze3rd },
+  standingRowLead: { borderColor: GP_ACCENT, backgroundColor: '#12161b' },
   standingPos: {
-    width: 24, textAlign: 'center', color: RD.textSecondary, fontSize: 15, fontFamily: RD_FONT.monoBold,
+    width: 20, textAlign: 'center', color: RD.textTertiary,
+    fontSize: 15, fontFamily: RD_FONT.monoBold,
   },
-  standingPosGold: { color: RD.gold1st },
-  standingPosSilver: { color: RD.silver2nd },
-  standingPosBronze: { color: RD.bronze3rd },
-  standingInfo: { flex: 1, gap: 2 },
-  standingName: { color: RD.textPrimary, fontSize: 14, fontFamily: RD_FONT.monoBold },
-  standingGap: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono },
+  standingPosLead: { color: GP_ACCENT },
+  standingInfo: { flex: 1, gap: 7, minWidth: 0 },
+  standingNameRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+  standingName: { color: RD.textPrimary, fontSize: 15, fontFamily: RD_FONT.monoBold, flexShrink: 1 },
+  standingGap: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono },
+
+  strip: { flexDirection: 'row', gap: 3 },
+  stripCell: {
+    flex: 1, height: 18, borderRadius: 1, backgroundColor: RD.gridLine,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  stripCellRun: { backgroundColor: 'rgba(79,169,255,0.18)' },
+  stripCellWin: { backgroundColor: GP_ACCENT },
+  stripText: { color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono },
+  stripTextRun: { color: RD.textPrimary, fontFamily: RD_FONT.monoBold },
+  stripTextWin: { color: RD.bg, fontFamily: RD_FONT.monoBold },
+
+  pointsBox: { alignItems: 'center', minWidth: 40 },
   standingPoints: {
-    color: RD.textPrimary, fontSize: 16, fontFamily: RD_FONT.displayBlack, fontVariant: ['tabular-nums'],
+    color: RD.textPrimary, fontSize: 26, fontFamily: RD_FONT.displayBlack,
+    fontVariant: ['tabular-nums'], lineHeight: 28,
   },
+  standingPointsLead: { color: GP_ACCENT },
+  pointsUnit: { color: RD.textDisabled, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 1 },
 });

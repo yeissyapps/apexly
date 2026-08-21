@@ -68,6 +68,7 @@ import {
 } from './src/analytics';
 import ShareCard from './src/ShareCard';
 import { shareCardImage } from './src/share';
+import { retoLink } from './src/links';
 import { checkForceUpdate, getStoreUrl } from './src/forceUpdate';
 
 const PAD = 50; // hueco superior (barra de estado oculta)
@@ -143,7 +144,8 @@ export default function App() {
   const [gpRoundIndex, setGpRoundIndex] = useState(null); // ronda en juego dentro del GP
   const [gpAtt, setGpAtt] = useState({ used: 0, bonus: 0 }); // intentos de ESTA ronda del GP — cupo propio, igual que Carrera
   const [gpResult, setGpResult] = useState(null); // { dayIndex, ms, isPractice, isBest, error } del último intento
-  const [unlocking, setUnlocking] = useState(false);     // viendo el anuncio
+  const [unlocking, setUnlocking] = useState(false);     // viendo el anuncio (para pintar)
+  const unlockingRef = useRef(false);                    // ...y para el guardia real (ver watchAd)
   const [adMsg, setAdMsg] = useState('');                // aviso si el anuncio no sale
   const [privacyOptional, setPrivacyOptional] = useState(false); // ¿mostrar "Privacidad de anuncios"?
   const [unlimited, setUnlimited] = useState(false);      // IAP "ilimitado para siempre"
@@ -256,7 +258,12 @@ export default function App() {
   // `setter`. Un único flujo de anuncio para los dos modos; `amount` por
   // defecto es AD_BATCH (grantBatch ya lo asume si no se pasa nada).
   async function watchAd(day, setter, amount) {
-    if (unlocking) return false;
+    // El guardia va contra un ref y NO contra `unlocking`: setUnlocking no es
+    // inmediato, así que dos toques dentro del mismo frame veían los dos
+    // `unlocking === false`, pasaban, y podían acabar concediendo dos lotes de
+    // intentos. El estado se queda solo para pintar el botón.
+    if (unlockingRef.current) return false;
+    unlockingRef.current = true;
     setUnlocking(true);
     setAdMsg('');
     try {
@@ -296,6 +303,7 @@ export default function App() {
       setAdMsg('No se ha podido cargar el anuncio. Prueba de nuevo en unos minutos.');
       return false;
     } finally {
+      unlockingRef.current = false;
       setUnlocking(false);
     }
   }
@@ -398,8 +406,15 @@ export default function App() {
       const { isBest, prevMs } = await submitGpResult(gp.id, dayIndex, ms, sectorSplits);
       setGpResult({ dayIndex, ms, isPractice: false, isBest, sectorMs: sectorSplits });
       if (PUSH_ENABLED && isBest) notifyGpOvertake(gp.id, dayIndex, ms, prevMs);
-    } catch (_) {
-      setGpResult({ dayIndex, ms, isPractice: false, error: true });
+    } catch (e) {
+      // El motivo se guarda y NO se tira. Este catch mudo escondió durante
+      // días que `submit_gp_result` fallaba en cada vuelta porque a la tabla
+      // le faltaba la columna sector_ms: el jugador solo veía "no se ha
+      // podido enviar" y no había forma de saber por qué sin instrumentar.
+      // El texto técnico solo se enseña en modo diagnóstico (ver Results del
+      // GP en GrandPrix.js); al jugador no le dice nada.
+      if (CONFIG.DIAG) console.log('[gp_submit_err]', e?.code, e?.message || String(e));
+      setGpResult({ dayIndex, ms, isPractice: false, error: true, errorMsg: e?.message || String(e) });
     }
     setScreen('group-home');
   }
@@ -1100,8 +1115,10 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
     try {
       const g = await createGroup(name.trim());
       setName('');
-      setMsg({ type: 'ok', text: `Grupo "${g.name}" creado. Código: ${g.join_code}` });
+      // Igual que al unirse: dentro del grupo recién creado, que es donde
+      // está el botón de compartir el código y el de arrancar la temporada.
       await refresh();
+      onOpenGroup(g);
     } catch (e) {
       setMsg({ type: 'err', text: 'No se pudo crear el grupo.' });
     } finally { setBusy(false); }
@@ -1113,8 +1130,12 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
     try {
       const g = await joinGroup(code.trim());
       setCode('');
-      setMsg({ type: 'ok', text: `Te has unido a "${g.name}".` });
+      // Entrar DIRECTO al grupo. Antes te quedabas en esta misma pantalla con
+      // un aviso y el grupo añadido arriba, y había que buscarlo y tocarlo:
+      // acabas de escribir un código para entrar en un sitio, lo que esperas
+      // es estar dentro.
       await refresh();
+      onOpenGroup(g);
     } catch (e) {
       const notFound = String(e?.message || '').includes('GROUP_NOT_FOUND');
       setMsg({ type: 'err', text: notFound ? 'Ese código no existe.' : 'No se pudo unir al grupo.' });
@@ -1131,7 +1152,7 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
 
       {groups.length > 0 && (
         <>
-          <Text style={rd.labelMono}>TUS GRUPOS</Text>
+          <Text style={rd.groupsLabel}>TUS GRUPOS</Text>
           <View style={rd.groupsList}>
             {groups.map((g) => (
               <Pressable key={g.id} style={rd.groupCard} onPress={() => onOpenGroup(g)}>
@@ -1491,13 +1512,21 @@ const rd = StyleSheet.create({
   muted: { color: RD.textTertiary, fontSize: 13, fontFamily: RD_FONT.mono, marginTop: 8 },
 
   groupsList: { gap: 6 },
-  groupCard: { backgroundColor: RD.bg, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 12 },
+  // Los grupos que YA tienes van en azul —el color del Grand Prix— y sobre
+  // fondo elevado. Antes eran del mismo gris que los paneles de "crear" y
+  // "unirse" que hay debajo, así que la pantalla parecía un formulario y no
+  // se veía que ya tuvieras grupo.
+  groupCard: {
+    backgroundColor: '#12161b', borderWidth: 1, borderColor: RD.trackBlue,
+    borderRadius: 2, padding: 13,
+  },
+  groupsLabel: { color: RD.trackBlue, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 1.2 },
   groupRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
   },
-  groupName: { color: RD.textPrimary, fontSize: 15, fontWeight: '700' },
+  groupName: { color: RD.textPrimary, fontSize: 17, fontFamily: RD_FONT.displayBold },
   groupCode: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, marginTop: 2 },
-  groupOpenHint: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.monoBold },
+  groupOpenHint: { color: RD.trackBlue, fontSize: 11, fontFamily: RD_FONT.monoBold },
 });
 
 // ---------------------------------------------------------------------------
@@ -1877,12 +1906,18 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   const [tagline] = useState(() => SHARE_TAGLINES[Math.floor(Math.random() * SHARE_TAGLINES.length)]);
 
   async function shareResult() {
-    // Deep link al reto: si quien lo abre lo hace HOY, ve un banner para batir
-    // este tiempo concreto en Inicio (ver efecto de Linking en App()).
-    const challengeUrl = `circuitodiario://reto?ms=${result.ms}&day=${todayKey()}`;
+    // El enlace va en el TEXTO, no en la tarjeta: un PNG no puede llevar un
+    // botón dentro. WhatsApp coge esta URL y la convierte él solo en una
+    // tarjeta tocable con el icono de la app, que es el botón de descargar
+    // que la gente espera ver.
+    //
+    // Antes aquí iba `circuitodiario://reto?...`, que solo servía a quien YA
+    // tenía la app instalada — justo al revés de para qué se comparte algo.
+    // Ahora va el redirector, que lleva a la tienda a quien no la tiene (ver
+    // src/links.js) y arrastra los mismos ms/day para cuando haya App Links.
     const parts = [`Apexly · ${dayShort()} ${wx.icon}`.trim(), fmtTime(result.ms)];
     if (standing) parts.push(`${standing.rank}.º de ${standing.total} · +${fmtSecs(standing.gapToLeaderMs)}s al líder`);
-    parts.push(tagline, challengeUrl);
+    parts.push('', tagline, retoLink(result.ms, todayKey()));
     // Genera la imagen y la comparte (con vista previa); si no puede, texto.
     await shareCardImage(cardRef, parts.join('\n'));
     // +5 monedas por compartir (1 vez/día, idempotente en servidor) — se
@@ -2019,6 +2054,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
           day={dayShort()}
           accent={vibeColor}
           tagline={tagline}
+          sectorColors={result.sectorColors}
         />
       </View>
     </ScrollView>
