@@ -66,6 +66,12 @@
           "organization": "yeissyapps",
           "project": "react-native"
         }
+      ],
+      [
+        "react-native-share",
+        {
+          "android": []
+        }
       ]
     ],
     "owner": "yeissyapps",
