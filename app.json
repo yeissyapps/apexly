@@ -10,10 +10,12 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.yeissyapps.circuitodiario",
-      "buildNumber": "65",
+      "buildNumber": "66",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryAddUsageDescription": "Solo si eliges guardar en tu carrete la tarjeta de una vuelta al compartirla.",
+        "NSPhotoLibraryUsageDescription": "Solo si eliges guardar en tu carrete la tarjeta de una vuelta al compartirla."
       }
     },
     "android": {
