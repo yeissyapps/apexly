@@ -787,34 +787,33 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
           </G>
         </Svg>
 
-        {/* Botones de volante, uno por lado — ver resolveEntrada más arriba
-            para el porqué del cambio frente a la zona táctil única. */}
+        {/* Volante: dos zonas invisibles, no botones. Solo cambia la GEOMETRIA
+            del area tactil — onSidePress/onSideRelease y el remate fijo de
+            MIN_INPUT_MS son los mismos que llevan los botones, porque esos si
+            funcionaron y no dependen de que haya nada dibujado.
+
+            Ocupan la mitad INFERIOR de la pantalla, no entera. Con zonas de
+            arriba abajo, la mano que agarra el movil cuenta como girar: un
+            pulgar apoyado alto o la palma rozando son latigazos constantes en
+            cualquier condicion. Con los botones eso no pasaba porque la mano
+            caia fuera de 120x150.
+
+            Y 24px muertos en los bordes exteriores: esa franja la reserva iOS
+            para sus gestos y puede RETENER un toque que empiece ahi mientras
+            decide si es suyo. Mismo motivo por el que los botones se alejaron
+            del borde (18 -> 50). El riesgo no desaparece por ser el area
+            grande. */}
         <Pressable
-          hitSlop={10}
           onPressIn={(e) => onSidePress(-1, e)}
           onPressOut={(e) => onSideRelease(-1, e)}
-          style={({ pressed }) => [
-            styles.steerBtn,
-            styles.steerBtnLeft,
-            { bottom: insets.bottom + 20 },
-            pressed && styles.steerBtnPressed,
-          ]}
-        >
-          {({ pressed }) => <Text style={[styles.steerBtnGlyph, pressed && styles.steerBtnGlyphPressed]}>‹</Text>}
-        </Pressable>
+          style={[styles.steerZone, styles.steerZoneLeft, { bottom: insets.bottom }]}
+        />
         <Pressable
-          hitSlop={10}
           onPressIn={(e) => onSidePress(1, e)}
           onPressOut={(e) => onSideRelease(1, e)}
-          style={({ pressed }) => [
-            styles.steerBtn,
-            styles.steerBtnRight,
-            { bottom: insets.bottom + 20 },
-            pressed && styles.steerBtnPressed,
-          ]}
-        >
-          {({ pressed }) => <Text style={[styles.steerBtnGlyph, pressed && styles.steerBtnGlyphPressed]}>›</Text>}
-        </Pressable>
+          style={[styles.steerZone, styles.steerZoneRight, { bottom: insets.bottom }]}
+        />
+
 
         {/* Nombre flotando sobre el coche del líder. Es lo que evita que un
             coche sólido que te atraviesa se lea como un fallo de colisión:
@@ -1533,29 +1532,17 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)', fontSize: 10, fontFamily: RD_FONT.mono,
     letterSpacing: 1.2, marginTop: 3,
   },
-  // Botones de volante: paleta ~120x150, holgados para el pulgar sin mirar.
-  // Sin transición: un control de dirección tiene que sentirse instantáneo,
-  // no animado — sería latencia percibida encima de la que ya sufrimos.
-  steerBtn: {
-    position: 'absolute', width: 120, height: 150, borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.14)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  // Separados bastante más del borde (18 -> 50) como experimento: la franja
-  // exterior de la pantalla en iOS está reservada para gestos del sistema
-  // (volver atrás deslizando, Centro de Control) — iOS puede RETENER el
-  // toque ahí un rato antes de dárselo a la app mientras decide si es un
-  // gesto suyo. Descartado que el hilo se atasque (ver historial de
-  // MAX_PULSO_CATCHUP_MS y la integración de Sentry: ni JS ni nativo se
-  // cuelgan durante el volantazo fantasma, con dos herramientas distintas),
-  // esto es lo siguiente más probable: no es un bloqueo, es una entrega
-  // retrasada A PROPÓSITO por el sistema, que por eso no la detecta ningún
-  // vigilante de "hang".
-  steerBtnLeft: { left: 50 },
-  steerBtnRight: { right: 50 },
-  steerBtnPressed: { backgroundColor: 'rgba(228,0,43,0.20)', borderColor: RD.brand },
-  steerBtnGlyph: { fontSize: 44, fontWeight: '800', color: 'rgba(255,255,255,0.5)' },
-  steerBtnGlyphPressed: { color: RD.textPrimary },
+  // Volante: invisible a proposito. JC, sobre los botones que habia aqui:
+  // "no aportan nada y esteticamente son muy feos comparado a tener la
+  // pantalla limpia". Se descartaron ademas como causa del volantazo fantasma
+  // del iPhone 13 — el fallo aparece igual con ellos y sin ellos.
+  //
+  // Media pantalla de ancho por media de alto, anclado ABAJO (ver el JSX para
+  // por que no llega hasta arriba y por que sobran 24px en el borde exterior).
+  steerZone: { position: "absolute", height: SCREEN.height * 0.5 },
+  steerZoneLeft: { left: 24, width: SCREEN.width / 2 - 24 },
+  steerZoneRight: { right: 24, width: SCREEN.width / 2 - 24 },
+
   startPanel: {
     position: 'absolute', left: 24, right: 24, bottom: 46, alignItems: 'center',
     backgroundColor: 'rgba(13,15,19,0.82)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
