@@ -797,12 +797,12 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
             resolveEntrada / MIN_INPUT_MS): esos SÍ fueron los arreglos que
             funcionaron, y son independientes de dónde se toque. */}
         <Pressable
-          style={[styles.steerZone, styles.steerZoneLeft]}
+          style={[styles.steerZone, styles.steerZoneLeft, { bottom: insets.bottom }]}
           onPressIn={(e) => onSidePress(-1, e)}
           onPressOut={(e) => onSideRelease(-1, e)}
         />
         <Pressable
-          style={[styles.steerZone, styles.steerZoneRight]}
+          style={[styles.steerZone, styles.steerZoneRight, { bottom: insets.bottom }]}
           onPressIn={(e) => onSidePress(1, e)}
           onPressOut={(e) => onSideRelease(1, e)}
         />
@@ -1524,18 +1524,28 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)', fontSize: 10, fontFamily: RD_FONT.mono,
     letterSpacing: 1.2, marginTop: 3,
   },
-  // Volante: media pantalla por lado, sin pintar nada.
+  // Volante: media pantalla por lado en la MITAD INFERIOR, sin pintar nada.
   //
-  // El margen de 24 en los bordes exteriores NO es decorativo y conviene no
-  // quitarlo: la franja exterior de la pantalla en iOS está reservada para
-  // gestos del sistema (volver atrás deslizando, Centro de Control), y iOS
-  // puede RETENER un toque que empiece ahí mientras decide si es un gesto
-  // suyo. Ese fue el motivo de alejar los botones del borde (18 -> 50) en su
-  // día, y el riesgo sigue existiendo aunque la zona sea grande.
+  // El `top: 45%` es el arreglo de una regresión, no una decisión estética:
+  // al quitar los botones se puso la zona de arriba abajo, y con eso la mano
+  // que agarra el móvil —un pulgar apoyado alto, la palma rozando— pasó a
+  // contar como girar. Aparecieron latigazos incluso en seco, donde no hay
+  // capas de clima que puedan explicarlos. Los botones de 120x150 nunca lo
+  // sufrieron porque el agarre caía fuera; el fallo no fue quitarlos, fue
+  // pasarse de área.
   //
-  // El borde interior llega hasta el centro exacto: entre las dos zonas no
-  // queda ningún hueco muerto.
-  steerZone: { position: 'absolute', top: 0, bottom: 0 },
+  // Aun así la zona es enorme comparada con los botones: media pantalla de
+  // ancho por más de media de alto, y sin nada dibujado.
+  //
+  // Los márgenes NO son decorativos, y conviene no quitarlos: la franja
+  // exterior en iOS está reservada a gestos del sistema (volver atrás
+  // deslizando, Centro de Control) y el borde inferior al indicador de inicio;
+  // iOS puede RETENER un toque que empiece ahí mientras decide si es suyo. Ese
+  // fue el motivo de alejar los botones del borde (18 -> 50) en su día.
+  //
+  // El borde interior llega al centro exacto: entre las dos zonas no queda
+  // ningún hueco muerto.
+  steerZone: { position: 'absolute', top: '45%' },
   steerZoneLeft: { left: 24, right: '50%' },
   steerZoneRight: { left: '50%', right: 24 },
   startPanel: {
