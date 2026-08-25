@@ -88,29 +88,23 @@ export const CONFIG = {
   STEER_EASE_IN: 0.1, // s
   STEER_EASE_OUT: 0.03, // s
 
-  // Remate FIJO que recibe todo toque al soltar (independiente de cuánto
-  // duró de verdad el dedo abajo) — ver resolveEntrada en Game.js.
+  // NOTA HISTORICA — MIN_INPUT_MS ya no existe.
   //
-  // Historia, porque costó varias vueltas: builds 45 a 61 fueron
-  // reconstruyendo la duración REAL del toque desde `nativeEvent.timestamp`,
-  // cada vez con menos error (el hueco nativo-vs-JS bajó de 200-400ms a
-  // 10-50ms según se fue arreglando el render, los botones y su distancia al
-  // borde). Pero el error, aunque cada vez más pequeño en ms absolutos, es
-  // proporcionalmente MUCHO más grande en un toque corto que en uno largo:
-  // 20ms de ruido son nada en una horquilla de 600ms, pero casi la mitad de
-  // un toquecito de 60ms — justo los toques de "centrar el coche en recta",
-  // que es donde JC seguía notando el fallo aun con el hueco ya pequeño.
+  // Fue el remate fijo que recibia todo toque al soltar, y el ultimo de una
+  // serie larga de intentos (builds 45-70) de arreglar el volantazo fantasma
+  // de iOS tocando la ENTRADA: reconstruir la duracion real del toque por
+  // timestamp nativo, topar ese pulso, memoizar el render, cambiar la zona
+  // tactil unica por dos botones, alejarlos del borde, meter una zona muerta
+  // de 20ms.
   //
-  // La salida: dejar de reconstruir. Mientras el dedo sigue apoyado de
-  // verdad, el volante ya gira proporcional en tiempo real, frame a frame,
-  // sin depender de ningún timestamp (por eso las horquillas, que dependen
-  // de mantener pulsado, iban bien incluso antes de este cambio). Al soltar,
-  // ya no se intenta adivinar cuánto duró el toque: se remata siempre con
-  // este mismo valor fijo, corto o largo el toque, pase lo que pase con el
-  // reloj. Con el ease de abajo (100ms para llegar a tope), da un toquecito
-  // de ~20-25°, similar en orden de magnitud a lo que pedía JC (~35°) pero
-  // calculado con la física que ya existe, no un número nuevo inventado.
-  MIN_INPUT_MS: 130,
+  // NINGUNO lo arreglo, y entre todos dejaron una conduccion distinta a la de
+  // la build 21 — que es la que esta viva en la App Store y la referencia de
+  // como se juega esto. Asi que se descarto la rama entera y se volvio al
+  // modelo de la 21: el volante sale directo de los dedos apoyados, sin
+  // remate, sin pulso minimo y sin nada reconstruido (ver applyTouches en
+  // Game.js).
+  //
+  // Si el volantazo vuelve a aparecer, NO se empieza otra vez por aqui.
 
   // --- Colisión con muros -------------------------------------------------
   // Fracción de velocidad que se PIERDE en el IMPACTO (0.6 = pierde el 60%).
@@ -172,7 +166,7 @@ export const CONFIG = {
   // búfer preasignado, no cuesta nada), así que si el volantazo fantasma vuelve
   // a aparecer basta con poner esto en true y generar build: no hay que volver
   // a escribir nada del instrumental.
-  DIAG: true,
+  DIAG: false,
 
   // true => `getLeaderRun` te devuelve TU PROPIA vuelta en vez de null cuando
   // el líder eres tú. Sirve para ver en solitario cómo queda el coche del
