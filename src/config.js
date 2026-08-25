@@ -201,6 +201,30 @@ export const CONFIG = {
   // está en el render o en los modificadores de conducción.
   CLIMA_FX: true,
 
+  // --- Bisección del volantazo fantasma -----------------------------------
+  //
+  // La 2.4.0 va bien en seco y la 2.4.1 no. Estas tres son lo ÚNICO que la
+  // 2.4.1 añade dentro de la vuelta y que la 2.4.0 no tenía, así que la causa
+  // está aquí o no está en el juego.
+  //
+  // Cómo usarlas: primero un build con las TRES en true. Si en seco va bien,
+  // el culpable es una de las tres y se aíslan de una en una. Si sigue mal, no
+  // es ninguna y hay que mirar fuera de la partida.
+  //
+  // Las tres van en false para publicar.
+
+  // Inicializar AdMob (formulario UMP + ATT + SDK) al terminar una vuelta.
+  // Es el único código SOLO-iOS que se añadió, y el bug es solo de iOS.
+  SIN_ADS_EN_PARTIDA: true,
+
+  // Los 1-3 pulsos hápticos al cerrar cada sector. En iOS el motor háptico se
+  // sirve por el hilo de UI, el mismo por el que entran los toques.
+  SIN_HAPTICOS_SECTOR: true,
+
+  // El coche del líder: un CarSprite más por frame, con su proyección de
+  // mundo a pantalla para la etiqueta del nombre.
+  SIN_COCHE_LIDER: true,
+
   // --- Debug / ayudas visuales -------------------------------------------
   // true => dibuja los bordes del carril y el eje (para depurar la colisión).
   SHOW_DEBUG: false,
