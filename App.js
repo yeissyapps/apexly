@@ -281,7 +281,7 @@ export default function App() {
   // Solo iOS: Android no tiene ATT y no hay motivo para adelantarle el
   // formulario de consentimiento, donde hoy no falla nada.
   function pedirPermisosDeAnuncios() {
-    if (Platform.OS !== 'ios') return;
+    if (Platform.OS !== 'ios' || CONFIG.SIN_ADS_EN_PARTIDA) return;
     ensureAdsReady().catch(() => {});
   }
 

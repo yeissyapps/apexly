@@ -164,7 +164,11 @@ const LIDER_VISTO_KEY = 'apexly_lider_explicado'; // ya se explicó qué es el c
 
 const SCREEN = Dimensions.get('window');
 
-export default function Game({ track, ghost, leaderRun, weather, sectorBests, refSectors, attemptsLeft = Infinity, loadout, onAttemptStart, onNeedMore, onFinish, onExit }) {
+export default function Game({ track, ghost, leaderRun: leaderRunProp, weather, sectorBests, refSectors, attemptsLeft = Infinity, loadout, onAttemptStart, onNeedMore, onFinish, onExit }) {
+  // Se anula aquí arriba y no en cada sitio de uso: con leaderRun a null, el
+  // coche del líder, su etiqueta y su interpolación por frame desaparecen
+  // enteros, que es justo lo que queremos medir. Ver CONFIG.SIN_COCHE_LIDER.
+  const leaderRun = CONFIG.SIN_COCHE_LIDER ? null : leaderRunProp;
   const insets = useSafeAreaInsets();
   const HUD_H = insets.top + HUD_CONTENT_H;
   const playW = SCREEN.width;
@@ -257,6 +261,7 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
   // encima dejan de leerse como una tanda.
   const pulsoTimers = useRef([]);
   function pulsos(n, estilo) {
+    if (CONFIG.SIN_HAPTICOS_SECTOR) return; // bisección del volantazo fantasma
     for (let i = 0; i < n; i++) {
       if (i === 0) { Haptics.impactAsync(estilo).catch(() => {}); continue; }
       pulsoTimers.current.push(setTimeout(() => Haptics.impactAsync(estilo).catch(() => {}), i * 70));
