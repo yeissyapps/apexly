@@ -14,8 +14,6 @@
 //  neutral (steerMul 1, speedMul 1, viento 0) = EXACTAMENTE igual que hoy.
 // ============================================================================
 
-import { CONFIG } from './config';
-
 function hashStr(s) {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < s.length; i++) {
@@ -75,16 +73,6 @@ export function dailyWeather(dateKey) {
   let cond = CONDS[CONDS.length - 1];
   for (const c of CONDS) { if (r < c.w) { cond = c; break; } r -= c.w; }
 
-  // Clima forzado para depurar (CONFIG.CLIMA_FORZADO, null para publicar).
-  // Existe porque el volantazo fantasma de iOS solo sale con lluvia o viento,
-  // y sin esto hay que esperar a que el sorteo del día caiga ahí para poder
-  // reproducirlo UNA vez. Se sustituye la condición pero se conserva el `rng`
-  // ya avanzado, para que la dirección del viento siga siendo del día.
-  if (CONFIG.CLIMA_FORZADO) {
-    const forzada = CONDS.find((c) => c.id === CONFIG.CLIMA_FORZADO);
-    if (forzada) cond = forzada;
-  }
-
   let windX = 0, windY = 0;
   if (cond.wind > 0) {
     const ang = rng() * Math.PI * 2;
@@ -96,4 +84,3 @@ export function dailyWeather(dateKey) {
     steerMul: cond.steerMul, speedMul: cond.speedMul, windX, windY,
   };
 }
-

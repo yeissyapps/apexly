@@ -164,11 +164,7 @@ const LIDER_VISTO_KEY = 'apexly_lider_explicado'; // ya se explicó qué es el c
 
 const SCREEN = Dimensions.get('window');
 
-export default function Game({ track, ghost, leaderRun: leaderRunProp, weather, sectorBests, refSectors, attemptsLeft = Infinity, loadout, onAttemptStart, onNeedMore, onFinish, onExit }) {
-  // Se anula aquí arriba y no en cada sitio de uso: con leaderRun a null, el
-  // coche del líder, su etiqueta y su interpolación por frame desaparecen
-  // enteros, que es justo lo que queremos medir. Ver CONFIG.SIN_COCHE_LIDER.
-  const leaderRun = CONFIG.SIN_COCHE_LIDER ? null : leaderRunProp;
+export default function Game({ track, ghost, leaderRun, weather, sectorBests, refSectors, attemptsLeft = Infinity, loadout, onAttemptStart, onNeedMore, onFinish, onExit }) {
   const insets = useSafeAreaInsets();
   const HUD_H = insets.top + HUD_CONTENT_H;
   const playW = SCREEN.width;
@@ -179,6 +175,15 @@ export default function Game({ track, ghost, leaderRun: leaderRunProp, weather, 
   const pressLeft = useRef(false);
   const pressRight = useRef(false);
   const dedos = useRef(0); // nº de dedos apoyados en el último evento (diagnóstico)
+  // Orden final que recibe la física: -1 izq, 0 nada, 1 der. Se calcula UNA vez
+  // por evento táctil (no en la física) para que "izq+der a la vez" se resuelva
+  // en un solo sitio. Ver resolveEntrada.
+  const entrada = useRef(0);
+  const ultimoLado = useRef(0); // último lado que pasó de suelto a pulsado
+  // Pulso: remate fijo al soltar, ver resolveEntrada.
+  const pulsoDir = useRef(0);
+  const pulsoHasta = useRef(0);
+  const relojAbajo = useRef(0); // Date.now() de cuando empezó el toque actual
   const entradaEfectiva = useRef(0); // lo que realmente lee la física
   const rec = useRef(new Float64Array(REC_N * REC_FIELDS)); // grabadora (beta)
   const recAt = useRef(0); // nº total de frames escritos (el índice va en módulo)
@@ -252,7 +257,6 @@ export default function Game({ track, ghost, leaderRun: leaderRunProp, weather, 
   // encima dejan de leerse como una tanda.
   const pulsoTimers = useRef([]);
   function pulsos(n, estilo) {
-    if (CONFIG.SIN_HAPTICOS_SECTOR) return; // bisección del volantazo fantasma
     for (let i = 0; i < n; i++) {
       if (i === 0) { Haptics.impactAsync(estilo).catch(() => {}); continue; }
       pulsoTimers.current.push(setTimeout(() => Haptics.impactAsync(estilo).catch(() => {}), i * 70));
@@ -299,76 +303,79 @@ export default function Game({ track, ghost, leaderRun: leaderRunProp, weather, 
     }
   }
 
-  // VOLANTE SIN ESTADO PROPIO — modelo de la build 21, restaurado.
+  // BOTONES en vez de zona táctil única (experimento, ver historial: ya se
+  // había probado esto antes y se abandonó por "menos fiable en iOS" — pero
+  // aquello fue al inicio del proyecto, con un problema distinto al que
+  // perseguimos ahora. Los dos intentos previos para el volantazo fantasma
+  // (tope al pulso reconstruido, memoizar el render) no cambiaron NADA la
+  // grabación: mismo hueco entre el timestamp nativo de pulsar/soltar y
+  // cuándo lo procesa JS, con los frames siempre a 60fps. Eso descarta que
+  // sea nuestro código de render o de reconstrucción — así que el siguiente
+  // punto a mover es la propia API de toque: `Pressable` en vez de la vista
+  // cruda con onResponderGrant/Move/End sobre TODA la pantalla.
   //
-  // Por qué se vuelve aquí: la 21 es la que esta viva en la App Store y la
-  // referencia de "asi se juega". Todo lo que vino despues (builds 45-70)
-  // fueron intentos de arreglar el volantazo fantasma tocando la ENTRADA:
-  // reconstruir la duracion del toque por timestamp, un remate fijo al soltar
-  // (MIN_INPUT_MS), botones en vez de zona unica, alejarlos del borde. Ninguno
-  // lo arreglo, y entre todos dejaron una conduccion distinta a la de la 21.
-  //
-  // Asi que se descarta la rama entera y se vuelve al modelo simple: en cada
-  // evento se recalcula desde la lista de dedos activos que da el sistema.
-  // Antes de la 21 se mantenia un Map por identifier (añadir al tocar, borrar
-  // al levantar) y eso tiene un fallo grave: si se pierde un evento de
-  // "levantar", o llega con otro identifier, la entrada se queda ahi PARA
-  // SIEMPRE y el coche gira solo como si tuvieras el dedo apoyado. Sin estado
-  // propio ese fallo no puede existir: cada evento parte de cero.
-  //
-  // El matiz de iOS: en un evento de levantar, `touches` puede seguir
-  // incluyendo el dedo que se acaba de soltar (Android lo excluye), asi que se
-  // descuenta explicitamente lo que venga en `changedTouches`.
-  //
-  // Izquierda + derecha a la vez = volante al centro, igual que en la 21. Es
-  // deliberado: lo que despues intento arreglar ese caso ("manda el ultimo
-  // lado pulsado") solo hace falta si hay dedos fantasma persistentes, y aqui
-  // no puede haberlos porque no se guarda estado entre eventos.
-  function applyTouches(evt, esFinDeToque) {
-    const ne = evt.nativeEvent;
-    const activos = ne.touches || [];
-    const soltados = esFinDeToque ? (ne.changedTouches || []) : null;
+  // Cada botón es dueño de un solo lado — ya no hace falta leer
+  // `nativeEvent.touches` ni decidir izq/der por `pageX`, ni rastrear
+  // identifiers para saber qué toque es "nuevo" en el evento. Lo único que
+  // sigue haciendo falta es el desempate "los dos pulsados a la vez": si
+  // sueltas un lado y ya tenías el otro pulsado, manda el que sigue pulsado
+  // (obvio); si tienes los dos pulsados, manda el ÚLTIMO que pulsaste, para
+  // que un dedo fantasma en un lado nunca pueda dejarte con volante muerto
+  // (-1+1 = 0) mientras el otro lado sigue de verdad pulsado.
+  function resolveEntrada() {
+    const left = pressLeft.current;
+    const right = pressRight.current;
+    dedos.current = (left ? 1 : 0) + (right ? 1 : 0);
 
-    let left = false;
-    let right = false;
-    let n = 0;
-    for (let i = 0; i < activos.length; i++) {
-      const tq = activos[i];
-      if (soltados) {
-        let yaSoltado = false;
-        for (let j = 0; j < soltados.length; j++) {
-          if (soltados[j].identifier === tq.identifier) { yaSoltado = true; break; }
-        }
-        if (yaSoltado) continue;
+    if (left && right) entrada.current = ultimoLado.current || -1;
+    else if (left) entrada.current = -1;
+    else if (right) entrada.current = 1;
+    else entrada.current = 0;
+
+    // REMATE AL SOLTAR: fijo (MIN_INPUT_MS desde que empezó el toque), NUNCA
+    // calculado a partir de cuánto duró "de verdad" el dedo abajo.
+    //
+    // Se probó reconstruir la duración real por timestamp nativo (historial
+    // completo: builds 45 a 61 — tope al pulso, memoizar el render, botones
+    // en vez de zona única, alejar del borde, zona muerta de 20ms). El hueco
+    // nativo-vs-JS se fue reduciendo en cada vuelta, pero seguía siendo un
+    // % grande justo en los toques MÁS cortos — los de "centrar el coche en
+    // recta", que es donde más se notaba: 20ms de ruido son nada en una
+    // horquilla de 600ms, pero casi la mitad de un toquecito de 60ms. Un
+    // toque de "0,45s" reconstruido con 20-50ms de más giraba de más
+    // justo lo suficiente para notarse, aunque la medición ya fuera buena.
+    //
+    // Mientras el dedo sigue apoyado de verdad, el volante YA gira
+    // proporcional en tiempo real, frame a frame — sin depender de ningún
+    // timestamp, por eso las horquillas (mantener pulsado) van bien. Al
+    // soltar, ya no se intenta adivinar cuánto duró de verdad: cada toque,
+    // corto o largo, se remata con el mismo MIN_INPUT_MS fijo desde que
+    // empezó — nunca menos, nunca más, pase lo que pase con el reloj.
+    if (entrada.current !== 0) {
+      if (pulsoDir.current !== entrada.current || relojAbajo.current === 0) {
+        relojAbajo.current = now();
       }
-      n++;
-      if (tq.pageX < playW / 2) left = true;
-      else right = true;
+      pulsoDir.current = entrada.current;
+    } else if (relojAbajo.current !== 0) {
+      const hasta = relojAbajo.current + CONFIG.MIN_INPUT_MS;
+      pulsoHasta.current = hasta > now() ? hasta : 0;
+      relojAbajo.current = 0;
     }
-    pressLeft.current = left;
-    pressRight.current = right;
-    dedos.current = n;
-    return left || right;
   }
 
-  function onTouchDown(evt) {
-    logTouch('ABAJO', evt.nativeEvent);
-    if (applyTouches(evt, false)) startRun();
+  function onSidePress(lado, evt) {
+    const yaEstaba = lado === -1 ? pressLeft.current : pressRight.current;
+    if (!yaEstaba) ultimoLado.current = lado; // pasó de suelto a pulsado
+    if (lado === -1) pressLeft.current = true; else pressRight.current = true;
+    resolveEntrada();
+    logTouch(lado === -1 ? 'IZQ ⬇' : 'DER ⬇', evt.nativeEvent);
+    startRun();
   }
 
-  function onTouchMove(evt) {
-    applyTouches(evt, false);
-  }
-
-  function onTouchUp(evt) {
-    applyTouches(evt, true);
-    logTouch('ARRIBA', evt.nativeEvent);
-  }
-
-  function onTouchCancel() {
-    pressLeft.current = false;
-    pressRight.current = false;
-    dedos.current = 0;
+  function onSideRelease(lado, evt) {
+    if (lado === -1) pressLeft.current = false; else pressRight.current = false;
+    resolveEntrada();
+    logTouch(lado === -1 ? 'IZQ ⬆' : 'DER ⬆', evt.nativeEvent);
   }
 
   // --- Registro EN CRUDO de lo que entrega el sistema táctil -----------------
@@ -395,7 +402,7 @@ export default function Game({ track, ghost, leaderRun: leaderRunProp, weather, 
         // pero el JS los ve en el mismo instante, es entrega en bloque, no un
         // toque corto de verdad.
         ` | tsNat:${Math.round(ne.timestamp || 0)} reloj:${now() % 100000}` +
-        ` | -> izq:${pressLeft.current ? 1 : 0} der:${pressRight.current ? 1 : 0} dedos:${dedos.current}`,
+        ` | -> izq:${pressLeft.current ? 1 : 0} der:${pressRight.current ? 1 : 0} orden:${entrada.current}`,
     );
     if (l.length > TOUCH_LOG_N) l.shift();
   }
@@ -528,6 +535,11 @@ export default function Game({ track, ghost, leaderRun: leaderRunProp, weather, 
     pressLeft.current = false;
     pressRight.current = false;
     dedos.current = 0;
+    entrada.current = 0;
+    ultimoLado.current = 0;
+    pulsoDir.current = 0;
+    pulsoHasta.current = 0;
+    relojAbajo.current = 0;
     entradaEfectiva.current = 0;
     touchLog.current = [];
     setView(toView(
@@ -564,12 +576,14 @@ export default function Game({ track, ghost, leaderRun: leaderRunProp, weather, 
         s.acc += dt;
         let guard = 0;
         const wasTouching = s.touching;
-        // La orden sale DIRECTA de los dedos apoyados, igual que en la build
-        // 21: sin remate al soltar, sin pulso mínimo, sin nada reconstruido.
-        // Los dos lados a la vez se anulan (-1+1 = 0), que es el
-        // comportamiento de la 21.
+        // Si el dedo sigue apoyado manda lo que hay. Si ya se levantó, sigue
+        // mandando el pulso mínimo hasta que se agote (ver resolveEntrada).
         entradaEfectiva.current =
-          (pressRight.current ? 1 : 0) - (pressLeft.current ? 1 : 0);
+          entrada.current !== 0
+            ? entrada.current
+            : t < pulsoHasta.current
+              ? pulsoDir.current
+              : 0;
         while (s.acc >= FIXED_DT && guard < 10) {
           stepSimulation(s, FIXED_DT, t, track, entradaEfectiva, weatherRef.current, ghostProgressRef.current, sectorBestsRef.current, refSectorsRef.current);
           s.acc -= FIXED_DT;
@@ -773,24 +787,34 @@ export default function Game({ track, ghost, leaderRun: leaderRunProp, weather, 
           </G>
         </Svg>
 
-        {/* ZONA TÁCTIL ÚNICA a pantalla completa, invisible — modelo de la
-            build 21. El lado se decide por `pageX` de cada dedo dentro de
-            applyTouches, no por qué vista recibió el toque, así que no hay dos
-            manejadores independientes que puedan desincronizarse.
-            Va antes que el HUD en el árbol: lo de después se dibuja encima y
-            se lleva sus propios toques (salir, ⚑, panel de inicio). */}
-        <View
-          style={StyleSheet.absoluteFill}
-          onStartShouldSetResponder={() => true}
-          onMoveShouldSetResponder={() => true}
-          onResponderTerminationRequest={() => false}
-          onResponderGrant={onTouchDown}
-          onResponderStart={onTouchDown}
-          onResponderMove={onTouchMove}
-          onResponderEnd={onTouchUp}
-          onResponderRelease={onTouchUp}
-          onResponderTerminate={onTouchCancel}
-        />
+        {/* Botones de volante, uno por lado — ver resolveEntrada más arriba
+            para el porqué del cambio frente a la zona táctil única. */}
+        <Pressable
+          hitSlop={10}
+          onPressIn={(e) => onSidePress(-1, e)}
+          onPressOut={(e) => onSideRelease(-1, e)}
+          style={({ pressed }) => [
+            styles.steerBtn,
+            styles.steerBtnLeft,
+            { bottom: insets.bottom + 20 },
+            pressed && styles.steerBtnPressed,
+          ]}
+        >
+          {({ pressed }) => <Text style={[styles.steerBtnGlyph, pressed && styles.steerBtnGlyphPressed]}>‹</Text>}
+        </Pressable>
+        <Pressable
+          hitSlop={10}
+          onPressIn={(e) => onSidePress(1, e)}
+          onPressOut={(e) => onSideRelease(1, e)}
+          style={({ pressed }) => [
+            styles.steerBtn,
+            styles.steerBtnRight,
+            { bottom: insets.bottom + 20 },
+            pressed && styles.steerBtnPressed,
+          ]}
+        >
+          {({ pressed }) => <Text style={[styles.steerBtnGlyph, pressed && styles.steerBtnGlyphPressed]}>›</Text>}
+        </Pressable>
 
         {/* Nombre flotando sobre el coche del líder. Es lo que evita que un
             coche sólido que te atraviesa se lea como un fallo de colisión:
@@ -1361,9 +1385,8 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
     for (let i = 0; i < remaining; i++) closeSector(s.lastSectorElapsed + per);
   }
 
-  // Llega ya resuelto a -1 / 0 / 1 desde el bucle de frame, que lo saca
-  // directamente de los dedos apoyados (izq -1, der +1, las dos a la vez 0).
-  // `entrada` es el parámetro, no un estado propio de la física.
+  // Ya viene resuelto desde resolveEntrada (-1 / 0 / 1). Antes se sumaba aquí
+  // izq(-1) + der(+1), y "las dos a la vez" daba 0: volante muerto.
   const target = entrada.current;
 
   const easeTime = (target !== 0 ? C.STEER_EASE_IN : C.STEER_EASE_OUT) * W.steerMul;
@@ -1445,33 +1468,7 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
         const rvx = vx - k * nx;
         const rvy = vy - k * ny;
         s.speed = Math.hypot(rvx, rvy) * (1 - C.CRASH_SPEED_LOSS);
-        // EL RUMBO GIRA HACIA EL REFLEJO, PERO CON TOPE.
-        //
-        // Aquí estaba el "volantazo fantasma". Antes esto era
-        // `s.heading = Math.atan2(rvy, rvx)`: el rumbo se reescribía DE GOLPE
-        // a la dirección reflejada. En una grabación real del iPhone 13 se
-        // midieron saltos de 59°, 65°, 76° y 85° en un solo frame, los seis
-        // exactamente en el mismo instante que un golpe contra el muro, y uno
-        // de ellos con CERO dedos apoyados. Se siente como si el coche girara
-        // solo porque, literalmente, gira solo.
-        //
-        // Es el mismo razonamiento que ya estaba escrito en la rama del roce,
-        // justo debajo: como la velocidad va siempre en la dirección del
-        // rumbo, reescribir el rumbo es girar el coche. Allí se decidió no
-        // tocarlo; aquí se había quedado sin aplicar.
-        //
-        // No se puede eliminar del todo el giro: el reflejo es lo único que
-        // despega al coche del muro (ver CRASH_BOUNCE en config.js, con la
-        // medición de que a 0 se queda pegado 5,5 s y no sale). Así que se
-        // conserva, pero acotado.
-        if (rvx !== 0 || rvy !== 0) {
-          const objetivo = Math.atan2(rvy, rvx);
-          let d = objetivo - s.heading;
-          while (d > Math.PI) d -= 2 * Math.PI;
-          while (d < -Math.PI) d += 2 * Math.PI;
-          const tope = (C.CRASH_MAX_TURN_DEG * Math.PI) / 180;
-          s.heading += Math.max(-tope, Math.min(tope, d));
-        }
+        if (rvx !== 0 || rvy !== 0) s.heading = Math.atan2(rvy, rvx);
         s.stunUntil = t + C.CRASH_STUN_MS;
         s.flashUntil = t + 140;
         s.lastImpact = t;
@@ -1536,6 +1533,29 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)', fontSize: 10, fontFamily: RD_FONT.mono,
     letterSpacing: 1.2, marginTop: 3,
   },
+  // Botones de volante: paleta ~120x150, holgados para el pulgar sin mirar.
+  // Sin transición: un control de dirección tiene que sentirse instantáneo,
+  // no animado — sería latencia percibida encima de la que ya sufrimos.
+  steerBtn: {
+    position: 'absolute', width: 120, height: 150, borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  // Separados bastante más del borde (18 -> 50) como experimento: la franja
+  // exterior de la pantalla en iOS está reservada para gestos del sistema
+  // (volver atrás deslizando, Centro de Control) — iOS puede RETENER el
+  // toque ahí un rato antes de dárselo a la app mientras decide si es un
+  // gesto suyo. Descartado que el hilo se atasque (ver historial de
+  // MAX_PULSO_CATCHUP_MS y la integración de Sentry: ni JS ni nativo se
+  // cuelgan durante el volantazo fantasma, con dos herramientas distintas),
+  // esto es lo siguiente más probable: no es un bloqueo, es una entrega
+  // retrasada A PROPÓSITO por el sistema, que por eso no la detecta ningún
+  // vigilante de "hang".
+  steerBtnLeft: { left: 50 },
+  steerBtnRight: { right: 50 },
+  steerBtnPressed: { backgroundColor: 'rgba(228,0,43,0.20)', borderColor: RD.brand },
+  steerBtnGlyph: { fontSize: 44, fontWeight: '800', color: 'rgba(255,255,255,0.5)' },
+  steerBtnGlyphPressed: { color: RD.textPrimary },
   startPanel: {
     position: 'absolute', left: 24, right: 24, bottom: 46, alignItems: 'center',
     backgroundColor: 'rgba(13,15,19,0.82)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',

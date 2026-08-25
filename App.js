@@ -60,7 +60,7 @@ import { loadGhost, saveGhostIfBest } from './src/ghost';
 import { loadAttempts, consumeAttempt, grantBatch, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
 import { PUSH_ENABLED, intentosTxt } from './src/features';
 import { CONFIG } from './src/config';
-import { prepareConsent, ensureAdsReady, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError, wasConsentDenied } from './src/ads';
+import { prepareConsent, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError, wasConsentDenied } from './src/ads';
 import { isUnlimitedCached, restoreUnlimited, buyUnlimited, getUnlimitedPrice } from './src/iap';
 import {
   logOnboardingComplete, logRaceStart, logRaceFinish, logPaywallView,
@@ -259,32 +259,6 @@ export default function App() {
     return () => { alive = false; };
   }, [gpActive?.id, gpRoundIndex, gpResult]);
 
-  // Permiso de seguimiento (ATT): se pide al terminar UNA vuelta, no al
-  // arrancar la app ni al pedir el primer anuncio.
-  //
-  // Antes vivía solo dentro de ensureAdsReady(), que únicamente se dispara al
-  // tocar "Ver anuncio" — o sea, tras gastar los 3 intentos del día. Apple
-  // rechazó la 2.4.0 por Guideline 5.1.2(i): el revisor jugó en un iPad, no
-  // llegó hasta ahí, y concluyó que la app no pedía permiso. Ver
-  // docs/review-notes.md.
-  //
-  // Aquí el jugador ya ha corrido, así que el permiso sigue llegando CON
-  // contexto —que es lo que sostiene la tasa de aceptación, y de ella depende
-  // el eCPM de iOS: con NPA forzado eran 0,24 € contra 3,63 € de Android— y a
-  // la vez es imposible no encontrarlo revisando la app.
-  //
-  // Se llama a ensureAdsReady() ENTERO y no solo a ATT para no romper el
-  // orden que exigen Google y Apple: primero el formulario UMP, después ATT, y
-  // el SDK al final. Repetirlo es gratis: iOS enseña el diálogo una sola vez y
-  // después devuelve la respuesta ya guardada.
-  //
-  // Solo iOS: Android no tiene ATT y no hay motivo para adelantarle el
-  // formulario de consentimiento, donde hoy no falla nada.
-  function pedirPermisosDeAnuncios() {
-    if (Platform.OS !== 'ios' || CONFIG.SIN_ADS_EN_PARTIDA) return;
-    ensureAdsReady().catch(() => {});
-  }
-
   // Consume un intento al empezar una vuelta (con ilimitado, no hace falta llevar la cuenta).
   function startAttempt() {
     logRaceStart();
@@ -389,7 +363,6 @@ export default function App() {
     const gapMs = gapMsFor(n, careerSpec.timeEstimate);
     const passed = ms <= gapMs;
     recordLap(ms, impacts); // cuenta para los contadores del Perfil
-    pedirPermisosDeAnuncios();
     if (passed) {
       try { await claimCareerLevel(n, Math.round(ms)); } catch (_) {}
     }
@@ -469,7 +442,6 @@ export default function App() {
     // También las vueltas de práctica: has estado en pista y te has chocado
     // igual, aunque esa vuelta no clasifique.
     recordLap(ms, impacts);
-    pedirPermisosDeAnuncios();
     if (isPractice) {
       setGpResult({ dayIndex, ms, isPractice: true });
       setScreen('group-home');
@@ -653,7 +625,6 @@ export default function App() {
     // Cuenta TODAS las vueltas, no solo las que mejoran: "cuánto has corrido"
     // no es lo mismo que "cuál es tu récord".
     recordLap(ms, impacts);
-    pedirPermisosDeAnuncios();
     // Guarda tu mejor vuelta (fantasma) en el móvil.
     saveGhostIfBest(todayKey(), ms, trace).then((g) => { if (g) setGhost(g); }).catch(() => {});
     // Splits de sector de ESTA vuelta (aunque no sea tu mejor tiempo general —

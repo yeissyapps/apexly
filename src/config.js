@@ -88,23 +88,29 @@ export const CONFIG = {
   STEER_EASE_IN: 0.1, // s
   STEER_EASE_OUT: 0.03, // s
 
-  // NOTA HISTORICA — MIN_INPUT_MS ya no existe.
+  // Remate FIJO que recibe todo toque al soltar (independiente de cuánto
+  // duró de verdad el dedo abajo) — ver resolveEntrada en Game.js.
   //
-  // Fue el remate fijo que recibia todo toque al soltar, y el ultimo de una
-  // serie larga de intentos (builds 45-70) de arreglar el volantazo fantasma
-  // de iOS tocando la ENTRADA: reconstruir la duracion real del toque por
-  // timestamp nativo, topar ese pulso, memoizar el render, cambiar la zona
-  // tactil unica por dos botones, alejarlos del borde, meter una zona muerta
-  // de 20ms.
+  // Historia, porque costó varias vueltas: builds 45 a 61 fueron
+  // reconstruyendo la duración REAL del toque desde `nativeEvent.timestamp`,
+  // cada vez con menos error (el hueco nativo-vs-JS bajó de 200-400ms a
+  // 10-50ms según se fue arreglando el render, los botones y su distancia al
+  // borde). Pero el error, aunque cada vez más pequeño en ms absolutos, es
+  // proporcionalmente MUCHO más grande en un toque corto que en uno largo:
+  // 20ms de ruido son nada en una horquilla de 600ms, pero casi la mitad de
+  // un toquecito de 60ms — justo los toques de "centrar el coche en recta",
+  // que es donde JC seguía notando el fallo aun con el hueco ya pequeño.
   //
-  // NINGUNO lo arreglo, y entre todos dejaron una conduccion distinta a la de
-  // la build 21 — que es la que esta viva en la App Store y la referencia de
-  // como se juega esto. Asi que se descarto la rama entera y se volvio al
-  // modelo de la 21: el volante sale directo de los dedos apoyados, sin
-  // remate, sin pulso minimo y sin nada reconstruido (ver applyTouches en
-  // Game.js).
-  //
-  // Si el volantazo vuelve a aparecer, NO se empieza otra vez por aqui.
+  // La salida: dejar de reconstruir. Mientras el dedo sigue apoyado de
+  // verdad, el volante ya gira proporcional en tiempo real, frame a frame,
+  // sin depender de ningún timestamp (por eso las horquillas, que dependen
+  // de mantener pulsado, iban bien incluso antes de este cambio). Al soltar,
+  // ya no se intenta adivinar cuánto duró el toque: se remata siempre con
+  // este mismo valor fijo, corto o largo el toque, pase lo que pase con el
+  // reloj. Con el ease de abajo (100ms para llegar a tope), da un toquecito
+  // de ~20-25°, similar en orden de magnitud a lo que pedía JC (~35°) pero
+  // calculado con la física que ya existe, no un número nuevo inventado.
+  MIN_INPUT_MS: 130,
 
   // --- Colisión con muros -------------------------------------------------
   // Fracción de velocidad que se PIERDE en el IMPACTO (0.6 = pierde el 60%).
@@ -129,34 +135,6 @@ export const CONFIG = {
   //   0.15 ->  408 ms pegado, se despega en 0,99 s, recupera los 250 u/s
   //   0.40 -> 3208 ms pegado (pinball), se queda en 59 u/s
   CRASH_BOUNCE: 0.15,
-  // Tope de cuánto puede girar el coche EL PROPIO CHOQUE, en grados.
-  //
-  // Este es el arreglo del "volantazo fantasma", el bug más largo del
-  // proyecto. Durante semanas se busco en la entrega de eventos táctiles de
-  // iOS: se reconstruyó la duración del toque por timestamp, se metió un
-  // remate fijo al soltar, se cambió la zona táctil por botones, se alejaron
-  // del borde, se memoizó el render, se integró Sentry. Nada lo arregló,
-  // porque no estaba ahí.
-  //
-  // Una grabación del iPhone 13 lo enseñó en una tarde: los SEIS volantazos
-  // de 26 segundos caían en el mismo milisegundo que un golpe contra el muro,
-  // con el rumbo saltando 59°, 65°, 76° y 85° en un solo frame — y uno de
-  // ellos sin ningún dedo en la pantalla. Los FPS estaban clavados a 60 y la
-  // física nunca descartó tiempo, así que no era ni rendimiento ni táctil:
-  // era la respuesta a la colisión reescribiendo el rumbo de golpe.
-  //
-  // Por qué parecía cosa de los iPhone 13 y no de los 15 Pro / 17: a 60Hz la
-  // latencia de entrada es el doble que a 120, corriges más tarde y tocas más
-  // muro. Y por qué parecía cosa de la lluvia y el viento: la lluvia lleva
-  // steerMul 1.5 (volante más perezoso) y el viento te empuja de lado. Las
-  // dos cosas te mandan al muro más a menudo. No fallaba más: chocabas más.
-  //
-  // 30° deja que el golpe se note —es un choque, tiene que doler— sin que el
-  // coche se dé la vuelta. Subirlo acerca al comportamiento viejo; bajarlo
-  // demasiado corre el riesgo de que el coche se quede pegado al muro, que es
-  // justo lo que documenta CRASH_BOUNCE aquí abajo.
-  CRASH_MAX_TURN_DEG: 30,
-
   // Cuánto hay que separarse del muro (unidades de mundo) para que el
   // siguiente toque cuente como un choque NUEVO. Mientras sigues pegado,
   // deslizas sin castigo en vez de encadenar choques.
@@ -194,7 +172,7 @@ export const CONFIG = {
   // búfer preasignado, no cuesta nada), así que si el volantazo fantasma vuelve
   // a aparecer basta con poner esto en true y generar build: no hay que volver
   // a escribir nada del instrumental.
-  DIAG: true,
+  DIAG: false,
 
   // true => `getLeaderRun` te devuelve TU PROPIA vuelta en vez de null cuando
   // el líder eres tú. Sirve para ver en solitario cómo queda el coche del
@@ -205,47 +183,6 @@ export const CONFIG = {
   // coche corriendo contra ti además de tu fantasma, que es justo lo que
   // getLeaderRun evita a propósito. Va en false para publicar.
   LIDER_DE_PRUEBA: false,
-
-  // Fuerza una condición meteorológica: 'clear' | 'dry' | 'rain' | 'wind'.
-  // null = el clima del día de siempre.
-  //
-  // Existe para poder reproducir el volantazo fantasma de iOS cuando toque, y
-  // no cuando el sorteo del día quiera. El fallo solo aparece con lluvia o
-  // viento —las dos únicas condiciones que animan decenas de vistas a la vez—
-  // y solo en móviles con menos margen (iPhone 13 sí, 15 Pro y 17 no).
-  //
-  // Va en null para publicar: forzarlo rompe la premisa del juego, que es que
-  // todo el mundo corra el MISMO día en las MISMAS condiciones.
-  CLIMA_FORZADO: null,
-
-  // Capas visuales del clima (gotas de lluvia, rachas de viento). Ponerlo en
-  // false las apaga sin tocar la física, que es como se aísla si el problema
-  // está en el render o en los modificadores de conducción.
-  CLIMA_FX: true,
-
-  // --- Bisección del volantazo fantasma -----------------------------------
-  //
-  // La 2.4.0 va bien en seco y la 2.4.1 no. Estas tres son lo ÚNICO que la
-  // 2.4.1 añade dentro de la vuelta y que la 2.4.0 no tenía, así que la causa
-  // está aquí o no está en el juego.
-  //
-  // Cómo usarlas: primero un build con las TRES en true. Si en seco va bien,
-  // el culpable es una de las tres y se aíslan de una en una. Si sigue mal, no
-  // es ninguna y hay que mirar fuera de la partida.
-  //
-  // Las tres van en false para publicar.
-
-  // Inicializar AdMob (formulario UMP + ATT + SDK) al terminar una vuelta.
-  // Es el único código SOLO-iOS que se añadió, y el bug es solo de iOS.
-  SIN_ADS_EN_PARTIDA: false,
-
-  // Los 1-3 pulsos hápticos al cerrar cada sector. En iOS el motor háptico se
-  // sirve por el hilo de UI, el mismo por el que entran los toques.
-  SIN_HAPTICOS_SECTOR: false,
-
-  // El coche del líder: un CarSprite más por frame, con su proyección de
-  // mundo a pantalla para la etiqueta del nombre.
-  SIN_COCHE_LIDER: false,
 
   // --- Debug / ayudas visuales -------------------------------------------
   // true => dibuja los bordes del carril y el eje (para depurar la colisión).
