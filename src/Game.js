@@ -1445,7 +1445,33 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
         const rvx = vx - k * nx;
         const rvy = vy - k * ny;
         s.speed = Math.hypot(rvx, rvy) * (1 - C.CRASH_SPEED_LOSS);
-        if (rvx !== 0 || rvy !== 0) s.heading = Math.atan2(rvy, rvx);
+        // EL RUMBO GIRA HACIA EL REFLEJO, PERO CON TOPE.
+        //
+        // Aquí estaba el "volantazo fantasma". Antes esto era
+        // `s.heading = Math.atan2(rvy, rvx)`: el rumbo se reescribía DE GOLPE
+        // a la dirección reflejada. En una grabación real del iPhone 13 se
+        // midieron saltos de 59°, 65°, 76° y 85° en un solo frame, los seis
+        // exactamente en el mismo instante que un golpe contra el muro, y uno
+        // de ellos con CERO dedos apoyados. Se siente como si el coche girara
+        // solo porque, literalmente, gira solo.
+        //
+        // Es el mismo razonamiento que ya estaba escrito en la rama del roce,
+        // justo debajo: como la velocidad va siempre en la dirección del
+        // rumbo, reescribir el rumbo es girar el coche. Allí se decidió no
+        // tocarlo; aquí se había quedado sin aplicar.
+        //
+        // No se puede eliminar del todo el giro: el reflejo es lo único que
+        // despega al coche del muro (ver CRASH_BOUNCE en config.js, con la
+        // medición de que a 0 se queda pegado 5,5 s y no sale). Así que se
+        // conserva, pero acotado.
+        if (rvx !== 0 || rvy !== 0) {
+          const objetivo = Math.atan2(rvy, rvx);
+          let d = objetivo - s.heading;
+          while (d > Math.PI) d -= 2 * Math.PI;
+          while (d < -Math.PI) d += 2 * Math.PI;
+          const tope = (C.CRASH_MAX_TURN_DEG * Math.PI) / 180;
+          s.heading += Math.max(-tope, Math.min(tope, d));
+        }
         s.stunUntil = t + C.CRASH_STUN_MS;
         s.flashUntil = t + 140;
         s.lastImpact = t;

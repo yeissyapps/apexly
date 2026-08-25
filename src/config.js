@@ -129,6 +129,34 @@ export const CONFIG = {
   //   0.15 ->  408 ms pegado, se despega en 0,99 s, recupera los 250 u/s
   //   0.40 -> 3208 ms pegado (pinball), se queda en 59 u/s
   CRASH_BOUNCE: 0.15,
+  // Tope de cuánto puede girar el coche EL PROPIO CHOQUE, en grados.
+  //
+  // Este es el arreglo del "volantazo fantasma", el bug más largo del
+  // proyecto. Durante semanas se busco en la entrega de eventos táctiles de
+  // iOS: se reconstruyó la duración del toque por timestamp, se metió un
+  // remate fijo al soltar, se cambió la zona táctil por botones, se alejaron
+  // del borde, se memoizó el render, se integró Sentry. Nada lo arregló,
+  // porque no estaba ahí.
+  //
+  // Una grabación del iPhone 13 lo enseñó en una tarde: los SEIS volantazos
+  // de 26 segundos caían en el mismo milisegundo que un golpe contra el muro,
+  // con el rumbo saltando 59°, 65°, 76° y 85° en un solo frame — y uno de
+  // ellos sin ningún dedo en la pantalla. Los FPS estaban clavados a 60 y la
+  // física nunca descartó tiempo, así que no era ni rendimiento ni táctil:
+  // era la respuesta a la colisión reescribiendo el rumbo de golpe.
+  //
+  // Por qué parecía cosa de los iPhone 13 y no de los 15 Pro / 17: a 60Hz la
+  // latencia de entrada es el doble que a 120, corriges más tarde y tocas más
+  // muro. Y por qué parecía cosa de la lluvia y el viento: la lluvia lleva
+  // steerMul 1.5 (volante más perezoso) y el viento te empuja de lado. Las
+  // dos cosas te mandan al muro más a menudo. No fallaba más: chocabas más.
+  //
+  // 30° deja que el golpe se note —es un choque, tiene que doler— sin que el
+  // coche se dé la vuelta. Subirlo acerca al comportamiento viejo; bajarlo
+  // demasiado corre el riesgo de que el coche se quede pegado al muro, que es
+  // justo lo que documenta CRASH_BOUNCE aquí abajo.
+  CRASH_MAX_TURN_DEG: 30,
+
   // Cuánto hay que separarse del muro (unidades de mundo) para que el
   // siguiente toque cuente como un choque NUEVO. Mientras sigues pegado,
   // deslizas sin castigo en vez de encadenar choques.
