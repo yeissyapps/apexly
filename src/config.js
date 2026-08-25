@@ -184,6 +184,23 @@ export const CONFIG = {
   // getLeaderRun evita a propósito. Va en false para publicar.
   LIDER_DE_PRUEBA: false,
 
+  // Fuerza una condición meteorológica: 'clear' | 'dry' | 'rain' | 'wind'.
+  // null = el clima del día de siempre.
+  //
+  // Existe para poder reproducir el volantazo fantasma de iOS cuando toque, y
+  // no cuando el sorteo del día quiera. El fallo solo aparece con lluvia o
+  // viento —las dos únicas condiciones que animan decenas de vistas a la vez—
+  // y solo en móviles con menos margen (iPhone 13 sí, 15 Pro y 17 no).
+  //
+  // Va en null para publicar: forzarlo rompe la premisa del juego, que es que
+  // todo el mundo corra el MISMO día en las MISMAS condiciones.
+  CLIMA_FORZADO: null,
+
+  // Capas visuales del clima (gotas de lluvia, rachas de viento). Ponerlo en
+  // false las apaga sin tocar la física, que es como se aísla si el problema
+  // está en el render o en los modificadores de conducción.
+  CLIMA_FX: true,
+
   // --- Debug / ayudas visuales -------------------------------------------
   // true => dibuja los bordes del carril y el eje (para depurar la colisión).
   SHOW_DEBUG: false,

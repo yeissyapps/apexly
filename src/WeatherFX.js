@@ -11,66 +11,129 @@
 //  (transform/opacity) → anima fuera del hilo JS, no pelea con el bucle del juego.
 // ============================================================================
 
-import { memo, useEffect, useRef } from 'react';
+import { Fragment, memo, useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import Svg, { Defs, RadialGradient, Stop, Rect, Circle } from 'react-native-svg';
 
-// ---------------------------------------------------------------- Lluvia -----
-const N_DROPS = 52;
+import { CONFIG } from './config';
 
-function Drop({ d, h }) {
-  const t = useRef(new Animated.Value(Math.random())).current; // arranque escalonado
+// ---------------------------------------------------------------- Lluvia -----
+//
+//  POR LÁMINAS, no gota a gota. Antes cada una de las 52 gotas era un
+//  Animated.View con su propio Animated.loop infinito: 52 animaciones y 52
+//  vistas semitransparentes componiéndose encima del SVG del juego, cada
+//  frame.
+//
+//  Eso es lo que rompía el control en iOS. El hilo de UI —el mismo por el que
+//  entran los toques— se saturaba, los toques llegaban tarde o se perdían, y
+//  salía el volantazo fantasma. Encajaba con todo lo observado en campo:
+//  pasaba en iPhone 13 y no en 15 Pro ni 17, y SOLO con lluvia y viento, que
+//  son justo las dos condiciones que animan. Con sol (SVG estático) y
+//  despejado (nada) no fallaba nunca. Y pasaba igual con los botones de
+//  volante y sin ellos, así que nunca fueron los botones.
+//
+//  Ahora son 3 láminas: cada una agrupa sus gotas y se mueve entera. 3
+//  animaciones en vez de 52, y menos de la mitad de vistas. El paralaje se
+//  conserva dando a cada lámina su propia velocidad, que es lo que hacía que
+//  la lluvia no pareciera un bloque.
+const N_SHEETS = 3;
+const DROPS_PER_SHEET = 6;
+
+function RainSheet({ w, h, dur, delay }) {
+  const t = useRef(new Animated.Value(0)).current;
   useEffect(() => {
+    // El desfase va como RETARDO al arrancar, no como valor inicial: cada
+    // iteración del bucle vuelve al valor de partida, así que arrancar en
+    // mitad del recorrido dejaría la lámina recorriendo solo un trozo y
+    // rompería el empalme de las dos copias.
     const anim = Animated.loop(
-      Animated.timing(t, { toValue: 1, duration: d.dur, easing: Easing.linear, useNativeDriver: true }),
+      Animated.timing(t, { toValue: 1, duration: dur, easing: Easing.linear, useNativeDriver: true }),
     );
-    anim.start();
-    return () => anim.stop();
+    const id = setTimeout(() => anim.start(), delay);
+    return () => { clearTimeout(id); anim.stop(); };
   }, []);
-  const translateY = t.interpolate({ inputRange: [0, 1], outputRange: [-40, h + 40] });
+  const span = h + 80;
+  const drops = useRef(
+    Array.from({ length: DROPS_PER_SHEET }, () => ({
+      x: Math.random() * w,
+      y: Math.random() * span,
+      len: 13 + Math.random() * 20,
+      op: 0.28 + Math.random() * 0.34,
+    })),
+  ).current;
+  // DOS copias del mismo grupo, separadas justo `span`. La lámina baja `span`
+  // y vuelve a cero: cuando la copia de abajo sale por el borde, la de arriba
+  // ha ocupado su sitio exacto, así que el reinicio del bucle no se ve. Sin
+  // esto, la lluvia daría un salto cada vuelta.
+  const translateY = t.interpolate({ inputRange: [0, 1], outputRange: [0, span] });
   const translateX = t.interpolate({ inputRange: [0, 1], outputRange: [8, -18] }); // deriva
   return (
     <Animated.View
-      style={[styles.drop, { left: d.x, height: d.len, opacity: d.op, transform: [{ translateX }, { translateY }, { rotate: '15deg' }] }]}
-    />
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, { transform: [{ translateX }, { translateY }] }]}
+    >
+      {drops.map((d, i) => (
+        <Fragment key={i}>
+          <View style={[styles.drop, { left: d.x, top: d.y - span, height: d.len, opacity: d.op }]} />
+          <View style={[styles.drop, { left: d.x, top: d.y - span * 2, height: d.len, opacity: d.op }]} />
+        </Fragment>
+      ))}
+    </Animated.View>
   );
 }
 
 function RainLayer({ w, h }) {
-  const drops = useRef(
-    Array.from({ length: N_DROPS }, () => ({
-      x: Math.random() * w, len: 13 + Math.random() * 20, dur: 420 + Math.random() * 420, op: 0.28 + Math.random() * 0.34,
-    })),
-  ).current;
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.clip]}>
       <View style={[StyleSheet.absoluteFill, styles.gloom]} />
-      {drops.map((d, i) => <Drop key={i} d={d} h={h} />)}
+      {Array.from({ length: N_SHEETS }, (_, i) => (
+        <RainSheet key={i} w={w} h={h} dur={520 + i * 240} delay={i * 190} />
+      ))}
     </View>
   );
 }
 
 // ---------------------------------------------------------------- Viento -----
-const N_GUSTS = 22;
+// Mismo tratamiento que la lluvia: por grupos, no racha a racha. Eran 22
+// Animated.View con 22 bucles propios; ahora son 3 grupos que barren enteros.
+const N_GUST_GROUPS = 3;
+const GUSTS_PER_GROUP = 4;
 
-function Gust({ g, dx, dy, range, angleDeg }) {
-  const p = useRef(new Animated.Value(Math.random())).current;
+function GustGroup({ w, h, dx, dy, range, angleDeg, dur, delay }) {
+  const p = useRef(new Animated.Value(0)).current;
   useEffect(() => {
+    // Desfase por retardo, mismo motivo que en RainSheet.
     const anim = Animated.loop(
-      Animated.timing(p, { toValue: 1, duration: g.dur, easing: Easing.linear, useNativeDriver: true }),
+      Animated.timing(p, { toValue: 1, duration: dur, easing: Easing.linear, useNativeDriver: true }),
     );
-    anim.start();
-    return () => anim.stop();
+    const id = setTimeout(() => anim.start(), delay);
+    return () => { clearTimeout(id); anim.stop(); };
   }, []);
-  // Barre a lo largo de la dirección del viento, pasando por su posición base.
+  const gusts = useRef(
+    Array.from({ length: GUSTS_PER_GROUP }, () => ({
+      x: Math.random() * w, y: Math.random() * h,
+      len: 130 + Math.random() * 220, op: 0.22 + Math.random() * 0.3,
+    })),
+  ).current;
+  // Barre a lo largo de la dirección del viento, pasando por el centro.
   const translateX = p.interpolate({ inputRange: [0, 1], outputRange: [-dx * range / 2, dx * range / 2] });
   const translateY = p.interpolate({ inputRange: [0, 1], outputRange: [-dy * range / 2, dy * range / 2] });
-  // Aparece y se desvanece a mitad de recorrido -> sensación de racha.
-  const opacity = p.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, g.op, 0] });
+  // Aparece y se desvanece a mitad de recorrido -> sensación de racha. Aquí sí
+  // va por grupo y no por línea: las 4 de un grupo entran y salen juntas, que
+  // es exactamente como se ve una racha de verdad.
+  const opacity = p.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 1, 0] });
   return (
     <Animated.View
-      style={[styles.gust, { left: g.x, top: g.y, width: g.len, opacity, transform: [{ translateX }, { translateY }, { rotate: `${angleDeg}deg` }] }]}
-    />
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, { opacity, transform: [{ translateX }, { translateY }] }]}
+    >
+      {gusts.map((g, i) => (
+        <View
+          key={i}
+          style={[styles.gust, { left: g.x, top: g.y, width: g.len, opacity: g.op, transform: [{ rotate: `${angleDeg}deg` }] }]}
+        />
+      ))}
+    </Animated.View>
   );
 }
 
@@ -80,18 +143,15 @@ function WindLayer({ w, h, windX, windY }) {
   const dy = Math.sin(angle);
   const range = Math.hypot(w, h) + 180;
   const angleDeg = (angle * 180) / Math.PI;
-  // Rachas: pocas, rápidas y muy alargadas -> lectura de "líneas de velocidad"
-  // en vez de las gotas de lluvia (finas, numerosas, caída constante).
-  const gusts = useRef(
-    Array.from({ length: N_GUSTS }, () => ({
-      x: Math.random() * w, y: Math.random() * h, len: 130 + Math.random() * 220,
-      dur: 380 + Math.random() * 420, op: 0.22 + Math.random() * 0.3,
-    })),
-  ).current;
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.clip]}>
       <View style={[StyleSheet.absoluteFill, styles.haze]} />
-      {gusts.map((g, i) => <Gust key={i} g={g} dx={dx} dy={dy} range={range} angleDeg={angleDeg} />)}
+      {Array.from({ length: N_GUST_GROUPS }, (_, i) => (
+        <GustGroup
+          key={i} w={w} h={h} dx={dx} dy={dy} range={range} angleDeg={angleDeg}
+          dur={600 + i * 220} delay={i * 210}
+        />
+      ))}
     </View>
   );
 }
@@ -123,6 +183,7 @@ function SunLayer({ w, h }) {
 // 60fps por el coche), y las gotas/rachas ya animan con driver nativo — sin
 // memo, las 52+22 lo volvían a montar/diffear en cada frame para nada.
 function WeatherFX({ weather, w, h }) {
+  if (!CONFIG.CLIMA_FX) return null; // interruptor para aislar render vs física
   const id = weather && weather.id;
   if (id === 'rain') return <RainLayer w={w} h={h} />;
   if (id === 'wind') return <WindLayer w={w} h={h} windX={weather.windX} windY={weather.windY} />;
