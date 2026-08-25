@@ -787,34 +787,25 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
           </G>
         </Svg>
 
-        {/* Botones de volante, uno por lado — ver resolveEntrada más arriba
-            para el porqué del cambio frente a la zona táctil única. */}
+        {/* Volante: media pantalla por lado, INVISIBLE.
+            Los botones dibujados se quitaron por dos motivos. El estético —JC:
+            "no aportan nada y comparado con la pantalla limpia son muy feos"—
+            y sobre todo que se demostró que NO eran la causa del volantazo
+            fantasma: el fallo salía igual con ellos y sin ellos, y lo que de
+            verdad lo dispara es la carga de render del clima (ver WeatherFX).
+            Se conserva la lógica de entrada tal cual (onSidePress /
+            resolveEntrada / MIN_INPUT_MS): esos SÍ fueron los arreglos que
+            funcionaron, y son independientes de dónde se toque. */}
         <Pressable
-          hitSlop={10}
+          style={[styles.steerZone, styles.steerZoneLeft]}
           onPressIn={(e) => onSidePress(-1, e)}
           onPressOut={(e) => onSideRelease(-1, e)}
-          style={({ pressed }) => [
-            styles.steerBtn,
-            styles.steerBtnLeft,
-            { bottom: insets.bottom + 20 },
-            pressed && styles.steerBtnPressed,
-          ]}
-        >
-          {({ pressed }) => <Text style={[styles.steerBtnGlyph, pressed && styles.steerBtnGlyphPressed]}>‹</Text>}
-        </Pressable>
+        />
         <Pressable
-          hitSlop={10}
+          style={[styles.steerZone, styles.steerZoneRight]}
           onPressIn={(e) => onSidePress(1, e)}
           onPressOut={(e) => onSideRelease(1, e)}
-          style={({ pressed }) => [
-            styles.steerBtn,
-            styles.steerBtnRight,
-            { bottom: insets.bottom + 20 },
-            pressed && styles.steerBtnPressed,
-          ]}
-        >
-          {({ pressed }) => <Text style={[styles.steerBtnGlyph, pressed && styles.steerBtnGlyphPressed]}>›</Text>}
-        </Pressable>
+        />
 
         {/* Nombre flotando sobre el coche del líder. Es lo que evita que un
             coche sólido que te atraviesa se lea como un fallo de colisión:
@@ -1533,29 +1524,20 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)', fontSize: 10, fontFamily: RD_FONT.mono,
     letterSpacing: 1.2, marginTop: 3,
   },
-  // Botones de volante: paleta ~120x150, holgados para el pulgar sin mirar.
-  // Sin transición: un control de dirección tiene que sentirse instantáneo,
-  // no animado — sería latencia percibida encima de la que ya sufrimos.
-  steerBtn: {
-    position: 'absolute', width: 120, height: 150, borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.14)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  // Separados bastante más del borde (18 -> 50) como experimento: la franja
-  // exterior de la pantalla en iOS está reservada para gestos del sistema
-  // (volver atrás deslizando, Centro de Control) — iOS puede RETENER el
-  // toque ahí un rato antes de dárselo a la app mientras decide si es un
-  // gesto suyo. Descartado que el hilo se atasque (ver historial de
-  // MAX_PULSO_CATCHUP_MS y la integración de Sentry: ni JS ni nativo se
-  // cuelgan durante el volantazo fantasma, con dos herramientas distintas),
-  // esto es lo siguiente más probable: no es un bloqueo, es una entrega
-  // retrasada A PROPÓSITO por el sistema, que por eso no la detecta ningún
-  // vigilante de "hang".
-  steerBtnLeft: { left: 50 },
-  steerBtnRight: { right: 50 },
-  steerBtnPressed: { backgroundColor: 'rgba(228,0,43,0.20)', borderColor: RD.brand },
-  steerBtnGlyph: { fontSize: 44, fontWeight: '800', color: 'rgba(255,255,255,0.5)' },
-  steerBtnGlyphPressed: { color: RD.textPrimary },
+  // Volante: media pantalla por lado, sin pintar nada.
+  //
+  // El margen de 24 en los bordes exteriores NO es decorativo y conviene no
+  // quitarlo: la franja exterior de la pantalla en iOS está reservada para
+  // gestos del sistema (volver atrás deslizando, Centro de Control), y iOS
+  // puede RETENER un toque que empiece ahí mientras decide si es un gesto
+  // suyo. Ese fue el motivo de alejar los botones del borde (18 -> 50) en su
+  // día, y el riesgo sigue existiendo aunque la zona sea grande.
+  //
+  // El borde interior llega hasta el centro exacto: entre las dos zonas no
+  // queda ningún hueco muerto.
+  steerZone: { position: 'absolute', top: 0, bottom: 0 },
+  steerZoneLeft: { left: 24, right: '50%' },
+  steerZoneRight: { left: '50%', right: 24 },
   startPanel: {
     position: 'absolute', left: 24, right: 24, bottom: 46, alignItems: 'center',
     backgroundColor: 'rgba(13,15,19,0.82)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
