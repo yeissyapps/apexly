@@ -16,10 +16,14 @@ después del formulario UMP y **antes** de inicializar el SDK de AdMob, que es
 el orden que exige Apple (el SDK lee el identificador al inicializarse, así
 que pedirlo después no serviría de nada).
 
-El problema es *dónde* está: dentro de `ensureAds()`, que solo se dispara desde
-`showRewarded()`. Para ver el diálogo hay que gastar los 3 intentos del día y
-elegir ver un anuncio. El revisor jugó en un iPad Air y no llegó nunca, así que
-no vio la petición.
+El problema era *dónde* estaba: dentro de `ensureAds()`, que solo se disparaba
+desde `showRewarded()`. Para ver el diálogo había que gastar los 3 intentos del
+día y elegir ver un anuncio. El revisor jugó en un iPad Air y no llegó nunca,
+así que no vio la petición.
+
+**Ya corregido** (commit `fb642a4`, en la 2.4.1): ahora se pide nada más
+terminar UNA vuelta, sea cual sea el resultado — no hace falta agotar
+intentos ni tocar "Ver anuncio". El texto de más abajo ya refleja esto.
 
 **Y las etiquetas de privacidad son correctas**: la app sí rastrea. Los
 anuncios son personalizados desde el commit `7b4ce25`, que quitó
@@ -47,10 +51,9 @@ The prompt is shown at the first moment the app uses advertising, rather than
 on first launch. How to reach it:
 
 1. Open the app and complete the short name entry.
-2. Play three laps on the daily circuit (three free attempts per day).
-3. After the third lap, the "no attempts left" screen appears.
-4. Tap "Ver anuncio" (Watch ad).
-5. The App Tracking Transparency prompt is displayed at this point.
+2. Play one lap on the daily circuit (or in Career / Grand Prix).
+3. As soon as the lap finishes, the App Tracking Transparency prompt is
+   displayed — no need to run out of attempts or watch an ad first.
 
 Note for EEA/UK/Switzerland reviewers: a Google UMP consent form is shown
 immediately before the ATT prompt, in that order.
