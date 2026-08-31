@@ -513,6 +513,15 @@ export default function App() {
   // Pop-up de "premios de ayer": una vez por día local, la primera vez que
   // hay nickname (primera entrada del día). Si no hubo nada que cobrar
   // (racha rota, sin premio de ranking), no se muestra nada.
+  //
+  // El "ya visto" se marca DESPUÉS de que la consulta responda, nunca antes.
+  // Antes se marcaba justo al entrar, así que si getRecentRewards() fallaba
+  // —típicamente la primera apertura del día, con la sesión/red aún
+  // arrancando— el aviso quedaba "visto" sin haberse mostrado NUNCA, aunque
+  // las monedas sí estuvieran bien sumadas en el saldo (eso lo lee wallet,
+  // consulta aparte). Coincide con el reporte de varios jugadores: "las
+  // monedas no se suman cuando entro por primera vez" — no era el saldo, era
+  // que el aviso desaparecía para siempre ese día sin haber llegado a salir.
   useEffect(() => {
     if (!nickname) return;
     let alive = true;
@@ -520,10 +529,10 @@ export default function App() {
       const today = todayKey();
       const seen = await AsyncStorage.getItem(RECAP_SEEN_KEY).catch(() => null);
       if (seen === today) return;
-      await AsyncStorage.setItem(RECAP_SEEN_KEY, today).catch(() => {});
       const since = dayOffset(today, -2);
       const rewards = await getRecentRewards(since).catch(() => null);
-      if (!alive || !rewards) return;
+      if (!alive || !rewards) return; // fallo de red: no se marca "visto", se reintenta al reabrir
+      await AsyncStorage.setItem(RECAP_SEEN_KEY, today).catch(() => {});
       if (rewards.streak > 0 || rewards.ranking > 0) setRecap(rewards);
     })();
     return () => { alive = false; };
