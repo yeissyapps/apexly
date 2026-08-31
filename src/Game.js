@@ -22,6 +22,7 @@ import WeatherFX from './WeatherFX';
 import { RD, RD_FONT } from './theme';
 import CarSprite from './CarSprite';
 import { CAR_DEFAULTS } from './car';
+import MiniTrackMap from './MiniTrackMap';
 
 const now = () => Date.now();
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -579,11 +580,13 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
         // Si el dedo sigue apoyado manda lo que hay. Si ya se levantó, sigue
         // mandando el pulso mínimo hasta que se agote (ver resolveEntrada).
         entradaEfectiva.current =
-          entrada.current !== 0
-            ? entrada.current
-            : t < pulsoHasta.current
-              ? pulsoDir.current
-              : 0;
+          t - s.startTime < CONFIG.LAUNCH_STRAIGHT_MS
+            ? 0
+            : entrada.current !== 0
+              ? entrada.current
+              : t < pulsoHasta.current
+                ? pulsoDir.current
+                : 0;
         while (s.acc >= FIXED_DT && guard < 10) {
           stepSimulation(s, FIXED_DT, t, track, entradaEfectiva, weatherRef.current, ghostProgressRef.current, sectorBestsRef.current, refSectorsRef.current);
           s.acc -= FIXED_DT;
@@ -786,6 +789,19 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
             )}
           </G>
         </Svg>
+
+        {/* Minimapa: la traza entera fija en la esquina, con un punto que
+            sigue al coche en vivo. Pedido de varios jugadores — sin esto no
+            hay forma de saber qué curva viene, cada circuito es nuevo cada
+            día y nadie se lo aprende. view.x/y son mundo crudo, el mismo
+            espacio que track.center, así que se proyectan con la misma
+            función que ya usa MiniTrackMap en Resultado — no hay dos
+            sistemas de coordenadas que puedan desincronizarse.
+            pointerEvents="none": no debe robar NUNCA un toque del volante,
+            aunque esté fuera de la zona inferior donde viven. */}
+        <View pointerEvents="none" style={styles.minimapWrap}>
+          <MiniTrackMap track={track} w={84} h={56} pad={6} carPos={{ x: view.x, y: view.y }} />
+        </View>
 
         {/* Volante: dos zonas invisibles, no botones. Solo cambia la GEOMETRIA
             del area tactil — onSidePress/onSideRelease y el remate fijo de
@@ -1511,6 +1527,15 @@ const styles = StyleSheet.create({
   // y no en el centro: el coche va a 250 u/s y taparle la pista sería
   // castigar al jugador justo por hacerlo bien.
   moradoWrap: { position: 'absolute', top: 12, left: 0, right: 0, alignItems: 'center' },
+  // Minimapa: esquina, no centro, por el mismo motivo que moradoWrap de
+  // arriba — nunca tapar la pista que sí importa. Fondo semitransparente
+  // (mismo tono que playArea) para que se lea encima de cualquier tramo,
+  // claro u oscuro; borde apenas visible, igual que el resto de chips del HUD.
+  minimapWrap: {
+    position: 'absolute', top: 10, right: 10, borderRadius: 10,
+    backgroundColor: 'rgba(13,15,19,0.62)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)',
+    padding: 6,
+  },
   // Etiqueta con el nombre del líder, anclada sobre su coche. Ancho fijo +
   // centrado para poder posicionarla restando la mitad, sin medir el texto.
   leaderNameWrap: { position: 'absolute', width: 140, alignItems: 'center' },

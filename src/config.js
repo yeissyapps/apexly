@@ -112,6 +112,18 @@ export const CONFIG = {
   // calculado con la física que ya existe, no un número nuevo inventado.
   MIN_INPUT_MS: 130,
 
+  // Milisegundos de salida OBLIGATORIAMENTE recta desde que arranca la vuelta.
+  // El mismo toque que arranca la carrera (tocar la zona izq/der) es también
+  // un toque de volante hacia ese lado, así que sin esto el coche sale
+  // girando según qué lado tocaste para salir — nunca recto. Feedback de
+  // varios jugadores: "el primer toque tiene que ser recto".
+  //
+  // Se aplica forzando entradaEfectiva a 0 mientras dura, no ignorando el
+  // toque: sigue registrado en pressLeft/pressRight/resolveEntrada como
+  // siempre, así que si mantienes pulsado, el volante responde en cuanto
+  // termina la ventana, sin ningún salto ni reconstrucción rara.
+  LAUNCH_STRAIGHT_MS: 220,
+
   // --- Colisión con muros -------------------------------------------------
   // Fracción de velocidad que se PIERDE en el IMPACTO (0.6 = pierde el 60%).
   // Solo se aplica en el primer frame del choque, no mientras rozas la pared.
