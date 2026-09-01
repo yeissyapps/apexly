@@ -13,6 +13,18 @@ workflows:
         bundle_identifier: com.yeissyapps.circuitodiario
       vars:
         BUNDLE_ID: "com.yeissyapps.circuitodiario"
+        # El paso "Bundle React Native code and images" queda envuelto por
+        # sentry-cli (ver sentry-xcode.sh en @sentry/react-native), que
+        # intenta crear un release en Sentry vía API antes de bundlear. Si
+        # SENTRY_AUTH_TOKEN (grupo "sentry" de arriba) falta o no vale, esa
+        # llamada falla con "API request failed" y TUMBA el build entero —
+        # aunque el fallo no tenga nada que ver con el bundle en sí. Con esto
+        # en true, el paso se salta y bundlea directo: sin subir sourcemaps
+        # (los crashes de esta build llegarán sin desminificar), pero el
+        # build ya no depende de que el token de Sentry esté bien.
+        # Quitar en cuanto se confirme que el token del grupo "sentry" vuelve
+        # a funcionar.
+        SENTRY_DISABLE_AUTO_UPLOAD: "true"
       node: 20.18.0
       xcode: latest
       cocoapods: default
