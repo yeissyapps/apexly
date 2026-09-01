@@ -27,6 +27,7 @@
 import { useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RD, RD_FONT } from './theme';
 
@@ -85,6 +86,7 @@ export default function Tour({ steps, onDone }) {
   const [rect, setRect] = useState(null);
   const doneRef = useRef(false);
   const { width: winW, height: winH } = Dimensions.get('window');
+  const insets = useSafeAreaInsets();
 
   const step = steps[i];
   const isLast = i === steps.length - 1;
@@ -128,7 +130,14 @@ export default function Tour({ steps, onDone }) {
 
   // La tarjeta va debajo del recorte si cabe; si no, encima. Se posiciona con
   // `top` o con `bottom` (nunca las dos) para no tener que saber su altura.
-  const below = hole ? winH - (hole.y + hole.h) >= CARD_MIN_ROOM : true;
+  //
+  // El hueco disponible se mide contra winH - insets.bottom, NO winH a
+  // secas: en algunos Android la barra de navegación del sistema no entra en
+  // Dimensions.get('window'), así que "cabe debajo" se creía cierto con la
+  // barra encima tapando el botón SIGUIENTE — reportado por jugadores,
+  // exactamente ese síntoma (el tour se quedaba sin forma de avanzar).
+  const safeBottomY = winH - insets.bottom;
+  const below = hole ? safeBottomY - (hole.y + hole.h) >= CARD_MIN_ROOM : true;
   const cardPos = !hole
     ? { top: Math.round(winH * 0.28) }
     : below
