@@ -26,8 +26,8 @@
 //     vive ahora dentro de <Showcase>, memoizado: solo se repinta el coche.
 // ============================================================================
 
-import { memo, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Ellipse, G, Line, Path, Rect } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 
@@ -303,6 +303,23 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
   const [saveError, setSaveError] = useState(null);
   const [owned, setOwned] = useState(new Set()); // "categoria:pieza" que ya tienes (sobres)
 
+  // Confirmación de guardado: el cambio se ve en el coche al instante (antes
+  // de que responda el servidor), pero eso no dice si de verdad quedó
+  // guardado — solo lo contrario, el error, tenía aviso (saveError arriba).
+  // JC: "a veces no es intuitivo que la configuración se guarda sola".
+  // Parpadeo breve en vez de un aviso fijo: confirmar sin pedir que lo leas.
+  const savedAnim = useRef(new Animated.Value(0)).current;
+  const savedTimer = useRef(null);
+  function flashSaved() {
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    savedAnim.stopAnimation();
+    savedAnim.setValue(1);
+    savedTimer.current = setTimeout(() => {
+      Animated.timing(savedAnim, { toValue: 0, duration: 400, useNativeDriver: true }).start();
+    }, 900);
+  }
+  useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current); }, []);
+
   useEffect(() => {
     getMyLoadout().then(setLoadout).catch(() => {});
     getInventory()
@@ -321,7 +338,7 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
     // usuarios llevaban sin poder guardar nada y no había forma de saberlo
     // (ver el comentario de wingColor en car.js). Si el guardado falla, el
     // coche vuelve a como estaba y se dice — mentir es peor que fallar.
-    saveLoadout(next).catch((e) => {
+    saveLoadout(next).then(flashSaved).catch((e) => {
       setLoadout(loadout);
       const msg = String(e?.message || '');
       setSaveError(
@@ -378,6 +395,9 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
 
         <View style={s.preview}>
           <Showcase loadout={displayLoadout} />
+          <Animated.View pointerEvents="none" style={[s.savedPill, { opacity: savedAnim }]}>
+            <Text style={s.savedPillText}>✓ GUARDADO</Text>
+          </Animated.View>
           {preview && (
             <View style={s.previewBadge}>
               <Text style={s.previewBadgeText}>SOLO ESTÁS MIRANDO — NO ES TUYA</Text>
@@ -575,6 +595,14 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
     alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
+  // Esquina opuesta a previewBadge (que es de otro caso: pieza bloqueada) a
+  // propósito, para que nunca puedan pisarse aunque coincidieran.
+  savedPill: {
+    position: 'absolute', top: 8, right: 8,
+    backgroundColor: 'rgba(0,0,0,0.8)', borderWidth: 1, borderColor: RD.successGreen,
+    borderRadius: 999, paddingVertical: 4, paddingHorizontal: 9,
+  },
+  savedPillText: { color: RD.successGreen, fontSize: 10, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
   previewBadge: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
