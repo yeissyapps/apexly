@@ -171,6 +171,11 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
   const playW = SCREEN.width;
   const playH = SCREEN.height - HUD_H;
   const wx = weather || NEUTRAL;
+  // Paleta del circuito: fondo + asfalto cambian de tono con el propio
+  // trazado (determinista, se calcula del track, no hace falta enrutar una
+  // prop nueva por App.js — funciona igual en Diario, Carrera y GP). JC:
+  // "todos los días es el mismo circuito... ese fondo negro, es como meh".
+  const palette = useMemo(() => trackPalette(track), [track]);
 
   const g = useRef(null);
   const pressLeft = useRef(false);
@@ -709,7 +714,7 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
     return () => sub.remove();
   }, []);
 
-  if (!view) return <View style={styles.root}><StatusBar hidden /></View>;
+  if (!view) return <View style={[styles.root, { backgroundColor: palette.bg }]}><StatusBar hidden /></View>;
 
   const carDeg = (view.heading * 180) / Math.PI;
   const carLoadout = {
@@ -745,13 +750,13 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
   }
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: palette.bg }]}>
       <StatusBar hidden />
 
-      <View style={[styles.playArea, { top: HUD_H, width: playW, height: playH }]}>
+      <View style={[styles.playArea, { top: HUD_H, width: playW, height: playH, backgroundColor: palette.bg }]}>
         <Svg width={playW} height={playH} viewBox={`0 0 ${playW} ${playH}`}>
           <G transform={camTransform}>
-            <TrackLayer track={track} showDebug={CONFIG.SHOW_DEBUG} wet={wx.id === 'rain'} />
+            <TrackLayer track={track} showDebug={CONFIG.SHOW_DEBUG} wet={wx.id === 'rain'} palette={palette} />
             {/* Coche fantasma (tu mejor vuelta), muy tenue, por debajo */}
             {view.ghost && (
               <Rect
@@ -1056,6 +1061,41 @@ const ROAD = {
   checkLight: '#f2f2f2',
   checkDark:  '#15171c',
 };
+
+// Paleta del circuito: fondo + asfalto, elegidos por el propio trazado (no
+// por fecha — así funciona igual en Diario, Carrera y Grand Prix, sin
+// enrutar una prop nueva por App.js). Deliberadamente NO toca piano, carril,
+// meta ni salida: esos son lenguaje funcional (dónde está el borde, dónde
+// arranca) y tienen que leerse igual todos los días. Todo el rango se
+// mantiene tan oscuro como el original (mundo de motorsport nocturno), solo
+// cambia el sesgo de tono — ver el principio de "elegir el neutro, no
+// heredarlo" en vez de variar el brillo, que sí podría chocar con el piano
+// blanco/rojo o el HUD.
+const TRACK_PALETTES = [
+  { bg: '#0d0f13', asphalt: '#23282f' }, // medianoche — el de siempre
+  { bg: '#12100c', asphalt: '#2b2620' }, // desierto nocturno
+  { bg: '#0a1216', asphalt: '#1c2e33' }, // costero
+  { bg: '#0d120e', asphalt: '#232b25' }, // bosque
+  { bg: '#100c14', asphalt: '#28212f' }, // urbano
+];
+
+// Hash barato de unos pocos puntos del trazado (no hace falta recorrer los
+// ~160 — esto vive en un useMemo por render, tampoco puede ser caro). FNV-1a
+// de toda la vida, mismo patrón que hashStr() en weather.js pero sin
+// depender de una fecha: dos jugadores en el mismo circuito (mismo día)
+// sacan la misma paleta sin coordinarse, porque el trazado ya es idéntico.
+function trackPalette(track) {
+  const c = track.center;
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < c.length; i += 7) {
+    h ^= Math.round(c[i].x) & 0xff;
+    h = Math.imul(h, 16777619);
+    h ^= Math.round(c[i].y) & 0xff;
+    h = Math.imul(h, 16777619);
+  }
+  return TRACK_PALETTES[(h >>> 0) % TRACK_PALETTES.length];
+}
+
 const KERB_W = 9;    // ancho del piano (centrado en el borde)
 const KERB_BLOCK = 11; // largo objetivo de cada tramo rojo/blanco del piano
 const CHECK_SQ = 11; // lado de cada cuadro de la meta
@@ -1204,8 +1244,10 @@ function checkeredQuads(finish) {
 // memo + useMemo: la geometría de la pista es fija durante toda la vuelta, pero
 // el componente se re-renderizaba en CADA frame (al moverse el coche) y volvía
 // a construir todas las cadenas de puntos. Ahora se calcula una sola vez.
-const TrackLayer = memo(function TrackLayer({ track, showDebug, wet }) {
-  const asphalt = wet ? '#181f29' : ROAD.asphalt; // asfalto más oscuro/frío mojado
+const TrackLayer = memo(function TrackLayer({ track, showDebug, wet, palette }) {
+  // La lluvia sigue siendo un aviso fijo por encima de la paleta del día —
+  // "hoy moja" tiene que leerse igual sea cual sea el tono de fondo.
+  const asphalt = wet ? '#181f29' : palette.asphalt;
 
   const geom = useMemo(() => ({
     road: track.roadPolygon.map((p) => `${p.x},${p.y}`).join(' '),
