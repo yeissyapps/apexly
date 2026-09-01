@@ -41,7 +41,7 @@ import Profile from './src/Profile';
 import CareerMode from './src/CareerMode';
 import { levelSpec, gapMsFor, weatherForLevel, CAREER_AD_BATCH } from './src/career';
 import { GroupHome, GrandPrixStandings, RoundStart } from './src/GrandPrix';
-import { gpCircuitSpec, gpWeather, GP_AD_BATCH } from './src/gpData';
+import { gpCircuitSpec, gpWeather, GP_AD_BATCH, currentRoundIndex, gpFinished } from './src/gpData';
 import ShineBadge from './src/ShineBadge';
 import Tour, { tourRef, isTourDone } from './src/Tour';
 import { noteRaceFinished } from './src/rate';
@@ -54,6 +54,7 @@ import {
   getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
   getMyLoadout, getWallet, claimDailyReward, getRecentRewards, claimShareReward, claimCareerLevel,
   submitGpResult, notifyGpOvertake, recordLap, submitDailyRun, getLeaderRun, getMyGpRoundSectors,
+  getActiveGrandPrix, getGpResults, getMyId,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -1157,6 +1158,7 @@ function DiarioTab({
 // GP directamente si ya lo hay.
 function AmigosTab({ refreshKey, onOpenGroup }) {
   const [groups, setGroups] = useState(null);
+  const [pendingRound, setPendingRound] = useState({}); // { [groupId]: true } — GP con ronda abierta sin clasificar
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1168,6 +1170,39 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
     try { setGroups(await listMyGroups()); } catch (e) { setGroups([]); }
   }
   useEffect(() => { refresh(); }, [refreshKey]);
+
+  // Bolita de "circuito nuevo pendiente": por grupo, ¿tiene un Grand Prix
+  // activo cuya ronda de HOY todavía no has clasificado? Pedido de varios
+  // jugadores — con varios grupos a la vez, sin esto hay que entrar en cada
+  // uno para saber si te toca correr algo.
+  //
+  // No hay endpoint agregado para esto (ni falta: son pocos grupos por
+  // jugador), así que se resuelve en cliente reutilizando las mismas
+  // llamadas que ya usa GroupHome — un GP activo por grupo + sus resultados
+  // de hoy — en paralelo por grupo.
+  useEffect(() => {
+    if (!groups || groups.length === 0) { setPendingRound({}); return; }
+    let alive = true;
+    (async () => {
+      const myId = await getMyId().catch(() => null);
+      if (!alive || !myId) return;
+      const entries = await Promise.all(groups.map(async (g) => {
+        try {
+          const gp = await getActiveGrandPrix(g.id);
+          if (!gp || gpFinished(gp)) return [g.id, false];
+          const idx = currentRoundIndex(gp);
+          const rows = await getGpResults(gp.id);
+          const done = rows.some((r) => r.dayIndex === idx && r.userId === myId);
+          return [g.id, !done];
+        } catch (_) {
+          return [g.id, false];
+        }
+      }));
+      if (!alive) return;
+      setPendingRound(Object.fromEntries(entries));
+    })();
+    return () => { alive = false; };
+  }, [groups]);
 
   // El CTA se queda siempre en rojo vivo (nunca "apagado" a la espera de que
   // rellenes el nombre): tocarlo sin nombre da foco al campo + lo sacude, en
@@ -1232,6 +1267,7 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
           <View style={rd.groupsList}>
             {groups.map((g) => (
               <Pressable key={g.id} style={rd.groupCard} onPress={() => onOpenGroup(g)}>
+                {pendingRound[g.id] && <View style={rd.groupBadge} />}
                 <View style={rd.groupRow}>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={rd.groupName} numberOfLines={1}>{g.name}</Text>
@@ -1595,6 +1631,13 @@ const rd = StyleSheet.create({
   groupCard: {
     backgroundColor: '#12161b', borderWidth: 1, borderColor: RD.trackBlue,
     borderRadius: 2, padding: 13,
+  },
+  // Mismo lenguaje que profileBadge (perfil con sobres pendientes): punto
+  // rojo en la esquina = "hay algo esperando dentro". Aquí, ronda de Grand
+  // Prix abierta que este grupo todavía no ha clasificado.
+  groupBadge: {
+    position: 'absolute', top: -4, right: -4, width: 10, height: 10, borderRadius: 5,
+    backgroundColor: RD.brand, borderWidth: 1.5, borderColor: RD.bg, zIndex: 1,
   },
   groupsLabel: { color: RD.trackBlue, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 1.2 },
   groupRow: {
