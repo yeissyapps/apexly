@@ -38,6 +38,35 @@ workflows:
         script: |
           npx expo prebuild --platform ios --clean
 
+      - name: Numero de build automatico (Apple no admite duplicados)
+        script: |
+          #!/bin/sh
+          set -e
+          # Nos ha pasado varias veces: subir a mano el buildNumber en
+          # app.json y olvidarlo, o subirlo pero reusar el numero porque ya
+          # habia una build anterior con ese mismo valor colgada en App
+          # Store Connect (publish rechazado con 409, "must be higher than
+          # the previously uploaded version"). Con esto deja de depender de
+          # acordarse: se pregunta a Apple cual es el numero mas alto que YA
+          # conoce (TestFlight o App Store, lo que sea mayor) y se usa ese +1,
+          # ignorando lo que ponga app.json salvo que sea aun mas alto (así
+          # nunca se compila un numero que ya existe, sea cual sea el origen
+          # del despiste).
+          #
+          # agvtool pisa el proyecto nativo YA generado por prebuild, no
+          # app.json: no hace falta comitear nada de vuelta al repo, cada
+          # build de Codemagic calcula el suyo.
+          APP_STORE_APPLE_ID=$(app-store-connect apps list --bundle-id "$BUNDLE_ID" --json | jq '.[0].id' -r)
+          TESTFLIGHT_BUILD=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
+          APPSTORE_BUILD=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID" || echo 0)
+          LOCAL_BUILD=$(node -p "require('./app.json').expo.ios.buildNumber")
+          HIGHEST=$TESTFLIGHT_BUILD
+          [ "$APPSTORE_BUILD" -gt "$HIGHEST" ] && HIGHEST=$APPSTORE_BUILD
+          [ "$LOCAL_BUILD" -gt "$HIGHEST" ] && HIGHEST=$LOCAL_BUILD
+          NEW_BUILD=$((HIGHEST + 1))
+          echo "TestFlight=$TESTFLIGHT_BUILD AppStore=$APPSTORE_BUILD app.json=$LOCAL_BUILD -> usando $NEW_BUILD"
+          cd ios && agvtool new-version -all "$NEW_BUILD"
+
       - name: Instalar pods
         script: |
           cd ios && pod install
