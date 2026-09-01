@@ -31,7 +31,7 @@ import { ActivityIndicator, Alert, Dimensions, Pressable, ScrollView, Share, Sta
 import SeasonRail, { GP_ACCENT } from './SeasonRail';
 import ShineBadge from './ShineBadge';
 import MiniTrackMap from './MiniTrackMap';
-import { RD, RD_FONT } from './theme';
+import { RD, RD_FONT, SECTOR_RESULT_COLORS } from './theme';
 import { CONFIG } from './config';
 import { fmtTime, fmtSecs, fmtGap, fmtCountdown } from './format';
 import { getActiveGrandPrix, startGrandPrix, getGroupMembers, getGpResults, getGpRoundLeader, leaveGroup, getMyId } from './api';
@@ -166,15 +166,37 @@ function fraseCampeonato(standings, myId, roundIdx, total) {
   return `Vas ${i + 1}.º · a ${lider.points - yo.points} pts de ${lider.nickname} · ${cola}`;
 }
 
+// Color por puesto del podio de LA RONDA (no de la general): 1.º morado —
+// mismo tono que "mejor del mundo" en el resto de la app, el techo de
+// prestigio — 2.º oro, 3.º plata, 4.º bronce. Antes solo el 1.º se
+// distinguía (stripCellWin/GP_ACCENT); esto extiende el mismo patrón
+// (relleno saturado + texto RD.bg) a las cuatro primeras plazas, que es
+// donde de verdad se juega la general — JC: "aporta un poco más de color a
+// la clasificación".
+const ROUND_PODIUM = [
+  SECTOR_RESULT_COLORS.purple, // 1.º — 25 pts
+  RD.gold1st,                  // 2.º — 18 pts
+  RD.silver2nd,                // 3.º — 15 pts
+  RD.bronze3rd,                // 4.º — 12 pts
+];
+
 // Tira de la temporada de un jugador: un hueco por ronda con los puntos que
 // sacó. Es lo que convierte "tiene 61 puntos" en "de dónde salen esos 61".
 function RoundStrip({ rounds, total }) {
   const cells = [];
   for (let i = 1; i <= total; i++) {
     const r = rounds[i];
+    const podiumColor = r && ROUND_PODIUM[r.pos - 1];
     cells.push(
-      <View key={i} style={[s.stripCell, r && s.stripCellRun, r && r.pos === 1 && s.stripCellWin]}>
-        <Text style={[s.stripText, r && s.stripTextRun, r && r.pos === 1 && s.stripTextWin]}>
+      <View
+        key={i}
+        style={[
+          s.stripCell,
+          r && s.stripCellRun,
+          podiumColor && { backgroundColor: podiumColor },
+        ]}
+      >
+        <Text style={[s.stripText, r && s.stripTextRun, podiumColor && s.stripTextWin]}>
           {r ? r.pts : '·'}
         </Text>
       </View>
@@ -674,7 +696,6 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   stripCellRun: { backgroundColor: 'rgba(79,169,255,0.18)' },
-  stripCellWin: { backgroundColor: GP_ACCENT },
   stripText: { color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono },
   stripTextRun: { color: RD.textPrimary, fontFamily: RD_FONT.monoBold },
   stripTextWin: { color: RD.bg, fontFamily: RD_FONT.monoBold },
