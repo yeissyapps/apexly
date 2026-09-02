@@ -30,6 +30,25 @@ anuncios son personalizados desde el commit `7b4ce25`, que quitó
 `requestNonPersonalizedAdsOnly` — con NPA forzado el eCPM de iOS era 0,24 €
 contra 3,63 € en Android, 15 veces menos.
 
+## Qué pasó (2.4.1, build 75, 02-09-2026)
+
+Segundo rechazo, esta vez **Guideline 2.1 - Information Needed**: "unable to
+locate the App Tracking Transparency permission request", revisado en un
+iPad Air 11" (M3) con iPadOS 26.6. Apple pide una **grabación de pantalla en
+dispositivo real** demostrando el diálogo, adjunta en las Notes.
+
+Esta vez SÍ había un bug de verdad, no solo un problema de dónde mirar.
+Dentro de `ensureAdsReady()` (`src/ads.js`), la comprobación de si el
+formulario de consentimiento UMP permitía pedir anuncios (`canRequestAds`)
+vivía **antes** de la línea que pide ATT, con un `return false` en medio. Si
+esa comprobación salía en `false` — denegado, o el valor por defecto en
+ciertas regiones o cuentas, plausible en el entorno de revisión de Apple —
+la función salía sin haber llegado nunca a pedir el permiso de seguimiento.
+
+**Corregido** (commit `5be5b63`): el permiso de seguimiento ya no depende de
+si luego se puede servir un anuncio o no. Se pide siempre, justo después del
+formulario UMP, tal y como estaba pensado desde el principio.
+
 ## Por qué NO se mueve el diálogo al arranque
 
 Sería la forma fácil de que el revisor tropiece con él, pero pedir permiso
@@ -60,6 +79,20 @@ immediately before the ATT prompt, in that order.
 
 The app has no login and no paid content gate; everything is reachable from a
 fresh install without credentials.
+```
+
+**Añadir SOLO en el envío de la 2.4.2** (build 75 fue rechazada pidiendo
+prueba en vídeo — en envíos posteriores, si no hay nada nuevo que demostrar,
+quitar este párrafo):
+
+```
+We found and fixed a bug where the ATT request could be skipped if the UMP
+consent form determined ads could not be requested (e.g. denied consent, or
+the default outcome in certain regions/accounts). The tracking permission
+request no longer depends on whether an ad can subsequently be shown — it is
+always presented after the UMP form. A screen recording made on a physical
+device after resetting tracking permissions is attached, showing the flow
+above end to end.
 ```
 
 ---
