@@ -801,22 +801,19 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
           </G>
         </Svg>
 
-        {/* Siguiente curva: chevron de rally, no minimapa. JC probó el
-            minimapa de conjunto y no ayudaba a leer qué curva viene — un
-            vistazo a la traza entera no dice nada sobre AHORA. Esto sí:
-            lado (‹ o ›) y nº de flechas = severidad (misma idea que un
-            libro de notas de copiloto), solo mientras la curva está a
-            menos de TURN_LOOKAHEAD_UNITS — más lejos no es accionable, así
-            que no se enciende nada (recta despejada).
+        {/* Siguiente curva: flecha, no minimapa. JC probó el minimapa de
+            conjunto y no ayudaba a leer qué curva viene — un vistazo a la
+            traza entera no dice nada sobre AHORA. Primera versión con
+            chevrons (‹‹‹/›››) como severidad: JC no los vio claros y pidió
+            simplificar a solo dirección. Tres estados nada más: recto
+            (↑, sin curva a menos de TURN_LOOKAHEAD_UNITS), izquierda (←)
+            o derecha (→). Siempre visible — "recto" es tan informativo
+            como una curva, no un estado vacío que haya que ocultar.
             pointerEvents="none": no debe robar NUNCA un toque del volante,
             aunque esté fuera de la zona inferior donde viven. */}
-        {turn && (
-          <View pointerEvents="none" style={styles.turnWrap}>
-            <Text style={styles.turnGlyph}>
-              {(turn.dir === 'L' ? '‹' : '›').repeat(turn.chevrons)}
-            </Text>
-          </View>
-        )}
+        <View pointerEvents="none" style={styles.turnWrap}>
+          <Text style={styles.turnGlyph}>{turn ? (turn.dir === 'L' ? '←' : '→') : '↑'}</Text>
+        </View>
 
         {/* Volante: dos zonas invisibles, no botones. Solo cambia la GEOMETRIA
             del area tactil — onSidePress/onSideRelease y el remate fijo de
@@ -1107,30 +1104,21 @@ function trackPalette(track) {
 }
 
 // --- Indicador de "siguiente curva" -----------------------------------------
-// JC: el minimapa de conjunto "no ayuda a saber qué curva viene". En su
-// lugar, un chevron de rally (‹‹‹ / ›››) apuntando a la próxima curva de
-// verdad, con el número de flechas como severidad — mismo lenguaje que
-// cualquier libro de notas de copiloto.
+// JC: el minimapa de conjunto "no ayuda a saber qué curva viene". Primera
+// versión con chevrons repetidos (‹‹‹/›››) como severidad — JC: "no se ven
+// muy bien... no hace falta indicar el tipo de curva, si no simplemente la
+// dirección". Se queda solo con tres estados: recto, izquierda, derecha.
 //
-// Severidad sacada del `type` que ya trae cada punto de track.center (viene
-// de pieces.js: recta/kink/curva_amplia/curva/curva_cerrada/horquilla/
-// chicane) — no hace falta reinventar un umbral de grados, el generador ya
-// sabe qué es cada tramo.
-const TURN_CHEVRONS = {
-  kink: 1, curva_amplia: 1, curva: 2, curva_cerrada: 3, horquilla: 3, chicane: 2,
-};
-
-// Metros (unidades de mundo) de antelación antes de encender el indicador —
+// Metros (unidades de mundo) de antelación antes de avisar de la curva —
 // a MAX_SPEED (250 u/s) son ~3.5s de aviso, similar a un aviso de copiloto
-// real. Más lejos que esto no es accionable, así que no se enciende nada
-// (recta despejada, sin curva a la vista).
+// real. Más lejos que esto se muestra "recto": no es accionable todavía.
 const TURN_LOOKAHEAD_UNITS = 900;
 
-// Precalcula, UNA vez por trazado, la lista de curvas (dónde empiezan, hacia
-// qué lado y su severidad) más la distancia acumulada punto a punto — todo
-// lo que necesita el indicador en cada frame es una búsqueda lineal corta
-// sobre esta lista (hay ~10-20 curvas por circuito) más una resta, nada que
-// recalcular sobre los ~160 puntos del trazado en el hilo de render.
+// Precalcula, UNA vez por trazado, la lista de curvas (dónde empiezan y hacia
+// qué lado) más la distancia acumulada punto a punto — todo lo que necesita
+// el indicador en cada frame es una búsqueda lineal corta sobre esta lista
+// (hay ~10-20 curvas por circuito) más una resta, nada que recalcular sobre
+// los ~160 puntos del trazado en el hilo de render.
 function buildCornerData(track) {
   const c = track.center;
   const n = c.length;
@@ -1164,7 +1152,7 @@ function buildCornerData(track) {
     }
     // dir: heading creciente = derecha (mismo signo que `entrada` +1 en
     // resolveEntrada — der(+1) mueve s.steer positivo, que suma a heading).
-    corners.push({ startIdx: Math.min(i - 1, n - 1), dir: sign >= 0 ? 'R' : 'L', chevrons: TURN_CHEVRONS[c[Math.min(i - 1, n - 1)].type] || 1 });
+    corners.push({ startIdx: Math.min(i - 1, n - 1), dir: sign >= 0 ? 'R' : 'L' });
   }
   return { corners, cumDist };
 }
@@ -1659,18 +1647,14 @@ const styles = StyleSheet.create({
   // Siguiente curva: esquina, no centro, por el mismo motivo que moradoWrap
   // de arriba — nunca tapar la pista que sí importa. Fondo semitransparente
   // para que se lea encima de cualquier tramo, claro u oscuro.
+  // Tamaño fijo (no se ajusta al contenido): los tres estados — ↑ ← → —
+  // ocupan lo mismo, así el HUD no da un salto al cambiar de uno a otro.
   turnWrap: {
-    position: 'absolute', top: 10, right: 10, borderRadius: 10,
+    position: 'absolute', top: 10, right: 10, width: 52, height: 48, borderRadius: 10,
     backgroundColor: 'rgba(13,15,19,0.7)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)',
-    paddingVertical: 4, paddingHorizontal: 10,
+    alignItems: 'center', justifyContent: 'center',
   },
-  // Chevrons apretados (letterSpacing negativo): sueltos como texto normal
-  // dejan un hueco feo entre flecha y flecha — juntos leen como una sola
-  // "punta", que es la lectura correcta (una curva, no varios símbolos).
-  turnGlyph: {
-    color: RD.textPrimary, fontSize: 26, fontFamily: RD_FONT.displayBlack,
-    letterSpacing: -4, lineHeight: 30,
-  },
+  turnGlyph: { color: RD.textPrimary, fontSize: 32, fontFamily: RD_FONT.displayBlack },
   // Etiqueta con el nombre del líder, anclada sobre su coche. Ancho fijo +
   // centrado para poder posicionarla restando la mitad, sin medir el texto.
   leaderNameWrap: { position: 'absolute', width: 140, alignItems: 'center' },
