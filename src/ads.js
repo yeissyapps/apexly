@@ -89,13 +89,6 @@ export function ensureAdsReady() {
       await prepareConsent();
       if (AdsConsent) {
         try { await AdsConsent.loadAndShowConsentFormIfRequired(); } catch (_) {}
-        try {
-          const info = await AdsConsent.getConsentInfo();
-          if (info && info.canRequestAds === false) {
-            adsReady = null; // que se reevalúe si cambia de opinión
-            return false;
-          }
-        } catch (_) {}
       }
       // ATT DESPUÉS del formulario UMP y ANTES de inicializar el SDK — en ese
       // orden. Apple pide pedirlo antes del primer uso del identificador de
@@ -106,8 +99,27 @@ export function ensureAdsReady() {
       // hace negar el consentimiento UMP: sin IDFA, iOS sigue sirviendo
       // anuncios (limitados, sin atribución), así que aquí no se lee el
       // resultado — solo hace falta que la petición ocurra.
+      //
+      // SIEMPRE se pide, pase lo que pase con canRequestAds. BUG real
+      // (rechazo de Apple, Guideline 2.1, "unable to locate the App
+      // Tracking Transparency permission request" en iPad de revisión):
+      // antes, la comprobación de canRequestAds vivía ANTES de esta línea,
+      // así que si el formulario UMP determinaba canRequestAds === false
+      // (denegado, o el valor por defecto en ciertas regiones/cuentas —
+      // plausible en el entorno de Apple), la función salía con `return
+      // false` sin haber llegado nunca a pedir ATT. El permiso de
+      // seguimiento no depende de si luego se sirve un anuncio o no.
       if (att) {
         try { await att.requestTrackingPermissionsAsync(); } catch (_) {}
+      }
+      if (AdsConsent) {
+        try {
+          const info = await AdsConsent.getConsentInfo();
+          if (info && info.canRequestAds === false) {
+            adsReady = null; // que se reevalúe si cambia de opinión
+            return false;
+          }
+        } catch (_) {}
       }
       await admob.default().initialize();
       return true;
