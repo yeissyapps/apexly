@@ -7,6 +7,11 @@
 import Svg, { Polyline, Circle, Rect, G } from 'react-native-svg';
 import { RD } from './theme';
 
+// Nota: llevó un tiempo un punto de coche en vivo (carPos) para usarse
+// DURANTE la carrera, sustituido por el indicador de "siguiente curva" (ver
+// NextTurn en Game.js) — JC: la vista de conjunto no ayuda a saber qué curva
+// viene, un chevron sí. Este componente vuelve a ser solo el de Resultado.
+
 // Lado de cada cuadro del mini-damero de meta (mismo blanco/negro que el
 // damero real del juego — ver ROAD.checkLight/checkDark en Game.js).
 const CHK = 5;
@@ -19,7 +24,7 @@ const WORST_SECTOR_RED = '#ff1a1a';
 // falta aquí para recortar el tercio de traza a resaltar en rojo.
 const SECTOR_COUNT = 3;
 
-export default function MiniTrackMap({ track, w, h, pad = 10, worstSector = null, carPos = null }) {
+export default function MiniTrackMap({ track, w, h, pad = 10, worstSector = null }) {
   if (!track || !track.center || track.center.length < 2) return null;
   const pts = track.center;
 
@@ -56,12 +61,6 @@ export default function MiniTrackMap({ track, w, h, pad = 10, worstSector = null
   const start = projXY(pts[0]);
   const end = projXY(pts[pts.length - 1]);
 
-  // Coche en vivo: mismo espacio de coordenadas que track.center (view.x/y
-  // en Game.js son mundo crudo, sin transformar), así que se proyecta con la
-  // misma projXY() de la traza — nunca se desincroniza aunque el trazado
-  // rote 90° al ser más alto que ancho.
-  const car = carPos ? projXY(carPos) : null;
-
   // Tercio de traza a pintar en rojo (tu peor sector respecto al mejor de
   // hoy) — mismo criterio de fronteras que sectorOfIdx() en Game.js.
   let worstPoints = null;
@@ -85,12 +84,6 @@ export default function MiniTrackMap({ track, w, h, pad = 10, worstSector = null
         <Rect x={end.x - CHK} y={end.y} width={CHK} height={CHK} fill="#15171c" />
         <Rect x={end.x} y={end.y} width={CHK} height={CHK} fill="#f2f2f2" />
       </G>
-      {/* Anillo blanco + relleno de marca: mismo lenguaje que el resto del
-          HUD (RD.brand es el rojo de "esto es tuyo/activo"), con el anillo
-          para que no se pierda contra la traza clara. */}
-      {car && (
-        <Circle cx={car.x} cy={car.y} r={5} fill={RD.brand} stroke="#f2f2f2" strokeWidth={1.5} />
-      )}
     </Svg>
   );
 }
