@@ -8,7 +8,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Dimensions, Linking, Modal, Platform, Pressable, ScrollView,
+  ActivityIndicator, Animated, Dimensions, Linking, Modal, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
@@ -61,7 +61,7 @@ import { loadGhost, saveGhostIfBest } from './src/ghost';
 import { loadAttempts, consumeAttempt, grantBatch, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
 import { PUSH_ENABLED, intentosTxt } from './src/features';
 import { CONFIG } from './src/config';
-import { prepareConsent, ensureAdsReady, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError, wasConsentDenied } from './src/ads';
+import { prepareConsent, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError, wasConsentDenied } from './src/ads';
 import { isUnlimitedCached, restoreUnlimited, buyUnlimited, getUnlimitedPrice } from './src/iap';
 import {
   logOnboardingComplete, logRaceStart, logRaceFinish, logPaywallView,
@@ -259,48 +259,6 @@ export default function App() {
       .catch(() => { if (alive) setGpRefSectors(null); });
     return () => { alive = false; };
   }, [gpActive?.id, gpRoundIndex, gpResult]);
-
-  // Permiso de seguimiento (ATT): se pide tras UNA vuelta, no al arrancar la
-  // app ni al pedir el primer anuncio.
-  //
-  // Antes vivía solo dentro de ensureAdsReady(), que únicamente se dispara al
-  // tocar "Ver anuncio" — o sea, tras gastar los 3 intentos del día. Apple
-  // rechazó la 2.4.0 por Guideline 5.1.2(i): el revisor jugó en un iPad, no
-  // llegó hasta ahí, y concluyó que la app no pedía permiso. Ver
-  // docs/review-notes.md.
-  //
-  // Aquí el jugador ya ha corrido, así que el permiso sigue llegando CON
-  // contexto —que es lo que sostiene la tasa de aceptación, y de ella depende
-  // el eCPM de iOS: con NPA forzado eran 0,24 € contra 3,63 € de Android— y a
-  // la vez es imposible no encontrarlo revisando la app.
-  //
-  // OJO — de dónde se llama importa, y cambió: antes se llamaba SOLA, dentro
-  // del propio handler de fin de vuelta (un callback async del bucle de
-  // física, disparado por requestAnimationFrame — nunca dentro de un toque).
-  // Tres rechazos seguidos de Apple con el mismo texto ("unable to locate the
-  // App Tracking Transparency permission request"), siempre en iPad, con el
-  // código ya verificado funcionando en iPhone real — y un patrón conocido
-  // reportado por otros equipos (React Native, Flutter, Cordova) donde iOS
-  // puede ignorar en silencio una petición de UI de sistema que no nace
-  // dentro de un gesto de usuario de verdad. Ahora se llama desde el
-  // `onPress` de los botones de la pantalla de resultado (retry / volver a
-  // inicio / cerrar resultado de Carrera o GP) — sigue siendo "después de
-  // correr, no al arrancar", pero la llamada real a ATT pasa a ocurrir
-  // síncrona dentro de un toque, que es el contexto que iOS trata como
-  // fiable para presentar UI de sistema.
-  //
-  // Se llama a ensureAdsReady() ENTERO y no solo a ATT para no romper el
-  // orden que exigen Google y Apple: primero el formulario UMP, después ATT, y
-  // el SDK al final. Repetirlo es gratis: iOS enseña el diálogo una sola vez y
-  // después devuelve la respuesta ya guardada (y ensureAdsReady() cachea su
-  // propia promesa, así que da igual si se llama desde más de un botón).
-  //
-  // Solo iOS: Android no tiene ATT y no hay motivo para adelantarle el
-  // formulario de consentimiento, donde hoy no falla nada.
-  function pedirPermisosDeAnuncios() {
-    if (Platform.OS !== 'ios') return;
-    ensureAdsReady().catch(() => {});
-  }
 
   // Consume un intento al empezar una vuelta (con ilimitado, no hace falta llevar la cuenta).
   function startAttempt() {
@@ -760,7 +718,7 @@ export default function App() {
       <GroupHome
         group={gpGroup}
         result={gpResult}
-        onDismissResult={() => { pedirPermisosDeAnuncios(); setGpResult(null); }}
+        onDismissResult={() => setGpResult(null)}
         onPlayRound={playGpRound}
         onViewStandings={(gp) => { setGpActive(gp); setScreen('gp-standings'); }}
         onBack={() => { setRefreshKey((k) => k + 1); setScreen('home'); }}
@@ -907,8 +865,8 @@ export default function App() {
         total={total}
         unlimited={unlimited}
         refreshKey={refreshKey}
-        onRetry={() => { pedirPermisosDeAnuncios(); tryPlay(); }}
-        onHome={() => { pedirPermisosDeAnuncios(); setScreen('home'); }}
+        onRetry={tryPlay}
+        onHome={() => setScreen('home')}
       />
     );
   }
@@ -949,7 +907,7 @@ export default function App() {
           unlimited={unlimited}
           result={careerResult}
           onPlayLevel={playCareerLevel}
-          onDismissResult={() => { pedirPermisosDeAnuncios(); setCareerResult(null); }}
+          onDismissResult={() => setCareerResult(null)}
         />
       )}
     </AppShell>

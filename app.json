@@ -54,12 +54,6 @@
         }
       ],
       [
-        "expo-tracking-transparency",
-        {
-          "userTrackingPermission": "Usamos este dato para mostrarte anuncios más relevantes cuando ves uno a cambio de intentos extra."
-        }
-      ],
-      [
         "@sentry/react-native/expo",
         {
           "url": "https://sentry.io/",
