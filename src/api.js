@@ -342,6 +342,41 @@ export async function claimShareReward() {
   }
 }
 
+// ---- Códigos de invitación (ver supabase/referrals.sql) --------------------
+
+// Código propio, generándolo la primera vez que se pide (idempotente en
+// servidor: siempre devuelve el mismo a partir de ahí).
+export async function getMyReferralCode() {
+  await ensureSession();
+  const { data, error } = await supabase.rpc('get_or_create_referral_code');
+  if (error) throw error;
+  return data;
+}
+
+// ¿Ya ha canjeado esta cuenta un código ajeno alguna vez? Lectura directa
+// (RLS ya limita a las filas propias) — no hace falta RPC solo para mirar.
+export async function hasRedeemedReferral() {
+  const user = await ensureSession();
+  const { data, error } = await supabase
+    .from('referrals')
+    .select('id')
+    .eq('redeemed_by', user.id)
+    .maybeSingle();
+  if (error) return false;
+  return !!data;
+}
+
+// Canjea el código de otro jugador. Lanza con el código de error del
+// servidor (CODE_NOT_FOUND / CANNOT_REDEEM_OWN_CODE / ALREADY_REDEEMED) para
+// que la pantalla decida el mensaje.
+export async function redeemReferralCode(code) {
+  await ensureSession();
+  const { data, error } = await supabase.rpc('redeem_referral_code', { p_code: code });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return row?.bonus ?? null;
+}
+
 // Reclama la recompensa diaria de racha (idempotente server-side: si ya se
 // reclamó hoy, granted vuelve false). Fire-and-forget: no debe bloquear el
 // flujo de Inicio si falla.
