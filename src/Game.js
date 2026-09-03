@@ -7,7 +7,7 @@
 // ============================================================================
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, AppState, Dimensions, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, AppState, Dimensions, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
@@ -722,6 +722,25 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
 
   const turn = nextTurn(cornerData, view.trackIdx);
 
+  // Salir A MEDIA CARRERA, pedido por jugadores: "si te has chocado mucho,
+  // que te saque a Inicio y cuente como intento". El intento ya se gastó al
+  // arrancar (ver startRun -> onAttemptStart, más arriba), así que salir
+  // aquí no toca nada de la economía — el hueco ya estaba consumido antes
+  // de que el coche se moviera. Solo hace falta confirmar, porque a
+  // diferencia de 'ready' (donde no se ha perdido nada todavía) esto SÍ
+  // tira la vuelta entera sin remedio.
+  function handleExitPress() {
+    if (view.phase !== 'running') { onExit && onExit(); return; }
+    Alert.alert(
+      '¿Salir de la carrera?',
+      'El intento ya se ha gastado — no se te devolverá.',
+      [
+        { text: 'Seguir corriendo', style: 'cancel' },
+        { text: 'Salir', style: 'destructive', onPress: () => onExit && onExit() },
+      ],
+    );
+  }
+
   const carDeg = (view.heading * 180) / Math.PI;
   const carLoadout = {
     ...CAR_DEFAULTS,
@@ -960,8 +979,8 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
       <View style={[rd.hud, { height: HUD_H, paddingTop: insets.top }]}>
         <View style={rd.hudTopRow}>
           <View style={rd.hudSide}>
-            {view.phase === 'ready' && (
-              <Pressable onPress={onExit} hitSlop={10}>
+            {view.phase !== 'finished' && (
+              <Pressable onPress={handleExitPress} hitSlop={10}>
                 <Text style={rd.exitText}>‹ SALIR</Text>
               </Pressable>
             )}
