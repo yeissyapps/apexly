@@ -1,4 +1,21 @@
-# Notas para App Review (Apple) — copiar en las Review Notes de cada envío
+# Notas para App Review (Apple) — HISTÓRICO, ya no aplica
+
+> **OBSOLETO desde el 03-09-2026.** Tras tres rechazos idénticos (Guideline
+> 2.1) y sin poder verificar en un iPad real, JC decidió quitar ATT del
+> todo — commit `9dd93b1`. iOS vuelve a anuncios no personalizados, como
+> hacía la build 21, sin pedir ningún permiso de seguimiento. **No pegar
+> este texto en ningún envío nuevo**: describe un flujo (el diálogo de ATT)
+> que ya no existe en la app. Se deja el documento entero por si algún día
+> se retoma ATT con acceso a un iPad de verdad — ver el razonamiento
+> completo en `src/ads.js`.
+>
+> Lo que SÍ hay que hacer en el próximo envío: en App Store Connect, App
+> Privacy, declarar que la app **no rastrea** (ya no es cierto que sí, así
+> que la ficha actual está desactualizada — Apple lo pide explícitamente en
+> su propio mensaje de rechazo: "If your app does not track users, update
+> your app privacy information").
+
+---
 
 Estas notas existen por un rechazo real, y hay que pegarlas **en cada envío
 a la App Store**. Sin ellas, el revisor vuelve a llegar a la misma conclusión
