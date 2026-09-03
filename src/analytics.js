@@ -48,3 +48,19 @@ export function logPurchaseUnlimited() {
 export function logGarageOpen() {
   log('garage_open');
 }
+
+// Nadie sabía, ni siquiera JC probando su propia app, si compartir una
+// vuelta se usaba de verdad — cero eventos hasta ahora. Sin esto seguimos
+// adivinando si el canal de crecimiento más barato que tenemos sirve para
+// algo o no.
+export function logShareResult() {
+  log('share_result');
+}
+
+export function logReferralCodeShared() {
+  log('referral_code_shared');
+}
+
+export function logReferralRedeemed() {
+  log('referral_redeemed');
+}

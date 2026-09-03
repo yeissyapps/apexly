@@ -54,7 +54,7 @@ import {
   getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
   getMyLoadout, getWallet, claimDailyReward, getRecentRewards, claimShareReward, claimCareerLevel,
   submitGpResult, notifyGpOvertake, recordLap, submitDailyRun, getLeaderRun, getMyGpRoundSectors,
-  getActiveGrandPrix, getGpResults, getMyId,
+  getActiveGrandPrix, getGpResults, getMyId, getMyReferralCode,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -71,6 +71,7 @@ import { prepareConsent, showRewarded, isPrivacyOptionsRequired, showPrivacyOpti
 import {
   logOnboardingComplete, logRaceStart, logRaceFinish, logPaywallView,
   logAdWatched, logGarageOpen,
+  logShareResult, logReferralCodeShared, logReferralRedeemed,
 } from './src/analytics';
 import ShareCard from './src/ShareCard';
 import { shareCardImage } from './src/share';
@@ -1805,6 +1806,8 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   const [standing, setStanding] = useState(null);      // global { rank, total, gapToLeaderMs, above }
   const [groupRank, setGroupRank] = useState(null);     // puesto en tu grupo principal
   const [rankFrom, setRankFrom] = useState(null);       // puesto que tenías antes de esta vuelta (solo si has subido)
+  const [myCode, setMyCode] = useState(null);           // código de invitación propio, para colar en el share
+  useEffect(() => { getMyReferralCode().then(setMyCode).catch(() => {}); }, []);
 
   // Confirmación de "+5 monedas" al compartir. JC, tras usar la app él mismo:
   // "ni sabía que por compartir te daban monedas, hay que fomentar eso mucho
@@ -2020,8 +2023,19 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     const parts = [`Apexly · ${dayShort()} ${wx.icon}`.trim(), fmtTime(result.ms)];
     if (standing) parts.push(`${standing.rank}.º de ${standing.total} · +${fmtSecs(standing.gapToLeaderMs)}s al líder`);
     parts.push('', tagline, retoLink(result.ms, todayKey()));
+    // Código de invitación colado en el mismo mensaje: JC señaló que
+    // compartir una vuelta puede que no sea, de por sí, algo que la gente
+    // haga mucho — así que en vez de depender de que alguien vaya a la
+    // Tienda a buscar el código, viaja gratis en el único mensaje que SÍ
+    // sabemos que ya se manda. Si `myCode` no ha cargado (red lenta, o el
+    // usuario aún no tiene sesión resuelta), se comparte sin él — nunca
+    // bloquea compartir la vuelta por esto.
+    if (myCode) {
+      parts.push('', `¿No la tienes? Instálatela y mete mi código ${myCode} en la Tienda — ganamos monedas los dos.`);
+    }
     // Genera la imagen y la comparte (con vista previa); si no puede, texto.
     await shareCardImage(cardRef, parts.join('\n'));
+    logShareResult();
     // +5 monedas por compartir (1 vez/día, idempotente en servidor) — se
     // concede al usar el flujo de compartir, no hace falta confirmar que el
     // receptor lo vio (los share sheets nativos no dan esa señal fiable).
