@@ -65,12 +65,16 @@ const SECTIONS = {
   //   tramo más largo (straight_l, 700u) se ha quitado de las opciones —
   //   sigue siendo la sección "de respiro" entre tramos técnicos, pero más
   //   corta, no una recta de casi 3s a tope sin ningún input.
+  // JC: "las rectas no molan" — straight_m fuera del todo (era la mitad de
+  // las opciones), se queda solo con straight_xs/straight_s. Sigue siendo
+  // la sección "de respiro" (con peso muy bajo, ver WEIGHT), pero cuando
+  // sale, sale corta.
   fast: (r) => {
     const d = flip(r);
     return [
-      pick(r, ['straight_s', 'straight_s', 'straight_m']),
+      pick(r, ['straight_xs', 'straight_s', 'straight_s']),
       d ? 'kink_L' : 'kink_R',
-      pick(r, ['straight_s', 'straight_m']),
+      pick(r, ['straight_xs', 'straight_s']),
       d ? 'kink_R' : 'kink_L',
       'straight_s',
     ];
@@ -88,27 +92,57 @@ const SECTIONS = {
     if (chance(r, 0.4)) return flip(r) ? [A, 'straight_xs', B, 'straight_xs', A] : [B, 'straight_xs', A, 'straight_xs', B];
     return flip(r) ? [A, 'straight_s', B] : [B, 'straight_s', A];
   },
-  // Cerrada: jog de curvas de 90° (corner / tight).
+  // Cerrada: jog de curvas de 90° (corner / tight). Conector acortado
+  // (straight_m -> straight_s): menos respiro entre las dos, más seguidas.
   tight: (r) => {
     const k = pick(r, ['corner', 'tight', 'tight']);
     const L = k + '_L', R = k + '_R';
-    return flip(r) ? [R, 'straight_m', L] : [L, 'straight_m', R];
+    return flip(r) ? [R, 'straight_s', L] : [L, 'straight_s', R];
   },
-  // Hook: giro de > 90° -> jog de hooks o switchback de horquilla (se valida).
+  // Hook: giro de > 90° -> jog de hooks, switchback de horquilla, o (raro,
+  // 15%) TRES horquillas seguidas casi sin respiro — complejo de resistencia
+  // que antes no existía, el jog/switchback siempre paraba en dos.
   // `hairpinBias` (0..1, por defecto 0.5) inclina hacia la horquilla de
   // verdad (switchback) en vez del jog más suave — lo usa Modo Carrera para
   // subir la dificultad en los niveles altos sin tocar el circuito diario.
   hook: (r, opts) => {
     const bias = opts?.hairpinBias ?? 0.5;
+    if (chance(r, 0.15)) {
+      const seq = flip(r) ? ['hairpin_L', 'hairpin_R', 'hairpin_L'] : ['hairpin_R', 'hairpin_L', 'hairpin_R'];
+      return [seq[0], 'straight_xs', seq[1], 'straight_xs', seq[2]];
+    }
     if (chance(r, 1 - bias)) return flip(r) ? ['hook_R', 'straight_s', 'hook_L'] : ['hook_L', 'straight_s', 'hook_R'];
     return flip(r) ? ['hairpin_R', 'straight_m', 'hairpin_L'] : ['hairpin_L', 'straight_m', 'hairpin_R'];
   },
+  // Radio decreciente: dos curvas hacia el MISMO lado, sin recta entre
+  // medias — el encaje de assemble() ya garantiza la tangente, así que se
+  // encadenan directas. Se siente como una curva que se va cerrando encima
+  // tuyo, justo lo que pedía JC: "juega con eso" en vez de más recta. Nunca
+  // había dos curvas seguidas al mismo lado hasta ahora, siempre alternaban.
+  decreasing: (r) => {
+    const suf = flip(r) ? '_L' : '_R';
+    const outer = pick(r, ['wide', 'sweep', 'bend']);
+    const inner = pick(r, ['corner', 'tight']);
+    return [outer + suf, inner + suf];
+  },
+  // Ese asimétrica: entra ancha y sale cerrada (o al revés), sentidos
+  // opuestos como una chicane normal, pero SIN el radio simétrico de
+  // chicane_LR/RL — el freno de la parte cerrada llega de sorpresa después
+  // de la parte amplia, que invita a ir más rápido de lo que luego cabe.
+  asym: (r) => {
+    const suf1 = flip(r) ? '_L' : '_R';
+    const suf2 = suf1 === '_L' ? '_R' : '_L';
+    const wide = pick(r, ['wide', 'bend']);
+    const tight = pick(r, ['tight', 'corner']);
+    return flip(r) ? [wide + suf1, 'straight_xs', tight + suf2] : [tight + suf1, 'straight_xs', wide + suf2];
+  },
 };
-const TYPES = ['fast', 'esses', 'tight', 'flow', 'hook'];
-// 'fast' bajado (0.22 -> 0.14): sus kinks no frenan de verdad (ver comentario
-// en SECTIONS.fast), así que cuanto más pesa, más lapso sin nada que decidir.
-// El resto absorbe la diferencia hacia las secciones con curvas de verdad.
-const WEIGHT = { fast: 0.14, esses: 0.29, tight: 0.25, flow: 0.18, hook: 0.14 };
+const TYPES = ['fast', 'esses', 'tight', 'flow', 'hook', 'decreasing', 'asym'];
+// 'fast' bajado a mínimos (0.14 -> 0.08): sus kinks no frenan de verdad (ver
+// comentario en SECTIONS.fast), así que cuanto más pesa, más lapso sin nada
+// que decidir — JC: "las rectas no molan". El hueco lo cubren las dos
+// secciones nuevas (decreasing/asym), que no llevan ninguna recta larga.
+const WEIGHT = { fast: 0.08, esses: 0.27, tight: 0.22, flow: 0.15, hook: 0.14, decreasing: 0.07, asym: 0.07 };
 function weightedType(r, weight) {
   const x = r();
   let acc = 0;
@@ -118,14 +152,15 @@ function weightedType(r, weight) {
 
 // --- Etiqueta descriptiva del carácter del circuito -------------------------
 function makeLabel(types, half) {
-  const c = { fast: 0, esses: 0, tight: 0, flow: 0, hook: 0 };
+  const c = { fast: 0, esses: 0, tight: 0, flow: 0, hook: 0, decreasing: 0, asym: 0 };
   for (const t of types) c[t]++;
   const tags = [];
   if (half <= NARROW) tags.push('Estrecho');
   if (c.hook >= 2) tags.push('Horquillas');
   else if (c.esses >= 3) tags.push('Chicanes');
+  else if (c.decreasing >= 2) tags.push('Radio decreciente');
   else if (c.tight >= 3) tags.push('Cerrado');
-  else if (c.esses + c.tight + c.hook > c.fast + c.flow) tags.push('Técnico');
+  else if (c.esses + c.tight + c.hook + c.decreasing + c.asym > c.fast + c.flow) tags.push('Técnico');
   if (c.fast >= 4) tags.push('Rápido');
   else if (c.flow >= 3) tags.push('Fluido');
   if (tags.length === 0) tags.push('Variado');
@@ -163,9 +198,10 @@ function generateSpec(dateKey, opts = {}) {
     const rng = mulberry32(hashStr(dateKey + '#' + attempt));
     // La sensación de velocidad se nota mucho más en estrecho (NARROW) que en
     // ancho (WIDE) — JC: "el estrecho está perfecto... el ancho se hace muy
-    // aburrido". Antes era 22% NARROW / 78% WIDE; se invierte para que
-    // ESTRECHO sea el caso normal y ANCHO quede como variedad ocasional.
-    const half = forcedHalf != null ? forcedHalf : (chance(rng, 0.75) ? NARROW : WIDE);
+    // aburrido", y más tarde "los circuitos anchos tampoco [molan]". Primero
+    // se invirtió de 22/78 a 75/25 NARROW/WIDE; ahora sube a 90/10 — ANCHO
+    // pasa de "variedad ocasional" a "rareza", no al caso normal.
+    const half = forcedHalf != null ? forcedHalf : (chance(rng, 0.9) ? NARROW : WIDE);
     const ids = ['straight_s'];
     const types = [];
     let len = pieceLen['straight_s'];
@@ -245,12 +281,17 @@ const lerp = (a, b, t) => a + (b - a) * t;
 // afectado por ella (sigue con sus valores de siempre).
 export function tieredCircuit(seedKey, t) {
   const half = lerp(56, 36, t);       // más ancho que WIDE en el nivel 1 -> más estrecho que NARROW en el último
+  // Mismo criterio que el diario: fast cae fuerte con la dificultad (rectas
+  // sin frenar de verdad), y decreasing/asym (nuevas, sin recta larga) hacen
+  // hueco en vez de venir de la nada — esses/tight/hook casi no se tocan.
   const weight = {
-    fast: lerp(0.20, 0.06, t),
-    esses: lerp(0.26, 0.28, t),
-    tight: lerp(0.20, 0.26, t),
-    flow: lerp(0.20, 0.10, t),
-    hook: lerp(0.14, 0.30, t),
+    fast: lerp(0.14, 0.04, t),
+    esses: lerp(0.24, 0.24, t),
+    tight: lerp(0.18, 0.22, t),
+    flow: lerp(0.18, 0.08, t),
+    hook: lerp(0.12, 0.26, t),
+    decreasing: lerp(0.07, 0.08, t),
+    asym: lerp(0.07, 0.08, t),
   };
   const hairpinBias = lerp(0.35, 0.85, t); // dentro de 'hook': jog suave -> horquilla de verdad
   const spec = generateSpec(seedKey, { half, weight, hairpinBias, requireFast: t < 0.6 });
