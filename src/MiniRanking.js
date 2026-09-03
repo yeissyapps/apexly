@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { getGlobalBoard, getLeaderboard, listMyGroups } from './api';
+import { getGlobalBoard, getLeaderboard, listMyGroups, getWorldWinCounts } from './api';
 import { fmtTime } from './format';
 import { RD, RD_FONT } from './theme';
 import { frameById, frameStyle, frameGlyphColor } from './frames';
@@ -33,13 +33,25 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
   const [board, setBoard] = useState(null);
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(false);
+  // Cuántas veces ha sido cada uno 1.º del mundo — JC: "molaría que fuera
+  // acumulativo y que se pudiera ver las veces que ha quedado primero del
+  // mundo". Un solo lote por las filas que de verdad están en pantalla, no
+  // una consulta por fila.
+  const [winCounts, setWinCounts] = useState({});
 
   useEffect(() => {
     let alive = true;
-    setError(false); setBoard(null); setRows(null);
+    setError(false); setBoard(null); setRows(null); setWinCounts({});
     const load = isGlobal ? getGlobalBoard() : getLeaderboard(scope);
     load
-      .then((res) => { if (!alive) return; if (isGlobal) setBoard(res); else setRows(res); })
+      .then((res) => {
+        if (!alive) return;
+        if (isGlobal) setBoard(res); else setRows(res);
+        const ids = isGlobal
+          ? [...(res.top || []), res.me, ...(res.aboveRows || []), ...(res.belowRows || [])].filter(Boolean).map((r) => r.userId)
+          : (res || []).map((r) => r.userId);
+        getWorldWinCounts(ids).then((wc) => { if (alive) setWinCounts(wc); }).catch(() => {});
+      })
       .catch(() => { if (alive) setError(true); });
     return () => { alive = false; };
   }, [scope, refreshKey]);
@@ -88,16 +100,16 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
           {total} {total === 1 ? 'jugador ha corrido hoy' : 'jugadores han corrido hoy'}
         </Text>
         {podium.length >= 3 ? (
-          <Podium rows={podium} />
+          <Podium rows={podium} winCounts={winCounts} />
         ) : (
           <View style={styles.list}>
-            {podium.map((r, i) => <RankRow key={r.userId} r={{ ...r, rank: i + 1 }} />)}
+            {podium.map((r, i) => <RankRow key={r.userId} r={{ ...r, rank: i + 1 }} wins={winCounts[r.userId]} />)}
           </View>
         )}
 
         {entorno.length > 0 ? (
           <View style={styles.list}>
-            {entorno.map((r) => <RankRow key={r.userId} r={r} />)}
+            {entorno.map((r) => <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} />)}
           </View>
         ) : !me ? (
           <View style={styles.placeholder}>
@@ -121,15 +133,15 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
     <>
       {tabs}
       {podium.length >= 3 ? (
-        <Podium rows={podium} />
+        <Podium rows={podium} winCounts={winCounts} />
       ) : (
         <View style={styles.list}>
-          {podium.map((r) => <RankRow key={r.userId} r={r} />)}
+          {podium.map((r) => <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} />)}
         </View>
       )}
       {rest.length > 0 && (
         <View style={styles.list}>
-          {rest.map((r) => <RankRow key={r.userId} r={r} />)}
+          {rest.map((r) => <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} />)}
         </View>
       )}
     </>
@@ -159,7 +171,7 @@ function Tab({ label, active, dashed, onPress, color }) {
 // magenta sigue diciendo "esta fila eres tú" y el marco añade el acabado. Y
 // se pinta el de TODOS, no solo el propio — es justo lo que hace que la
 // pieza tenga sentido: es la única de la colección que ve el resto.
-function RankRow({ r }) {
+function RankRow({ r, wins }) {
   const f = frameById(r.frame);
   return (
     <View style={[styles.row, r.isMe && styles.rowMe, frameStyle(f, RD)]}>
@@ -169,6 +181,10 @@ function RankRow({ r }) {
           {r.isMe ? `${r.nickname} (tú)` : r.nickname}
         </Text>
         {!!f.glyph && <Text style={[styles.rowGlyph, { color: frameGlyphColor(f, RD) }]}>{f.glyph}</Text>}
+        {/* Cuántas veces ha sido 1.º del mundo, no solo si lo ha sido —
+            independiente de si hoy lleva puesta la corona o cambió de marco:
+            es un hecho de la cuenta, no del cosmético equipado. */}
+        {wins > 0 && <Text style={[styles.rowWins, { color: RD.gold1st }]}>×{wins}</Text>}
       </View>
       <Text style={styles.rowTime}>{fmtTime(r.bestMs)}</Text>
     </View>
@@ -184,7 +200,7 @@ function RankRow({ r }) {
 const PODIUM_COLOR = [RD.gold1st, RD.silver2nd, RD.bronze3rd];
 const PODIUM_SHADE = [RD.gold1stShade, RD.silver2ndShade, RD.bronze3rdShade];
 
-function Podium({ rows }) {
+function Podium({ rows, winCounts = {} }) {
   const order = [rows[1], rows[0], rows[2]]; // 2º - 1º - 3º
   return (
     <View style={styles.podiumRow}>
@@ -193,6 +209,7 @@ function Podium({ rows }) {
         const color = PODIUM_COLOR[place - 1];
         const shade = PODIUM_SHADE[place - 1];
         const big = place === 1;
+        const wins = winCounts[r.userId];
         return (
           <View key={r.userId} style={styles.podiumCol}>
             <Text
@@ -205,6 +222,7 @@ function Podium({ rows }) {
             </Text>
             <Text style={styles.rowName} numberOfLines={1}>{r.isMe ? 'Tú' : r.nickname}</Text>
             <Text style={styles.rowTime}>{fmtTime(r.bestMs)}</Text>
+            {wins > 0 && <Text style={[styles.rowWins, { color: RD.gold1st }]}>×{wins} mundial{wins === 1 ? '' : 'es'}</Text>}
           </View>
         );
       })}
@@ -244,6 +262,7 @@ const styles = StyleSheet.create({
   rowRankMe: { color: RD.youMagenta },
   rowName: { color: RD.textPrimary, fontSize: 13, fontWeight: '700', flexShrink: 1 },
   rowGlyph: { fontSize: 13, marginLeft: 5 },
+  rowWins: { fontSize: 10, fontFamily: RD_FONT.monoBold, marginLeft: 3 },
   rowNameMe: { color: RD.textPrimary },
   rowTime: { color: RD.cream, fontSize: 12, fontFamily: RD_FONT.mono },
 
