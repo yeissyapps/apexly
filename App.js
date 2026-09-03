@@ -244,8 +244,8 @@ export default function App() {
     return () => { alive = false; };
   }, [gpActive?.id, gpRoundIndex, gpResult]);
 
-  // Permiso de seguimiento (ATT): se pide al terminar UNA vuelta, no al
-  // arrancar la app ni al pedir el primer anuncio.
+  // Permiso de seguimiento (ATT): se pide tras UNA vuelta, no al arrancar la
+  // app ni al pedir el primer anuncio.
   //
   // Antes vivía solo dentro de ensureAdsReady(), que únicamente se dispara al
   // tocar "Ver anuncio" — o sea, tras gastar los 3 intentos del día. Apple
@@ -258,10 +258,26 @@ export default function App() {
   // el eCPM de iOS: con NPA forzado eran 0,24 € contra 3,63 € de Android— y a
   // la vez es imposible no encontrarlo revisando la app.
   //
+  // OJO — de dónde se llama importa, y cambió: antes se llamaba SOLA, dentro
+  // del propio handler de fin de vuelta (un callback async del bucle de
+  // física, disparado por requestAnimationFrame — nunca dentro de un toque).
+  // Tres rechazos seguidos de Apple con el mismo texto ("unable to locate the
+  // App Tracking Transparency permission request"), siempre en iPad, con el
+  // código ya verificado funcionando en iPhone real — y un patrón conocido
+  // reportado por otros equipos (React Native, Flutter, Cordova) donde iOS
+  // puede ignorar en silencio una petición de UI de sistema que no nace
+  // dentro de un gesto de usuario de verdad. Ahora se llama desde el
+  // `onPress` de los botones de la pantalla de resultado (retry / volver a
+  // inicio / cerrar resultado de Carrera o GP) — sigue siendo "después de
+  // correr, no al arrancar", pero la llamada real a ATT pasa a ocurrir
+  // síncrona dentro de un toque, que es el contexto que iOS trata como
+  // fiable para presentar UI de sistema.
+  //
   // Se llama a ensureAdsReady() ENTERO y no solo a ATT para no romper el
   // orden que exigen Google y Apple: primero el formulario UMP, después ATT, y
   // el SDK al final. Repetirlo es gratis: iOS enseña el diálogo una sola vez y
-  // después devuelve la respuesta ya guardada.
+  // después devuelve la respuesta ya guardada (y ensureAdsReady() cachea su
+  // propia promesa, así que da igual si se llama desde más de un botón).
   //
   // Solo iOS: Android no tiene ATT y no hay motivo para adelantarle el
   // formulario de consentimiento, donde hoy no falla nada.
@@ -374,7 +390,6 @@ export default function App() {
     const gapMs = gapMsFor(n, careerSpec.timeEstimate);
     const passed = ms <= gapMs;
     recordLap(ms, impacts); // cuenta para los contadores del Perfil
-    pedirPermisosDeAnuncios();
     if (passed) {
       try { await claimCareerLevel(n, Math.round(ms)); } catch (_) {}
     }
@@ -454,7 +469,6 @@ export default function App() {
     // También las vueltas de práctica: has estado en pista y te has chocado
     // igual, aunque esa vuelta no clasifique.
     recordLap(ms, impacts);
-    pedirPermisosDeAnuncios();
     if (isPractice) {
       setGpResult({ dayIndex, ms, isPractice: true });
       setScreen('group-home');
@@ -647,7 +661,6 @@ export default function App() {
     // Cuenta TODAS las vueltas, no solo las que mejoran: "cuánto has corrido"
     // no es lo mismo que "cuál es tu récord".
     recordLap(ms, impacts);
-    pedirPermisosDeAnuncios();
     // Guarda tu mejor vuelta (fantasma) en el móvil.
     saveGhostIfBest(todayKey(), ms, trace).then((g) => { if (g) setGhost(g); }).catch(() => {});
     // Splits de sector de ESTA vuelta (aunque no sea tu mejor tiempo general —
@@ -731,7 +744,7 @@ export default function App() {
       <GroupHome
         group={gpGroup}
         result={gpResult}
-        onDismissResult={() => setGpResult(null)}
+        onDismissResult={() => { pedirPermisosDeAnuncios(); setGpResult(null); }}
         onPlayRound={playGpRound}
         onViewStandings={(gp) => { setGpActive(gp); setScreen('gp-standings'); }}
         onBack={() => { setRefreshKey((k) => k + 1); setScreen('home'); }}
@@ -875,8 +888,8 @@ export default function App() {
         total={total}
         unlimited={unlimited}
         refreshKey={refreshKey}
-        onRetry={tryPlay}
-        onHome={() => setScreen('home')}
+        onRetry={() => { pedirPermisosDeAnuncios(); tryPlay(); }}
+        onHome={() => { pedirPermisosDeAnuncios(); setScreen('home'); }}
       />
     );
   }
@@ -917,7 +930,7 @@ export default function App() {
           unlimited={unlimited}
           result={careerResult}
           onPlayLevel={playCareerLevel}
-          onDismissResult={() => setCareerResult(null)}
+          onDismissResult={() => { pedirPermisosDeAnuncios(); setCareerResult(null); }}
         />
       )}
     </AppShell>
