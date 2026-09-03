@@ -7,7 +7,7 @@
 // ============================================================================
 
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Share, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Ellipse } from 'react-native-svg';
 
 import DangerStripe from './DangerStripe';
@@ -19,9 +19,17 @@ import { RD, RD_FONT, RARITY_COLOR, RARITY_LABEL } from './theme';
 import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS, TOTAL_PIECES } from './car';
 import { CHASSIS } from './chassis';
 import { FRAMES } from './frames';
-import { getWallet, getInventory, getMyLoadout, saveLoadout, openPack } from './api';
+import { SHARE_LINK } from './links';
+import {
+  getWallet, getInventory, getMyLoadout, saveLoadout, openPack,
+  getMyReferralCode, hasRedeemedReferral, redeemReferralCode,
+} from './api';
 
 const PACK_COST = 125;
+// Solo para el texto — el número real y la validación viven en el servidor
+// (v_bonus en redeem_referral_code, supabase/referrals.sql). Si se cambia
+// ahí, cambiar aquí también.
+const REFERRAL_BONUS = 50;
 
 // Nombre bonito de la pieza que acaba de salir. Faltaban 'chassis' y 'frame'
 // desde que se añadieron: caían al genérico y el sobre anunciaba "Monoplaza"
@@ -70,13 +78,56 @@ export default function Tienda({ onBack }) {
   // y escribe al instante, en el mismo tick del primer tap.
   const openingRef = useRef(false);
 
+  // Código de invitación: el tuyo (permanente, para repartir) + si esta
+  // cuenta ya canjeó uno ajeno alguna vez (solo se puede una vez en la vida,
+  // ver supabase/referrals.sql — por eso el formulario de canjear desaparece
+  // en cuanto se sabe que ya se gastó).
+  const [myCode, setMyCode] = useState(null);
+  const [alreadyRedeemed, setAlreadyRedeemed] = useState(null); // null = aún no se sabe
+  const [redeemInput, setRedeemInput] = useState('');
+  const [redeemBusy, setRedeemBusy] = useState(false);
+  const [redeemMsg, setRedeemMsg] = useState(null); // { type:'ok'|'err', text }
+
   const refresh = () => {
     getWallet().then(setWallet).catch(() => {});
     getInventory().then((items) => setOwnedCount(items.length)).catch(() => {});
     getMyLoadout().then(setLoadout).catch(() => {});
+    getMyReferralCode().then(setMyCode).catch(() => {});
+    hasRedeemedReferral().then(setAlreadyRedeemed).catch(() => setAlreadyRedeemed(false));
   };
 
   useEffect(refresh, []);
+
+  function shareMyCode() {
+    Share.share({
+      message:
+        `¡Échale un ojo a Apexly! Un circuito nuevo cada día, batallas contra ` +
+        `tus amigos y contra el mundo.\n\nMete mi código ${myCode} en la Tienda ` +
+        `al instalarte la app — ganamos monedas los dos.\n\n${SHARE_LINK}`,
+    }).catch(() => {});
+  }
+
+  async function handleRedeem() {
+    const code = redeemInput.trim();
+    if (!code || redeemBusy) return;
+    setRedeemBusy(true);
+    setRedeemMsg(null);
+    try {
+      const bonus = await redeemReferralCode(code);
+      setRedeemMsg({ type: 'ok', text: `¡Código válido! +${bonus} monedas para los dos.` });
+      setAlreadyRedeemed(true);
+      refresh();
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const text = msg.includes('CODE_NOT_FOUND') ? 'Ese código no existe.'
+        : msg.includes('CANNOT_REDEEM_OWN_CODE') ? 'No puedes usar tu propio código.'
+        : msg.includes('ALREADY_REDEEMED') ? 'Ya has canjeado un código antes.'
+        : 'No se pudo canjear. Inténtalo de nuevo.';
+      setRedeemMsg({ type: 'err', text });
+    } finally {
+      setRedeemBusy(false);
+    }
+  }
 
   // La animación de apertura vive entera en PackReveal (secuencia de tres
   // actos, escalada por rareza) — aquí solo se decide QUÉ se revela.
@@ -184,6 +235,56 @@ export default function Tienda({ onBack }) {
         {errorMsg && <Text style={s.errorText}>{errorMsg}</Text>}
 
         <Text style={s.progressText}>Colección: {ownedCount}/{TOTAL_PIECES} piezas</Text>
+
+        {/* Invitar a un amigo. JC: "a la gente le gusta el concepto pero no
+            aumentan los jugadores" — el enlace de compartir una vuelta no
+            puede premiar instalaciones nuevas (pasa por un redirector a la
+            tienda que no lleva ningún dato de vuelta). Un código que se
+            reparte a mano y se escribe a mano esquiva ese agujero entero:
+            no depende de ninguna infraestructura de atribución. */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>INVITA A UN AMIGO</Text>
+          <Text style={s.cardBody}>
+            Comparte tu código. Cuando un amigo lo mete en su Tienda al
+            instalarse la app, ganáis {REFERRAL_BONUS} monedas los dos.
+          </Text>
+          <Pressable style={s.referralCodeBox} onPress={shareMyCode} disabled={!myCode}>
+            <Text style={s.referralCodeText}>{myCode || '······'}</Text>
+            <Text style={s.referralCodeShare}>COMPARTIR ›</Text>
+          </Pressable>
+
+          {alreadyRedeemed === false && (
+            <>
+              <Text style={s.referralRedeemLabel}>¿TE HAN DADO UN CÓDIGO?</Text>
+              <View style={s.referralRedeemRow}>
+                <TextInput
+                  style={s.referralInput}
+                  value={redeemInput}
+                  onChangeText={(t) => setRedeemInput(t.toUpperCase())}
+                  placeholder="CÓDIGO"
+                  placeholderTextColor={RD.textDisabled}
+                  autoCapitalize="characters"
+                  maxLength={6}
+                />
+                <Pressable
+                  style={[s.referralRedeemBtn, (!redeemInput.trim() || redeemBusy) && s.heroBtnDisabled]}
+                  onPress={handleRedeem}
+                  disabled={!redeemInput.trim() || redeemBusy}
+                >
+                  <Text style={s.referralRedeemBtnText}>{redeemBusy ? '…' : 'CANJEAR'}</Text>
+                </Pressable>
+              </View>
+              {redeemMsg && (
+                <Text style={redeemMsg.type === 'ok' ? s.referralMsgOk : s.referralMsgErr}>
+                  {redeemMsg.text}
+                </Text>
+              )}
+            </>
+          )}
+          {alreadyRedeemed === true && !redeemMsg && (
+            <Text style={s.referralRedeemLabel}>YA HAS CANJEADO UN CÓDIGO — SOLO SE PUEDE UNA VEZ</Text>
+          )}
+        </View>
       </ScrollView>
 
       {reveal && (
@@ -285,6 +386,34 @@ const s = StyleSheet.create({
   cardBtnText: { color: RD.brand, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
   errorText: { color: RD.danger, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' },
   progressText: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' },
+
+  // Código propio: grande y en mono (se lee y se dicta en voz alta), con el
+  // "compartir" como única acción del bloque — todo el rectángulo es tocable.
+  referralCodeBox: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2,
+    backgroundColor: RD.gold1stShade, paddingVertical: 12, paddingHorizontal: 14,
+  },
+  referralCodeText: {
+    color: RD.gold1st, fontSize: 22, fontFamily: RD_FONT.monoBold, letterSpacing: 3,
+  },
+  referralCodeShare: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
+  referralRedeemLabel: {
+    color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1, marginTop: 4,
+  },
+  referralRedeemRow: { flexDirection: 'row', gap: 8 },
+  referralInput: {
+    flex: 1, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    paddingVertical: 10, paddingHorizontal: 12, color: RD.textPrimary,
+    fontSize: 15, fontFamily: RD_FONT.monoBold, letterSpacing: 2,
+  },
+  referralRedeemBtn: {
+    borderWidth: 1, borderColor: RD.brand, borderRadius: 2,
+    paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center',
+  },
+  referralRedeemBtnText: { color: RD.brand, fontSize: 12, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
+  referralMsgOk: { color: RD.successGreen, fontSize: 12, fontFamily: RD_FONT.mono },
+  referralMsgErr: { color: RD.danger, fontSize: 12, fontFamily: RD_FONT.mono },
 
   revealOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
