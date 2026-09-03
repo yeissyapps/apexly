@@ -24,6 +24,7 @@ import {
   getWallet, getInventory, getMyLoadout, saveLoadout, openPack,
   getMyReferralCode, hasRedeemedReferral, redeemReferralCode,
 } from './api';
+import { logReferralCodeShared, logReferralRedeemed } from './analytics';
 
 const PACK_COST = 125;
 // Solo para el texto — el número real y la validación viven en el servidor
@@ -105,6 +106,7 @@ export default function Tienda({ onBack }) {
         `tus amigos y contra el mundo.\n\nMete mi código ${myCode} en la Tienda ` +
         `al instalarte la app — ganamos monedas los dos.\n\n${SHARE_LINK}`,
     }).catch(() => {});
+    logReferralCodeShared();
   }
 
   async function handleRedeem() {
@@ -116,6 +118,7 @@ export default function Tienda({ onBack }) {
       const bonus = await redeemReferralCode(code);
       setRedeemMsg({ type: 'ok', text: `¡Código válido! +${bonus} monedas para los dos.` });
       setAlreadyRedeemed(true);
+      logReferralRedeemed();
       refresh();
     } catch (e) {
       const msg = String(e?.message || '');
