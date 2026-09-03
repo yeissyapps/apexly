@@ -20,20 +20,6 @@ try {
   admob = null;
 }
 
-// ATT (App Tracking Transparency) — SOLO iOS. Sin esto, iOS nunca entrega el
-// IDFA y casi ningún comprador puja: en producción se veía eCPM 0,24€ (iOS)
-// contra 3,63€ (Android) con la MISMA app, mismos anuncios de test. `require`
-// perezoso y detrás de try/catch por el mismo motivo que `admob` arriba: que
-// falte el módulo nativo no debe romper Android ni el simulador de iOS.
-let att = null;
-if (Platform.OS === 'ios') {
-  try {
-    att = require('expo-tracking-transparency');
-  } catch (_) {
-    att = null;
-  }
-}
-
 // ============================================================================
 //  CONSENTIMIENTO UMP/GDPR — perezoso, no al arrancar.
 //
@@ -89,28 +75,6 @@ export function ensureAdsReady() {
       await prepareConsent();
       if (AdsConsent) {
         try { await AdsConsent.loadAndShowConsentFormIfRequired(); } catch (_) {}
-      }
-      // ATT DESPUÉS del formulario UMP y ANTES de inicializar el SDK — en ese
-      // orden. Apple pide pedirlo antes del primer uso del identificador de
-      // publicidad; el SDK de AdMob lo lee al inicializarse, así que hacerlo
-      // después no serviría de nada. Si el usuario ya respondió (instalación
-      // anterior), esta llamada no vuelve a mostrar el diálogo, solo
-      // devuelve lo que ya eligió. Denegar ATT NO bloquea el anuncio como sí
-      // hace negar el consentimiento UMP: sin IDFA, iOS sigue sirviendo
-      // anuncios (limitados, sin atribución), así que aquí no se lee el
-      // resultado — solo hace falta que la petición ocurra.
-      //
-      // SIEMPRE se pide, pase lo que pase con canRequestAds. BUG real
-      // (rechazo de Apple, Guideline 2.1, "unable to locate the App
-      // Tracking Transparency permission request" en iPad de revisión):
-      // antes, la comprobación de canRequestAds vivía ANTES de esta línea,
-      // así que si el formulario UMP determinaba canRequestAds === false
-      // (denegado, o el valor por defecto en ciertas regiones/cuentas —
-      // plausible en el entorno de Apple), la función salía con `return
-      // false` sin haber llegado nunca a pedir ATT. El permiso de
-      // seguimiento no depende de si luego se sirve un anuncio o no.
-      if (att) {
-        try { await att.requestTrackingPermissionsAsync(); } catch (_) {}
       }
       if (AdsConsent) {
         try {
@@ -234,17 +198,32 @@ export async function showRewarded() {
     };
 
     try {
-      // SIN requestNonPersonalizedAdsOnly a propósito. Estaba clavado a
-      // `true` siempre, así que TODO usuario recibía solo anuncios no
-      // personalizados — diera el consentimiento que diera en el formulario
-      // UMP de arriba. El propio tipo lo dice: "must be true if users...
-      // have only given consent to non-personalized ads" — es para el caso
-      // en que el consentimiento SOLO cubre lo no personalizado, no un
-      // valor por defecto. El SDK ya lee las señales TCF que UMP dejó
-      // escritas (ensureAdsReady corre antes) y elige él solo; forzarlo
-      // aquí tapaba esa lectura y tiraba el precio del anuncio abajo para
-      // todo el mundo, no solo EEE.
-      const ad = RewardedAd.createForAdRequest(REWARDED_UNIT);
+      // requestNonPersonalizedAdsOnly SOLO en iOS, y a propósito.
+      //
+      // Anuncios personalizados en iOS exigen pedir ATT (App Tracking
+      // Transparency) — y tres builds seguidas rechazadas por Apple
+      // (Guideline 2.1, "unable to locate the App Tracking Transparency
+      // permission request", siempre en iPad, código ya verificado
+      // funcionando en iPhone real) con la app bloqueada semanas sin poder
+      // publicar nada, decisión de JC: mejor cobrar menos por anuncio en
+      // iOS que seguir sin poder publicar Grand Prix, el indicador de
+      // curva y el resto de esta sesión. eCPM medido: 0,24€ (NPA) contra
+      // 3,63€ (personalizado) — real, pero con ~20 jugadores/día y solo
+      // anuncios rewarded (nunca banners/intersticiales), la diferencia
+      // absoluta es céntimos, no una cifra que compense seguir bloqueados.
+      //
+      // Android NO lleva esto: su identificador de publicidad no exige un
+      // permiso explícito equivalente a ATT, así que ahí sigue sirviendo
+      // anuncios personalizados sin ningún problema de cumplimiento — esto
+      // es estrictamente un apaño de iOS.
+      //
+      // Si algún día se recupera acceso a un iPad real para probar el fix
+      // del onPress (ver docs/review-notes.md) y Apple lo acepta, esto se
+      // puede revertir y volver a pedir ATT.
+      const ad = RewardedAd.createForAdRequest(
+        REWARDED_UNIT,
+        Platform.OS === 'ios' ? { requestNonPersonalizedAdsOnly: true } : undefined,
+      );
       unsubs.push(ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
         // A partir de aquí manda el ciclo del anuncio (CLOSED), NO un
         // temporizador: un rewarded dura ~30s, y cortarlo a media reproducción
