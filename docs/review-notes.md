@@ -49,6 +49,31 @@ la función salía sin haber llegado nunca a pedir el permiso de seguimiento.
 si luego se puede servir un anuncio o no. Se pide siempre, justo después del
 formulario UMP, tal y como estaba pensado desde el principio.
 
+## Qué pasó (2.4.2, build 79, tercer y cuarto rechazo, 02 y 03-09-2026)
+
+Mismo texto exacto, dos veces seguidas, en DOS iPads distintos (Air M3 y
+luego Air M4) — mismo submission ID, así que la segunda vez fue Apple
+re-revisando tras nuestra respuesta en el Resolution Center, no un envío
+nuevo. Con el bug de `canRequestAds` ya arreglado y una grabación real de
+iPhone (vista por JC, el diálogo salía claro) adjunta desde el primer
+intento, esto dejó de parecer un bug de lógica del código.
+
+Investigado contra reportes públicos (Apple Developer Forums, GitHub de
+Expo): es un patrón conocido, no exclusivo de esta app — afecta también a
+Flutter, Cordova y React Native puro. Un desarrollador identificó la causa
+en un caso similar: si la petición de UI de sistema (ATT) se dispara desde
+un callback asíncrono que no nace dentro de un toque real del usuario, iOS
+puede ignorarla en silencio — el código "la pide" pero nunca se presenta.
+
+Nuestra llamada vivía exactamente ahí: dentro del handler de fin de vuelta,
+disparado por el bucle de física (`requestAnimationFrame`), nunca dentro de
+un `onPress`. Movida (App.js) a los botones de la pantalla de resultado —
+"Reintentar"/"Otra vuelta", "Inicio", o cerrar el resultado de Carrera/GP—
+así la llamada real a `requestTrackingPermissionsAsync()` ocurre síncrona
+dentro de un toque de verdad. Sigue siendo "después de correr, no al
+arrancar" — el contexto que sostiene la tasa de aceptación no cambia, solo
+CUÁNDO exactamente dentro de ese momento se hace la llamada nativa.
+
 ## Por qué NO se mueve el diálogo al arranque
 
 Sería la forma fácil de que el revisor tropiece con él, pero pedir permiso
@@ -70,9 +95,11 @@ The prompt is shown at the first moment the app uses advertising, rather than
 on first launch. How to reach it:
 
 1. Open the app and complete the short name entry.
-2. Play one lap on the daily circuit (or in Career / Grand Prix).
-3. As soon as the lap finishes, the App Tracking Transparency prompt is
-   displayed — no need to run out of attempts or watch an ad first.
+2. Play one lap on the daily circuit (or in Career / Grand Prix) — no need
+   to run out of attempts or watch an ad first.
+3. On the results screen, tap any button ("Reintentar"/"Otra vuelta" to
+   retry, or "Inicio" to go back). The App Tracking Transparency prompt is
+   displayed at that point, before the tap's own action completes.
 
 Note for EEA/UK/Switzerland reviewers: a Google UMP consent form is shown
 immediately before the ATT prompt, in that order.
@@ -81,18 +108,31 @@ The app has no login and no paid content gate; everything is reachable from a
 fresh install without credentials.
 ```
 
-**Añadir SOLO en el envío de la 2.4.2** (build 75 fue rechazada pidiendo
-prueba en vídeo — en envíos posteriores, si no hay nada nuevo que demostrar,
-quitar este párrafo):
+**Añadir SOLO en el próximo envío** (el que lleve el fix del `onPress` —
+build 79 y anteriores NO lo llevan; en envíos posteriores a ese, si no hay
+nada nuevo que demostrar, quitar este párrafo):
 
 ```
-We found and fixed a bug where the ATT request could be skipped if the UMP
-consent form determined ads could not be requested (e.g. denied consent, or
-the default outcome in certain regions/accounts). The tracking permission
-request no longer depends on whether an ad can subsequently be shown — it is
-always presented after the UMP form. A screen recording made on a physical
-device after resetting tracking permissions is attached, showing the flow
-above end to end.
+Between the previous submission and this one we made two fixes, in order:
+
+1. The ATT request could previously be skipped if the Google UMP consent
+   form determined ads could not be requested. Fixed: the tracking
+   permission request no longer depends on whether an ad can subsequently
+   be shown.
+
+2. The ATT request was triggered from an asynchronous callback (fired by
+   our game loop when a lap finishes) rather than from within a user tap.
+   We found this matches a known pattern reported by other teams (React
+   Native, Flutter, Cordova apps) where iOS can silently decline to present
+   system UI — including the ATT prompt — when requested outside of a
+   direct user gesture, even though the call itself does not error. The
+   request is now made synchronously inside the onPress handler of the
+   results-screen buttons (see updated steps above), while keeping the same
+   timing philosophy (after a lap, not on first launch).
+
+We verified the current build shows the prompt reliably on a physical
+iPhone after a fresh install and a tracking-permissions reset. A screen
+recording of that test is attached.
 ```
 
 ---
