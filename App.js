@@ -1562,9 +1562,20 @@ const rd = StyleSheet.create({
   },
   resultSecondaryBtnText: { color: RD.textPrimary, fontSize: 14, fontWeight: '700' },
   shareIconBtn: {
-    position: 'absolute', top: 8, right: 8, width: 34, height: 34, borderRadius: 17,
-    borderWidth: 1, borderColor: RD.panelBorder, backgroundColor: RD.bg, alignItems: 'center', justifyContent: 'center',
+    position: 'absolute', top: 8, right: 8, height: 34, borderRadius: 17,
+    borderWidth: 1, borderColor: RD.panelBorder, backgroundColor: RD.bg,
+    flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12,
   },
+  shareIconBtnText: { color: RD.gold1st, fontSize: 12, fontFamily: RD_FONT.monoBold },
+  // Chip de confirmación, esquina opuesta (izquierda) al botón — no puede
+  // tapar el propio botón que se acaba de tocar. Mismo lenguaje que
+  // savedPill en Garage.js: fondo oscuro, borde del color de la novedad.
+  shareFlash: {
+    position: 'absolute', top: 8, left: 8, borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.85)', borderWidth: 1, borderColor: RD.gold1st,
+    paddingVertical: 6, paddingHorizontal: 10,
+  },
+  shareFlashText: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
 
   backLink: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, marginBottom: 8 },
   pageTitle: {
@@ -1795,6 +1806,25 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
   const [groupRank, setGroupRank] = useState(null);     // puesto en tu grupo principal
   const [rankFrom, setRankFrom] = useState(null);       // puesto que tenías antes de esta vuelta (solo si has subido)
 
+  // Confirmación de "+5 monedas" al compartir. JC, tras usar la app él mismo:
+  // "ni sabía que por compartir te daban monedas, hay que fomentar eso mucho
+  // más". El botón era solo un icono sin texto — nada decía que compartir
+  // pagaba. Mismo patrón de chip breve que la confirmación de guardado del
+  // Garaje: aparece, se lee, se apaga solo.
+  const shareAnim = useRef(new Animated.Value(0)).current;
+  const shareTimer = useRef(null);
+  const [shareMsg, setShareMsg] = useState('');
+  function flashShare(text) {
+    setShareMsg(text);
+    if (shareTimer.current) clearTimeout(shareTimer.current);
+    shareAnim.stopAnimation();
+    shareAnim.setValue(1);
+    shareTimer.current = setTimeout(() => {
+      Animated.timing(shareAnim, { toValue: 0, duration: 400, useNativeDriver: true }).start();
+    }, 1600);
+  }
+  useEffect(() => () => { if (shareTimer.current) clearTimeout(shareTimer.current); }, []);
+
   // Logro conseguido. La celebración exige HABER MEJORADO en esta vuelta
   // (result.isBest): si corres más lento sigues 1.º del ranking, pero no es
   // un logro nuevo → tiempo dorado "sin mejora", sin badge.
@@ -1995,7 +2025,10 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     // +5 monedas por compartir (1 vez/día, idempotente en servidor) — se
     // concede al usar el flujo de compartir, no hace falta confirmar que el
     // receptor lo vio (los share sheets nativos no dan esa señal fiable).
-    claimShareReward().catch(() => {});
+    // `granted` distingue el primer compartido del día (sí paga) de uno
+    // posterior (ya cobrado hoy) — para no prometer +5 que no van a llegar.
+    const r = await claimShareReward().catch(() => null);
+    flashShare(r?.granted ? '+5 MONEDAS' : '✓ COMPARTIDO');
   }
 
   const banner =
@@ -2019,9 +2052,20 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
       <StatusBar hidden />
 
       <View style={rd.resultTop}>
+        {/* Antes era un icono solo, sin texto — JC, tras usar su propia app:
+            "ni sabía que por compartir te daban monedas". El "+5" fijo en el
+            botón es la promesa (compartir SIEMPRE es una fuente de monedas,
+            aunque hoy ya la hayas cobrado — mismo criterio que "Ver anuncio
+            · +3 intentos", que tampoco desaparece al dejar de hacer falta);
+            el chip que sale al tocar es la confirmación de lo que pasó de
+            verdad esta vez. */}
         <Pressable style={rd.shareIconBtn} onPress={shareResult} hitSlop={8}>
           <ShareIcon color={RD.textSecondary} />
+          <Text style={rd.shareIconBtnText}>+5</Text>
         </Pressable>
+        <Animated.View pointerEvents="none" style={[rd.shareFlash, { opacity: shareAnim }]}>
+          <Text style={rd.shareFlashText}>{shareMsg}</Text>
+        </Animated.View>
         {banner ? (
           vibe === 'global' ? (
             <Animated.View style={{ opacity, transform: [{ scale }] }}>
