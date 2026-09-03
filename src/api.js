@@ -669,6 +669,22 @@ export async function notifyGpOvertake(gpId, dayIndex, newMs, prevMs) {
   }
 }
 
+// Cuántas veces ha sido cada uno 1.º del mundo (ver supabase/
+// world_crowns_history.sql) — no si lo ha sido, cuántas. Una sola consulta
+// por lote de userIds visibles en pantalla, no una por fila.
+export async function getWorldWinCounts(userIds) {
+  const ids = [...new Set((userIds || []).filter(Boolean))];
+  if (ids.length === 0) return {};
+  const { data, error } = await supabase
+    .from('world_win_counts')
+    .select('user_id, wins')
+    .in('user_id', ids);
+  if (error) return {};
+  const out = {};
+  for (const row of data || []) out[row.user_id] = row.wins;
+  return out;
+}
+
 // Leaderboard GLOBAL escalable (miles de tiempos): NO baja todas las filas.
 // Devuelve el top 6 (podio + "quién te persigue" cuando vas top-3), tu
 // posición, hasta 2 vecinos a cada lado (para poder centrar la ventana de 3
