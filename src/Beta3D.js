@@ -116,7 +116,18 @@ function headingToWorldForward(heading) {
   return { x: Math.cos(heading), z: Math.sin(heading) };
 }
 
-const GROUND_Y = 0.02 * SCALE;
+// El coche SÍ flotaba por encima de la pista — encontrado midiendo la
+// geometría real de los .glb: la superficie de la pista está a Y=0 (min de
+// la malla de la pieza) y las ruedas del coche parten TAMBIÉN de Y=0 en su
+// propio origen local (min de race.glb) — puestas en el mismo Y de mundo
+// deberían coincidir exactamente. El offset aquí es solo para evitar
+// parpadeo de renderizado (z-fighting) entre el coche y el asfalto, así
+// que tiene que ser un margen ABSOLUTO pequeño, no relativo al tamaño del
+// mundo — multiplicarlo por SCALE (52) igual que otras distancias fue el
+// error: convertía un hueco de 2cm en uno de más de una unidad entera,
+// suficiente para que el coche se leyera "más alto" que la pista y
+// desalineara el juicio visual de dónde están los bordes.
+const GROUND_Y = 0.5;
 // Los choques solo se notaban con el coche prácticamente fuera de la
 // pista — no era el ancho (ya ajustado dos veces), era el LARGO. La
 // colisión de stepSimulation (sin tocar, es la misma de producción) solo
