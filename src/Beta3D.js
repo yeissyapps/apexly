@@ -291,11 +291,12 @@ const FINISH_ARM_FRACTION = 0.2;
 // que ahora sobra margen en vez de faltar.
 const CAR_SCALE = CONFIG.CAR_LENGTH / 2.56;
 // Cámara en persecución: constantes en las mismas "unidades de mundo" que la
-// pista (straight=208, radio de curva=104 — ver piecesKenney.js). Más alta
-// que el primer intento (125->170): JC la pedía más subida, y además así se
-// ve más pista por delante. Ajustables a ojo tras probar en mano.
+// pista (straight=208, radio de curva=104 — ver piecesKenney.js). Subida
+// otra vez a petición de JC (125->170->210): se ve más pista por delante y
+// se pierde perspectiva de altura, cosa buena en un circuito con curvas
+// seguidas. Ajustables a ojo tras probar en mano.
 const CHASE_BEHIND = 200;
-const CHASE_HEIGHT = 170;
+const CHASE_HEIGHT = 210;
 const CHASE_LOOKAHEAD = 110;
 const CHASE_LOOK_HEIGHT = 15;
 // La cámara persiguiendo el rumbo EXACTO del coche, frame a frame y sin
@@ -309,6 +310,23 @@ const CHASE_LOOK_HEIGHT = 15;
 // así que en una curva el coche SÍ rota visiblemente respecto a la cámara
 // durante un momento — esa rotación relativa es la sensación de girar.
 const CAM_TURN_LERP = 3.5; // mismo valor que CAM_TURN_LERP en Game.js
+// JC, en el óvalo alargado: "la cámara se ve mal, no siempre va detrás del
+// coche". Reproducido y aislado: en la curva que viene justo DESPUÉS del
+// lado largo (4 rectas seguidas, más velocidad de entrada que en el óvalo
+// compacto), el coche completa el giro de 90° en menos tiempo REAL del que
+// tarda la cámara en alcanzarlo con este lag — el desfase (da, más abajo)
+// se dispara y la cámara acaba mirando hacia donde el coche YA NO va, con
+// un encuadre roto (visto en pantalla: coche minúsculo y de perfil arriba
+// del todo, cámara claramente descolocada). No es un bug del cierre del
+// circuito ni de esta pista en concreto — el mismo lag fijo (independiente
+// de la velocidad) se nota más cuanto más rápido se completa el giro en
+// tiempo real, y el óvalo alargado es precisamente el que más velocidad
+// de entrada da. Tope, no una reescritura del lag: por debajo de este
+// desfase se sigue sintiendo el giro igual que hasta ahora; por encima,
+// se recorta de golpe (en vez de esperar a que el lerp lo alcance solo)
+// para que la cámara nunca se quede mirando a más de esto de donde va el
+// coche de verdad.
+const MAX_CAM_LAG = Math.PI / 3; // 60°
 
 function fmtMain(ms) {
   const s = fmt(ms);
@@ -632,6 +650,10 @@ export default function Beta3D({ onBack }) {
           let da = s.heading - camHeading;
           while (da > Math.PI) da -= 2 * Math.PI;
           while (da < -Math.PI) da += 2 * Math.PI;
+          // Tope al desfase (ver MAX_CAM_LAG) — recorta de golpe, no espera
+          // a que el lerp de abajo lo alcance solo.
+          if (da > MAX_CAM_LAG) { camHeading = s.heading - MAX_CAM_LAG; da = MAX_CAM_LAG; }
+          else if (da < -MAX_CAM_LAG) { camHeading = s.heading + MAX_CAM_LAG; da = -MAX_CAM_LAG; }
           camHeading += da * Math.min(1, dt * CAM_TURN_LERP);
 
           const fwd = headingToWorldForward(camHeading);
