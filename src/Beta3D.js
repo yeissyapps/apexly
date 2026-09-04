@@ -18,7 +18,7 @@
 //  velocidad y control en un circuito 3D real.
 // ============================================================================
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { GLView } from 'expo-gl';
@@ -494,6 +494,18 @@ export default function Beta3D({ onBack }) {
   // completo (nuevo onContextCreate desde cero) — la forma más simple de
   // cargar un circuito distinto sin duplicar toda la lógica de carga.
   const [circuitIdx, setCircuitIdx] = useState(0);
+  // Bloquea el botón CIRCUITO mientras carga el nuevo — a propósito NO se
+  // deriva de hud.phase: hud es un solo estado compartido durante TODA la
+  // vida de esta pantalla (no se resetea entre circuitos, ver
+  // generationRef más abajo), así que hud.phase se queda con el valor del
+  // circuito ANTERIOR ("ready") durante buena parte de la carga del
+  // nuevo, no vuelve a "loading" hasta que el bucle de render nuevo
+  // arranca de verdad. Un booleano propio, puesto a `true` en el mismo
+  // toque (síncrono, sin esperar a nada async) y a `false` solo cuando
+  // ESE circuito en concreto termina de cargar (ver isMyLoad más abajo),
+  // es la única forma de que el botón quede protegido desde el primer
+  // instante.
+  const [switching, setSwitching] = useState(true); // true de entrada: la primera carga también cuenta
 
   const pressLeft = useRef(false);
   const pressRight = useRef(false);
@@ -508,6 +520,41 @@ export default function Beta3D({ onBack }) {
   const statusRef = useRef('cargando circuito…');
   // { real, disarmed, armIdx } — ver el comentario junto a FINISH_ARM_FRACTION.
   const finishRef = useRef(null);
+  // Cambiar de circuito remonta el GLView (key={circuitIdx}, ver el JSX
+  // más abajo) — pero SOLO el GLView, no el componente Beta3D entero: un
+  // primer intento de arreglar esto con un useEffect de limpieza
+  // (cancelledRef, disparado al DESMONTAR Beta3D) no servía de nada,
+  // porque Beta3D nunca se desmonta al cambiar de circuito — sigue siendo
+  // la MISMA instancia, con los MISMOS refs (gameRef, trackRef,
+  // finishRef...) durante toda la vida de la pantalla. O sea: cada
+  // onContextCreate() de un circuito nuevo arranca un bucle de render
+  // MÁS, y como requestAnimationFrame(render) se reprograma solo sin
+  // límite, quedan varios bucles corriendo a la vez, todos leyendo y
+  // escribiendo los MISMOS refs compartidos — confirmado en el Samsung:
+  // tras varios cambios seguidos, HUD y pista mezclados entre circuitos
+  // (cronómetro de un circuito viejo corriendo sobre la pista del nuevo),
+  // geometría duplicada, FPS cayendo, y finalmente un crash real
+  // (`Cannot read property 'trim' of undefined` dentro de WebGLProgram,
+  // el caché interno de programas de three.js corrompido por toda esa
+  // acumulación).
+  //
+  // Fix de verdad: un contador de GENERACIÓN (si él sí vive en Beta3D,
+  // no en el GLView, así que sobrevive al remount y detecta cualquier
+  // circuito nuevo). Cada onContextCreate() se apunta SU propio número de
+  // generación al entrar; el bucle de render (y el propio cargado
+  // asíncrono, por si acaso el circuito cambia MIENTRAS todavía está
+  // cargando) comprueban en cada paso si su número sigue siendo el
+  // vigente — en cuanto deja de serlo (porque ya se pulsó CIRCUITO otra
+  // vez), esa instancia se corta sola sin tocar más refs compartidos.
+  const generationRef = useRef(0);
+  // Red de seguridad para cuando se sale de la pantalla del todo (VOLVER),
+  // no solo al cambiar de circuito: mismo mecanismo, un empujón más a la
+  // generación para que cualquier bucle que quedase vivo se pare solo.
+  useEffect(() => {
+    return () => {
+      generationRef.current += 1;
+    };
+  }, []);
 
   // Copia exacta de resolveEntrada() en Game.js — mismo esquema de entrada
   // que la pantalla de producción (remate fijo al soltar, desempate del
@@ -572,6 +619,11 @@ export default function Beta3D({ onBack }) {
   }
 
   async function onContextCreate(gl) {
+    // Mi generación — ver el comentario junto a generationRef más arriba.
+    generationRef.current += 1;
+    const myGeneration = generationRef.current;
+    const isStale = () => generationRef.current !== myGeneration;
+
     const renderer = new Renderer({ gl });
     renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
     renderer.setClearColor(0x8fc2e8); // cielo liso — antes negro, no ayudaba a "imaginarlo"
@@ -644,6 +696,12 @@ export default function Beta3D({ onBack }) {
       trackRef.current = track;
       const s = initialState(track);
       gameRef.current = s;
+
+      // Si mientras se ensamblaba el circuito ya se volvió a pulsar
+      // CIRCUITO, esta instancia quedó obsoleta antes de cargar ni una
+      // sola malla — cortar aquí evita el trabajo pesado que viene ahora
+      // (varios .glb + texturas) para una pantalla que nadie va a ver.
+      if (isStale()) return;
 
       setStatus('cargando piezas de pista…');
       // Las piezas _L/_R comparten malla (el kit no trae una version "de
@@ -758,6 +816,11 @@ export default function Beta3D({ onBack }) {
     } catch (err) {
       setStatus('ERROR: ' + String(err?.message || err));
     }
+    // Desbloquea el botón — pero solo si esta sigue siendo la instancia
+    // vigente: si mientras cargaba ya se pulsó otra vez CIRCUITO,
+    // `setSwitching(true)` de ESE toque más reciente es el que manda, no
+    // el "ya terminé" de esta carga vieja.
+    if (!isStale()) setSwitching(false);
 
     let frames = 0;
     let fpsNow = 0;
@@ -766,6 +829,30 @@ export default function Beta3D({ onBack }) {
     let camHeading = null; // null hasta el primer frame con estado listo
 
     const render = () => {
+      if (isStale()) {
+        // Instancia vieja tras un cambio de circuito (ver el comentario
+        // de generationRef) — cortar el bucle YA, sin programar el
+        // siguiente frame ni tocar más el contexto GL. OJO:
+        // renderer.dispose() se probó aquí primero y rompía la escena
+        // NUEVA (pantalla en negro tras varios cambios seguidos, sin
+        // llegar a crashear) — indicio de que el contexto/caché de
+        // three.js no está tan aislado por instancia como parecía.
+        // Cortar el bucle ya evita el crash original (confirmado: 25
+        // cambios seguidos sin FATAL); liberar geometrías/materiales SÍ
+        // es seguro (son objetos propios de esta instancia, no
+        // compartidos con la escena activa).
+        scene.traverse((obj) => {
+          if (!obj.isMesh) return;
+          obj.geometry?.dispose();
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of mats) {
+            if (!m) continue;
+            m.map?.dispose();
+            m.dispose();
+          }
+        });
+        return;
+      }
       requestAnimationFrame(render);
       const s = gameRef.current;
       const track = trackRef.current;
@@ -895,7 +982,24 @@ export default function Beta3D({ onBack }) {
         <Text style={styles.backText}>← VOLVER</Text>
       </Pressable>
 
-      <Pressable style={styles.switchCircuit} onPress={() => setCircuitIdx((i) => (i + 1) % CIRCUITS.length)}>
+      {/* disabled mientras carga: cada pulsación crea un contexto GL nativo
+          nuevo (GLView remonta por el key={circuitIdx}) — encadenar varias
+          MUY seguidas, más rápido de lo que carga cada una, es
+          precisamente lo que agotaba recursos y acababa crasheando (visto
+          en el Samsung con toques automáticos muy rápidos, más allá de lo
+          que un dedo real llega a pulsar, pero mejor no depender de eso).
+          El contador de generación (ver generationRef) ya evita que una
+          instancia vieja mezcle su estado con la nueva; esto evita
+          directamente que lleguen a coexistir tantas instancias a la vez. */}
+      <Pressable
+        style={styles.switchCircuit}
+        disabled={switching}
+        onPress={() => {
+          if (switching) return;
+          setSwitching(true);
+          setCircuitIdx((i) => (i + 1) % CIRCUITS.length);
+        }}
+      >
         <Text style={styles.backText}>⟳ CIRCUITO</Text>
       </Pressable>
 
