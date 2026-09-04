@@ -322,11 +322,25 @@ export default function Beta3D({ onBack }) {
         proto.traverse((obj) => { if (obj.isMesh) obj.material = roadMat; });
       }
 
+      // CAUSA REAL de por qué el coche "flotaba": no era el coche, era la
+      // pista. El nodo raíz de las dos piezas (comprobado en Node, JSON del
+      // .glb) lleva un `translation: [0,-1,0]` incrustado — un desplazamiento
+      // de -1 METRO en Y, aparte de los vértices de la propia malla (que sí
+      // empiezan en Y=0, la medida que se hizo antes). Es probablemente el
+      // pivote que usa el editor de Kenney para "agarrar" la pieza 1m por
+      // encima de la base, no algo pensado para exportarse tal cual. Sin
+      // compensarlo, la SUPERFICIE de la pista queda en Y=-52 (-1*SCALE) en
+      // vez de Y=0 — confirmado con una caja delimitadora real
+      // (Box3.setFromObject) en vez de fiarse solo del JSON: minY=-52.00,
+      // maxY=-36.40 en vez de los 0 / 15.6 esperados. El coche (a Y≈0, bien
+      // medido con la misma técnica) se veía "flotar" porque en realidad
+      // era la pista la que estaba 52 unidades por debajo.
+      const PIECE_Y_FIX = SCALE; // cancela el -1*SCALE del nodo
       for (const pl of placements) {
         const proto = protoByGlb[pl.glb];
         const inst = proto.clone(true);
         const { position, rotationY } = poseToObject3D(pl.pose);
-        inst.position.copy(position);
+        inst.position.set(position.x, PIECE_Y_FIX, position.z);
         inst.rotation.y = rotationY;
         // Espejo local en X (además de la escala): con el mapeo de posición
         // ya sin reflejar, una rotación pura no puede alinear a la vez el
