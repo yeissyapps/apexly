@@ -117,12 +117,23 @@ function headingToWorldForward(heading) {
 }
 
 const GROUND_Y = 0.02 * SCALE;
-// Primer intento (1/3 del canal) seguía viéndose grande en mano — se baja
-// más, más cerca de la proporción real de colisión (CONFIG.CAR_WIDTH=17 es
-// el 16% de TRACK_WIDTH=104). Con CAR_SCALE=18 el coche renderiza a ~22
-// unidades (~21% del canal) y queda con bastante más margen bajo el radio
-// que permite la colisión (52 - CAR_WIDTH/2 = 43.5).
-const CAR_SCALE = 18;
+// Los choques solo se notaban con el coche prácticamente fuera de la
+// pista — no era el ancho (ya ajustado dos veces), era el LARGO. La
+// colisión de stepSimulation (sin tocar, es la misma de producción) solo
+// mira la distancia del CENTRO del coche al carril — no tiene en cuenta su
+// longitud. Eso no se nota en el juego real porque el coche está
+// dibujado a las proporciones de CONFIG (CAR_LENGTH=32, CAR_WIDTH=17,
+// ratio 1.88), pero el kart de Kenney es más largo de por sí (2.56 x 1.2
+// m, ratio 2.13) — con CAR_SCALE ajustado solo por ancho, el coche salía
+// proporcionalmente MÁS LARGO que en el juego real, así que en una curva
+// el morro asomaba fuera del carril mucho antes de que el CENTRO (el
+// único punto que mira la física) cruzase el límite. Fix: calibrar el
+// tamaño por el LARGO real de producción, no por el ancho —
+// CAR_SCALE = CONFIG.CAR_LENGTH / 2.56 (largo real del kart en metros).
+// De paso el ancho también mejora: sale un pelín más estrecho que el
+// margen de colisión (52 - CAR_WIDTH/2 = 43.5) en vez de más ancho, así
+// que ahora sobra margen en vez de faltar.
+const CAR_SCALE = CONFIG.CAR_LENGTH / 2.56;
 // Cámara en persecución: constantes en las mismas "unidades de mundo" que la
 // pista (straight=208, radio de curva=104 — ver piecesKenney.js). Más alta
 // que el primer intento (125->170): JC la pedía más subida, y además así se
