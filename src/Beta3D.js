@@ -116,18 +116,19 @@ function headingToWorldForward(heading) {
   return { x: Math.cos(heading), z: Math.sin(heading) };
 }
 
-// El coche SÍ flotaba por encima de la pista — encontrado midiendo la
-// geometría real de los .glb: la superficie de la pista está a Y=0 (min de
-// la malla de la pieza) y las ruedas del coche parten TAMBIÉN de Y=0 en su
-// propio origen local (min de race.glb) — puestas en el mismo Y de mundo
-// deberían coincidir exactamente. El offset aquí es solo para evitar
-// parpadeo de renderizado (z-fighting) entre el coche y el asfalto, así
-// que tiene que ser un margen ABSOLUTO pequeño, no relativo al tamaño del
-// mundo — multiplicarlo por SCALE (52) igual que otras distancias fue el
-// error: convertía un hueco de 2cm en uno de más de una unidad entera,
-// suficiente para que el coche se leyera "más alto" que la pista y
-// desalineara el juicio visual de dónde están los bordes.
-const GROUND_Y = 0.5;
+// El coche SÍ flotaba por encima de la pista. Primera medición (solo la
+// carrocería, `meshes[0]`) decía que el punto más bajo estaba en Y=0 —
+// cierto, pero INCOMPLETO: race.glb son 5 nodos (carrocería + 4 ruedas),
+// cada uno con su propia traslación. Repitiendo la medición con los 5
+// nodos combinados (rueda: translation.y=0.3, radio de malla local 0.3 →
+// punto más bajo = 0.3-0.3 = 0 EXACTO — coincide con la superficie de la
+// pista, también en Y=0), el punto más bajo real del coche completo SÍ es
+// Y=0. Así que CUALQUIER margen aquí, por pequeño que sea proporcionalmente
+// al mundo, se nota como hueco real bajo las ruedas — con 0.5 (el intento
+// anterior) el hueco es casi el 15% del radio de la rueda ya escalada
+// (0.3 * CAR_SCALE ≈ 3.75), de sobra visible. Bajado a un margen mínimo,
+// solo para evitar parpadeo de renderizado, no para "levantar" el coche.
+const GROUND_Y = 0.08;
 // Los choques solo se notaban con el coche prácticamente fuera de la
 // pista — no era el ancho (ya ajustado dos veces), era el LARGO. La
 // colisión de stepSimulation (sin tocar, es la misma de producción) solo
