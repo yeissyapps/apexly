@@ -325,17 +325,21 @@ export default function Beta3D({ onBack }) {
       // CAUSA REAL de por qué el coche "flotaba": no era el coche, era la
       // pista. El nodo raíz de las dos piezas (comprobado en Node, JSON del
       // .glb) lleva un `translation: [0,-1,0]` incrustado — un desplazamiento
-      // de -1 METRO en Y, aparte de los vértices de la propia malla (que sí
-      // empiezan en Y=0, la medida que se hizo antes). Es probablemente el
-      // pivote que usa el editor de Kenney para "agarrar" la pieza 1m por
-      // encima de la base, no algo pensado para exportarse tal cual. Sin
-      // compensarlo, la SUPERFICIE de la pista queda en Y=-52 (-1*SCALE) en
-      // vez de Y=0 — confirmado con una caja delimitadora real
-      // (Box3.setFromObject) en vez de fiarse solo del JSON: minY=-52.00,
-      // maxY=-36.40 en vez de los 0 / 15.6 esperados. El coche (a Y≈0, bien
-      // medido con la misma técnica) se veía "flotar" porque en realidad
-      // era la pista la que estaba 52 unidades por debajo.
-      const PIECE_Y_FIX = SCALE; // cancela el -1*SCALE del nodo
+      // de -1 METRO en Y, aparte de los vértices de la propia malla. Es
+      // probablemente el pivote que usa el editor de Kenney para "agarrar"
+      // la pieza 1m por encima de la base, no algo pensado para exportarse
+      // tal cual.
+      //
+      // El primer intento de arreglarlo (cancelar solo el -1 del nodo,
+      // dejando el MÍNIMO de la malla en Y=0) resultó estar mirando la cara
+      // EQUIVOCADA del bloque: la malla es un bloque SÓLIDO de Y=0 (la
+      // base, por debajo del suelo) a Y=0.3 (la cara de ARRIBA, por donde
+      // se conduce) — confirmado porque con esa primera corrección JC vio
+      // el coche "dentro" de la pista (hundido en el bloque, no encima).
+      // Lo que hay que poner en el suelo (Y=0 de mundo) es el MÁXIMO de la
+      // malla (0.3, la superficie de arriba), no el mínimo.
+      const PIECE_MESH_TOP_Y = 0.3; // medido del accessor POSITION del .glb
+      const PIECE_Y_FIX = (1 - PIECE_MESH_TOP_Y) * SCALE; // cancela el -1 del nodo Y deja la cara de ARRIBA en Y=0
       for (const pl of placements) {
         const proto = protoByGlb[pl.glb];
         const inst = proto.clone(true);
