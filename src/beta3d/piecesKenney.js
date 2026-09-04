@@ -51,11 +51,28 @@
 export const SCALE = 52;
 
 // Ancho real del asset narrow tal como viene del kit (para el factor de
-// reescalado de vértices en Beta3D.js) vs. el ancho FISICO que de verdad
-// usamos (punto medio pedido por JC entre narrow=1.0 y wide=2.0).
+// reescalado de vértices en Beta3D.js) vs. el ancho VISUAL que de verdad
+// usamos (punto medio pedido por JC entre narrow=1.0 y wide=2.0). La malla
+// (asfalto + piano pintado) se ensancha hasta este valor en Beta3D.js.
 export const KENNEY_TRACK_ASSET_WIDTH = 1.0 * SCALE;
 export const KENNEY_WIDTH_TARGET = 1.5 * SCALE;
-const KENNEY_WIDTH = KENNEY_WIDTH_TARGET; // ancho de canal que usa la física y el render — ya no coincide con el asset narrow tal cual, ver comentario de arriba
+
+// El canal FÍSICO (lo que de verdad delimita stepSimulation) es más
+// ESTRECHO que el visual — JC señaló que el coche "se sube en los pianos"
+// en curva. Causa: stepSimulation (sin tocar, es la física real del juego)
+// solo resta un margen ESTÁTICO (CONFIG.CAR_WIDTH/2) al radio de colisión,
+// sin tener en cuenta que un coche GIRADO respecto al carril (como en toda
+// curva) proyecta lateralmente más que su ancho quieto — hasta
+// CONFIG.CAR_LENGTH/2 en el caso extremo de ir casi perpendicular al
+// carril. Con el canal físico llegando hasta el mismo borde que el asfalto
+// pintado (1.5), ese margen de más basta para que el morro/cola del coche
+// asome sobre el piano en una curva cerrada, aunque el CENTRO nunca cruce
+// el límite (la física, ahí, sigue siendo correcta). Recortando el canal
+// físico a 1.2 (0.3 menos que el visual) queda ese sobrante como margen de
+// seguridad — el asfalto entre el límite físico y el borde pintado sigue
+// ahí, pero ya no se puede circular por él, así que el coche no vuelve a
+// alcanzar visualmente el piano en un giro normal.
+const KENNEY_WIDTH = 1.2 * SCALE;
 const KENNEY_STRAIGHT_LEN = 4.0 * SCALE;
 export const KENNEY_CORNER_SMALL_R = 2.0 * SCALE;
 const KENNEY_CORNER_LARGE_R = 4.0 * SCALE;
