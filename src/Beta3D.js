@@ -18,6 +18,7 @@
 
 import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import { Asset } from 'expo-asset';
@@ -80,14 +81,28 @@ async function loadGlb(moduleRef) {
   }
 }
 
-// Mismo mapeo 2D->3D validado en la Fase 2 (ver el comentario largo de esa
-// fase en el plan): mundo.Z = -juego.y es lo que hace que el eje lateral de
-// cada pieza (y del coche) no salga en espejo.
+// Mapeo 2D->3D SIN reflejar (mundo.Z = +juego.y), a diferencia de la Fase 2.
+// La Fase 2 solo se vio con cámara CENITAL (mirando derecho hacia abajo),
+// donde reflejar un eje es invisible: el óvalo cierra igual de bien visto
+// desde arriba. Con cámara en PERSECUCIÓN eso deja de ser gratis — reflejar
+// una posición invierte la ORIENTACIÓN del mundo (determinante -1), y con
+// ella el sentido en que "girar a la derecha" se ve en pantalla (probado:
+// con el mapeo de la Fase 2, tocar la derecha giraba el coche hacia la
+// IZQUIERDA de cámara — justo el bug reportado). Con este mapeo sin
+// reflejar, el sentido de giro coincide con el juego real para cualquier
+// rumbo (comprobado en Node con producto escalar = 1 para todo heading).
 function gameToWorldXZ(x, y) {
-  return { x, z: -y };
+  return { x, z: y };
 }
+// Reformulada para el mapeo sin reflejar: antes de la Fase 3 era
+// `angle + PI/2`, ligada al mapeo reflejado de la Fase 2 (con ese mapeo, el
+// eje +Z local de la malla apuntaba al avance solo con esa fórmula). Con
+// `z=+y`, la fórmula que alinea el +Z local con el avance es esta otra
+// (deducida y comprobada en Node: error de encaje ~1e-16 en TODO el
+// contorno de la pieza, no solo en las juntas — más estricto que el check
+// de la Fase 2).
 function headingToRotationY(angleRad) {
-  return angleRad + Math.PI / 2;
+  return Math.PI / 2 - angleRad;
 }
 function poseToObject3D(pose) {
   const { x, z } = gameToWorldXZ(pose.x, pose.y);
@@ -98,10 +113,22 @@ function poseToObject3D(pose) {
 // (se deriva de cómo stepSimulation mueve x,y: vx=cos(heading), vy=sin(heading)).
 // La cámara de persecución la usa para colocarse "detrás" del coche.
 function headingToWorldForward(heading) {
-  return { x: Math.cos(heading), z: -Math.sin(heading) };
+  return { x: Math.cos(heading), z: Math.sin(heading) };
 }
 
 const GROUND_Y = 0.02 * SCALE;
+// El coche visto en mano se veía casi tan ancho como la propia pista (el
+// kit de Kenney lo mide a 1.2 m, y SCALE convierte metros de PISTA a
+// unidades de mundo — aplicar el mismo factor al coche lo hacía ocupar
+// 62 de las 104 unidades del canal, el 60%). El juego real dibuja el coche
+// a CONFIG.CAR_WIDTH=17 (el 16% de TRACK_WIDTH=104) para la física, pero
+// visualmente el sprite SVG se ve más ancho que su hitbox — el doble es lo
+// habitual en juegos de coches (hitbox más permisiva que el dibujo). Con
+// CAR_SCALE=28 el coche renderiza a ~34 unidades de ancho (33% de la pista,
+// el "1/3" que JC recordaba) y con margen de sobra bajo el radio que
+// permite la colisión (52 - CAR_WIDTH/2 = 43.5), así que ya no debería
+// asomar a través del muro antes de que la física lo frene.
+const CAR_SCALE = 28;
 // Cámara en persecución: constantes en las mismas "unidades de mundo" que la
 // pista (straight=208, radio de curva=104 — ver piecesKenney.js). Ajustables
 // a ojo tras probar en mano.
@@ -239,7 +266,15 @@ export default function Beta3D({ onBack }) {
         const { position, rotationY } = poseToObject3D(pl.pose);
         inst.position.copy(position);
         inst.rotation.y = rotationY;
-        inst.scale.setScalar(SCALE);
+        // Espejo local en X (además de la escala): con el mapeo de posición
+        // ya sin reflejar, una rotación pura no puede alinear a la vez el
+        // avance Y el ancho de canal de la pieza con su vecina (mismo
+        // problema que en la Fase 2, demostrado otra vez por álgebra para
+        // este mapeo — ver el comentario de headingToRotationY). El espejo
+        // absorbe esa reflexión LOCALMENTE, en la malla, en vez de en todo
+        // el mundo — así no vuelve a afectar al sentido de giro del coche
+        // (que no usa esta función, usa headingToWorldForward directamente).
+        inst.scale.set(-SCALE, SCALE, SCALE);
         scene.add(inst);
       }
 
@@ -250,7 +285,11 @@ export default function Beta3D({ onBack }) {
           obj.material = new THREE.MeshStandardMaterial({ color: 0xff5a3c, metalness: 0.1, roughness: 0.6 });
         }
       });
-      raceScene.scale.setScalar(SCALE);
+      // Sin espejo: el coche no necesita encajar con nada a los lados, solo
+      // apuntar al frente (que ya resuelve headingToRotationY solo) — y
+      // reflejarlo sin verificar podría dejar algún detalle asimétrico del
+      // modelo (tubo de escape, etc.) al revés.
+      raceScene.scale.setScalar(CAR_SCALE);
       scene.add(raceScene);
       carObj = raceScene;
 
@@ -278,6 +317,7 @@ export default function Beta3D({ onBack }) {
         if (s.phase === 'running') {
           s.acc += dt;
           let guard = 0;
+          const wasTouching = s.touching;
           entradaEfectiva.current =
             t - s.startTime < CONFIG.LAUNCH_STRAIGHT_MS
               ? 0
@@ -293,6 +333,14 @@ export default function Beta3D({ onBack }) {
             if (s.phase !== 'running') break;
           }
           s.elapsed = t - s.startTime;
+          // Sin esto el choque contra el muro es invisible: la física SÍ
+          // frena/rebota (mismo código que producción), pero no hay ninguna
+          // señal — ni háptica ni en pantalla — de que ha pasado. Un pulso
+          // al entrar en contacto (no en cada frame rozando, por eso el
+          // flag) hace que se note.
+          if (s.touching && !wasTouching) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+          }
         }
 
         if (carObj) {
