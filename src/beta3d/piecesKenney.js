@@ -27,6 +27,15 @@
 //  o sea, comparten la MISMA línea central/radio, solo cambia el ancho del
 //  canal. Por eso aquí solo cambia KENNEY_WIDTH; el resto de medidas
 //  (longitud, radio) se reutilizan tal cual de la variante ancha.
+//
+//  JC probó estrecha (1.0) y ancha (2.0) y las dos se quedaron cortas/
+//  largas -- pidió algo intermedio. El kit de Kenney NO trae una tercera
+//  variante de ancho (comprobado en el zip: solo narrow/wide), así que en
+//  vez de cargar otro asset, el ancho FISICO se sube aquí a 1.5 (el punto
+//  medio) y Beta3D.js reescribe los vértices de las mallas narrow para que
+//  el ancho VISUAL coincida exactamente con este valor -- ver
+//  KENNEY_TRACK_ASSET_WIDTH (el ancho real del asset narrow, para calcular
+//  el factor de reescalado) y widenCornerGeometry en Beta3D.js.
 // ============================================================================
 
 // Fase 3: la línea central ya no vive en metros del kit, sino en las MISMAS
@@ -41,9 +50,14 @@
 // ahora más grande de la línea central.
 export const SCALE = 52;
 
-const KENNEY_WIDTH = 1.0 * SCALE; // ancho de canal de la variante ESTRECHA — MISMO valor que usa el 3D para posicionar las piezas
+// Ancho real del asset narrow tal como viene del kit (para el factor de
+// reescalado de vértices en Beta3D.js) vs. el ancho FISICO que de verdad
+// usamos (punto medio pedido por JC entre narrow=1.0 y wide=2.0).
+export const KENNEY_TRACK_ASSET_WIDTH = 1.0 * SCALE;
+export const KENNEY_WIDTH_TARGET = 1.5 * SCALE;
+const KENNEY_WIDTH = KENNEY_WIDTH_TARGET; // ancho de canal que usa la física y el render — ya no coincide con el asset narrow tal cual, ver comentario de arriba
 const KENNEY_STRAIGHT_LEN = 4.0 * SCALE;
-const KENNEY_CORNER_SMALL_R = 2.0 * SCALE;
+export const KENNEY_CORNER_SMALL_R = 2.0 * SCALE;
 const KENNEY_CORNER_LARGE_R = 4.0 * SCALE;
 
 function straight(len) {

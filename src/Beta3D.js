@@ -27,7 +27,7 @@ import { toByteArray } from 'base64-js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-import { assembleBeta, SCALE } from './beta3d/piecesKenney';
+import { assembleBeta, SCALE, KENNEY_TRACK_ASSET_WIDTH, KENNEY_WIDTH_TARGET, KENNEY_CORNER_SMALL_R } from './beta3d/piecesKenney';
 import { buildTrackFromCenterline } from './track';
 import { initialState, stepSimulation, FIXED_DT } from './Game';
 import { CONFIG } from './config';
@@ -165,6 +165,63 @@ function poseToObject3D(pose) {
 // La cámara de persecución la usa para colocarse "detrás" del coche.
 function headingToWorldForward(heading) {
   return { x: Math.cos(heading), z: Math.sin(heading) };
+}
+
+// Ancho intermedio pedido por JC (ver piecesKenney.js): el kit narrow mide
+// 1.0 de canal, la física/render ahora usan 1.5 — este factor es lo que hay
+// que estirar la malla narrow lateralmente para que el asfalto VISIBLE
+// coincida con ese ancho.
+const TRACK_WIDTH_FACTOR = KENNEY_WIDTH_TARGET / KENNEY_TRACK_ASSET_WIDTH;
+
+// Ensancha una RECTA reescribiendo su geometría: el ancho de una recta vive
+// puro en su eje local X, centrado en 0 (comprobado con la misma álgebra que
+// ya conecta esta pieza sin huecos con sus vecinas — world.Z de la línea
+// central = SCALE*meshX, y para una recta esa línea central es constante 0
+// en world.Z, luego meshX=0 es el centro). Escalar X entero por el factor
+// ensancha el asfalto Y los pianos por igual, sin tocar el largo (eje Z).
+function widenStraightGeometry(geometry, factor) {
+  const pos = geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) pos.setX(i, pos.getX(i) * factor);
+  pos.needsUpdate = true;
+  geometry.computeVertexNormals();
+}
+
+// Ensancha una CURVA. A diferencia de la recta, el ancho de una curva no
+// vive en un solo eje — rota con el propio arco — así que escalar un eje
+// local entero (p.ej. X) distorsionaría la pieza (la ensancharía en la
+// entrada y la estiraría en longitud hacia la salida, en vez de ensancharla
+// por igual en todo el barrido). La técnica correcta es escalar cada
+// vértice RADIALMENTE respecto al centro real del círculo de la pieza.
+//
+// Ese centro no es un valor inventado: se deduce de la MISMA álgebra que ya
+// conecta esta curva sin huecos con sus vecinas (headingToRotationY/
+// gameToWorldXZ más arriba). Con pose identidad, el centro de este arco en
+// el MUNDO es (0,-R) (arc() en piecesKenney.js gira alrededor de ese punto);
+// el mapeo malla->mundo para pose identidad da world=(SCALE*meshZ,
+// SCALE*meshX) — despejando, el centro en el espacio LOCAL de la malla es
+// (meshX=-R, meshZ=0), con R el radio real en metros. Los puntos de entrada
+// y salida de la pieza están EXACTOS a distancia R de ese centro (delta=0
+// respecto al radio), así que un escalado radial centrado ahí no los mueve
+// ni un milímetro — las curvas siguen encajando con las rectas igual que
+// antes de ensanchar nada.
+function widenCornerGeometry(geometry, radiusRaw, factor) {
+  const pos = geometry.attributes.position;
+  const cx = -radiusRaw;
+  const cz = 0;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const dx = x - cx;
+    const dz = z - cz;
+    const r = Math.sqrt(dx * dx + dz * dz);
+    if (r < 1e-6) continue;
+    const newR = radiusRaw + (r - radiusRaw) * factor;
+    const s = newR / r;
+    pos.setX(i, cx + dx * s);
+    pos.setZ(i, cz + dz * s);
+  }
+  pos.needsUpdate = true;
+  geometry.computeVertexNormals();
 }
 
 // El coche SÍ flotaba por encima de la pista. Primera medición (solo la
@@ -347,6 +404,14 @@ export default function Beta3D({ onBack }) {
       const straightProto = await loadGlb(GLB_MODULES['track-narrow-straight']);
       const cornerProto = await loadGlb(GLB_MODULES['track-narrow-corner-small']);
       const protoByGlb = { 'track-narrow-straight': straightProto, 'track-narrow-corner-small': cornerProto };
+
+      // Ancho intermedio (ver TRACK_WIDTH_FACTOR más arriba) — se reescribe
+      // UNA vez aquí, sobre el prototipo: cada pieza instanciada más abajo
+      // es un .clone(true) que comparte la MISMA BufferGeometry por
+      // referencia, así que todas salen ya ensanchadas sin repetir trabajo.
+      const cornerRadiusRaw = KENNEY_CORNER_SMALL_R / SCALE;
+      straightProto.traverse((obj) => { if (obj.isMesh) widenStraightGeometry(obj.geometry, TRACK_WIDTH_FACTOR); });
+      cornerProto.traverse((obj) => { if (obj.isMesh) widenCornerGeometry(obj.geometry, cornerRadiusRaw, TRACK_WIDTH_FACTOR); });
 
       setStatus('cargando textura de pista…');
       const trackTex = await loadTextureRaw(gl, renderer, TRACK_COLORMAP);
