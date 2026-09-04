@@ -38,24 +38,75 @@ const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
 const GLB_MODULES = {
   race: require('../assets/beta3d/race.glb'),
-  'track-straight': require('../assets/beta3d/track-straight.glb'),
-  'track-corner-small': require('../assets/beta3d/track-corner-small.glb'),
+  'track-narrow-straight': require('../assets/beta3d/track-narrow-straight.glb'),
+  'track-narrow-corner-small': require('../assets/beta3d/track-narrow-corner-small.glb'),
 };
 
+const TRACK_COLORMAP = require('../assets/beta3d/track-colormap.png');
+const CAR_COLORMAP = require('../assets/beta3d/car-colormap.png');
+
 // Circuito de prueba ABIERTO (a diferencia del óvalo cerrado de la Fase 2):
-// salida y meta separadas ~416 unidades (verificado en Node antes de tocar
-// el dispositivo — ver el plan), porque track.finish se coloca en el ÚLTIMO
+// salida y meta separadas bien lejos (verificado en Node antes de tocar el
+// dispositivo — ver el plan), porque track.finish se coloca en el ÚLTIMO
 // punto de la línea central (igual que en el juego real, donde salida y
 // meta NUNCA coinciden — los combos de pieces.js son todos de punta a
 // punta). Con un óvalo cerrado la meta cae encima mismo de la salida y
-// stepSimulation la daría por cruzada en el primer frame.
+// stepSimulation la daría por cruzada en el primer frame. 13 piezas (los 7
+// de antes + 6 más, a petición de JC) — comprobado en Node que no se
+// solapa consigo mismo antes de compilar: hueco mínimo entre puntos no
+// contiguos de 122 unidades, muy por encima del medio-ancho de canal (26).
 const FASE3_PATH = [
   'straight', 'straight',
   'corner_small_L',
   'straight',
   'corner_small_L',
   'straight', 'straight',
+  'corner_small_L',
+  'straight', 'straight',
+  'corner_small_L',
+  'straight', 'straight',
 ];
+
+// Camino DISTINTO al de expo-three para las texturas reales, evitando el
+// bug ya documentado (más abajo, en onContextCreate): no pasa por
+// expo-three's TextureLoader/loadTextureAsync (que sube mal la imagen: la
+// pasa como si fuera un buffer de píxeles crudo cuando en realidad es un
+// objeto {localUri,...} pensado para otra firma de texImage2D). Este
+// camino sube los píxeles con el propio `gl.texImage2D` de expo-gl usando
+// la firma CORTA (target, level, internalformat, format, type, fuente) —
+// el patrón nativo documentado para decodificar imágenes locales — y
+// ENGANCHA el resultado directamente en la caché interna de texturas de
+// three.js (`renderer.properties`), sin pasar por su lógica de subida en
+// absoluto. Funciona porque `WebGLTextures.setTexture2D()` de three.js
+// (three@0.145, comprobado leyendo su código fuente en
+// node_modules/three/src/renderers/webgl/WebGLTextures.js) solo intenta
+// subir la textura si `texture.isRenderTargetTexture === false` — una
+// `THREE.Texture` recién creada no define esa propiedad (queda
+// `undefined`, no `false`), así que esa comprobación falla sola y se salta
+// esa rama entera sin más trucos, yendo derecha a usar el `__webglTexture`
+// que le hemos puesto a mano.
+async function loadTextureRaw(gl, renderer, moduleRef) {
+  const asset = Asset.fromModule(moduleRef);
+  // Mismo atajo de Android para imágenes que ya rompió el camino de
+  // expo-three (ver el plan) — se evita igual, forzando una descarga real
+  // a un fichero en vez de un nombre de recurso interno.
+  asset.localUri = null;
+  asset.downloaded = false;
+  await asset.downloadAsync();
+
+  const glTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, glTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, { localUri: asset.localUri });
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  const texture = new THREE.Texture();
+  renderer.properties.get(texture).__webglTexture = glTex;
+  return texture;
+}
 
 async function loadGlb(moduleRef) {
   const asset = Asset.fromModule(moduleRef);
@@ -293,31 +344,20 @@ export default function Beta3D({ onBack }) {
       gameRef.current = s;
 
       setStatus('cargando piezas de pista…');
-      const straightProto = await loadGlb(GLB_MODULES['track-straight']);
-      const cornerProto = await loadGlb(GLB_MODULES['track-corner-small']);
-      const protoByGlb = { 'track-straight': straightProto, 'track-corner-small': cornerProto };
+      const straightProto = await loadGlb(GLB_MODULES['track-narrow-straight']);
+      const cornerProto = await loadGlb(GLB_MODULES['track-narrow-corner-small']);
+      const protoByGlb = { 'track-narrow-straight': straightProto, 'track-narrow-corner-small': cornerProto };
 
-      // Color plano, no la textura real del kit (los "pianos"): confirmado
-      // por qué no sale, con causa exacta — ver el plan (sección Fase 3,
-      // segunda ronda) para el detalle completo. Resumen: el fichero SÍ se
-      // descarga bien (confirmado con un diagnóstico en el propio HUD —
-      // bytes=8706, exactos), pero three.js sube una textura marcada
-      // `isDataTexture` con la firma LARGA de `texImage2D` (ancho/alto
-      // explícitos + un buffer de píxeles) — y lo que expo-three pone ahí
-      // como "buffer" es en realidad un objeto `{localUri, width, height}`,
-      // pensado para la firma CORTA que usa el puente nativo de expo-gl
-      // para decodificar imágenes locales de verdad. Incompatibilidad real
-      // entre expo-three (código de esta librería sin mantener desde hace
-      // tiempo — tiene hasta un `console.warn` de depuración olvidado) y la
-      // versión de expo-gl de este SDK, no un parámetro nuestro.
-      //
+      setStatus('cargando textura de pista…');
+      const trackTex = await loadTextureRaw(gl, renderer, TRACK_COLORMAP);
+
       // DoubleSide: las piezas llevan escala negativa en X (el espejo
       // local que explica headingToRotationY más arriba) — eso invierte
       // el sentido de las caras (determinante -1), y el volteo automático
       // de frontFace que hace three.js con un WebGLRenderer normal no se
       // aplicaba aquí: la pista entera desaparecía. DoubleSide la hace
       // visible sin depender de eso.
-      const roadMat = new THREE.MeshStandardMaterial({ color: 0x4d525c, metalness: 0.05, roughness: 0.9, side: THREE.DoubleSide });
+      const roadMat = new THREE.MeshStandardMaterial({ map: trackTex, metalness: 0.05, roughness: 0.9, side: THREE.DoubleSide });
       for (const proto of [straightProto, cornerProto]) {
         proto.traverse((obj) => { if (obj.isMesh) obj.material = roadMat; });
       }
@@ -360,10 +400,16 @@ export default function Beta3D({ onBack }) {
 
       setStatus('cargando coche…');
       const raceScene = await loadGlb(GLB_MODULES.race);
+
+      setStatus('cargando textura del coche…');
+      const carTex = await loadTextureRaw(gl, renderer, CAR_COLORMAP);
+      // Pintura real del kit (a petición de JC), no el recolor plano de las
+      // fases anteriores — la MISMA textura para carrocería y ruedas: es un
+      // único atlas compartido por todo el vehículo (confirmado en la Fase
+      // 1: "colormap.png... compartido por todo el kit de vehículos").
+      const carMat = new THREE.MeshStandardMaterial({ map: carTex, metalness: 0.1, roughness: 0.6 });
       raceScene.traverse((obj) => {
-        if (obj.isMesh && obj.name === 'body') {
-          obj.material = new THREE.MeshStandardMaterial({ color: 0xff5a3c, metalness: 0.1, roughness: 0.6 });
-        }
+        if (obj.isMesh) obj.material = carMat;
       });
       // Sin espejo: el coche no necesita encajar con nada a los lados, solo
       // apuntar al frente (que ya resuelve headingToRotationY solo) — y

@@ -10,13 +10,23 @@
 //  prueba fija), no el generador diario.
 //
 //  Medidas (leídas del propio .glb, min/max de los accessors POSITION — ver
-//  el comentario de la Fase 2 en el plan): canal de ancho 2.0, muro alto 0.3,
-//  recta de 4.0 de largo nominal (con 0.2 de solape en cada junta, para que
-//  no se vea la costura entre piezas). Las curvas ('corner-small'/'corner-
-//  large') son giros de 90°: el radio se dedujo de dónde cae el borde
-//  exterior de la malla real (medido con el mismo solape de 0.2) — 2.0 para
-//  la pequeña, 4.0 para la grande (números redondos, y el doble exacto entre
-//  ellas, lo que da confianza en que el cálculo es correcto).
+//  el comentario de la Fase 2 en el plan): recta de 4.0 de largo nominal
+//  (con 0.2 de solape en cada junta, para que no se vea la costura entre
+//  piezas), muro alto 0.3. Las curvas ('corner-small'/'corner-large') son
+//  giros de 90°: el radio se dedujo de dónde cae el borde exterior de la
+//  malla real (medido con el mismo solape de 0.2) — 2.0 para la pequeña,
+//  4.0 para la grande (números redondos, y el doble exacto entre ellas, lo
+//  que da confianza en que el cálculo es correcto).
+//
+//  Variante ESTRECHA ("narrow"), no ancha ("wide") — cambiada a petición de
+//  JC para una prueba con las piezas reales de menor tamaño: ancho de canal
+//  1.0 (la mitad que la ancha). Medido en Node (accessor POSITION del propio
+//  .glb): straight y corner-small de la variante estrecha comparten EXACTA
+//  la misma longitud de recta (rango Z idéntico, [-0.2,4.2]) y el mismo
+//  borde exterior de curva (mín X idéntico, -2.2) que la variante ancha —
+//  o sea, comparten la MISMA línea central/radio, solo cambia el ancho del
+//  canal. Por eso aquí solo cambia KENNEY_WIDTH; el resto de medidas
+//  (longitud, radio) se reutilizan tal cual de la variante ancha.
 // ============================================================================
 
 // Fase 3: la línea central ya no vive en metros del kit, sino en las MISMAS
@@ -31,7 +41,7 @@
 // ahora más grande de la línea central.
 export const SCALE = 52;
 
-const KENNEY_WIDTH = 2.0 * SCALE; // ancho de canal del kit — MISMO valor que usa el 3D para posicionar las piezas
+const KENNEY_WIDTH = 1.0 * SCALE; // ancho de canal de la variante ESTRECHA — MISMO valor que usa el 3D para posicionar las piezas
 const KENNEY_STRAIGHT_LEN = 4.0 * SCALE;
 const KENNEY_CORNER_SMALL_R = 2.0 * SCALE;
 const KENNEY_CORNER_LARGE_R = 4.0 * SCALE;
@@ -93,10 +103,10 @@ function makePiece(id, glb, points, width, entryAngle, exitAngle) {
 }
 
 export const KENNEY_BANK = [
-  makePiece('straight', 'track-straight', straight(KENNEY_STRAIGHT_LEN), KENNEY_WIDTH, 0, 0),
+  makePiece('straight', 'track-narrow-straight', straight(KENNEY_STRAIGHT_LEN), KENNEY_WIDTH, 0, 0),
   // "_L": gira hacia -y en la convención de arc() de arriba — ver Beta3D.js
   // para cómo se traduce ese signo a una rotación de verdad en la escena 3D.
-  makePiece('corner_small_L', 'track-corner-small', arc(KENNEY_CORNER_SMALL_R, -90), KENNEY_WIDTH, 0, (-90 * Math.PI) / 180),
+  makePiece('corner_small_L', 'track-narrow-corner-small', arc(KENNEY_CORNER_SMALL_R, -90), KENNEY_WIDTH, 0, (-90 * Math.PI) / 180),
 ];
 
 const byId = Object.fromEntries(KENNEY_BANK.map((p) => [p.id, p]));
