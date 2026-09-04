@@ -1,39 +1,103 @@
 // ============================================================================
-//  Beta3D — Fase 1 del plan de evaluación 3D (kits de Kenney).
+//  Beta3D — Fase 2 del plan de evaluación 3D (kits de Kenney).
 //
-//  Fase 0 (cubo girando) confirmó que expo-gl + three arrancan limpios en
-//  este proyecto (New Architecture activa) — ver el plan en
-//  C:\Users\JC\.claude\plans\ticklish-dazzling-wand.md para el escollo de
-//  versión (three>=r163 exige WebGL2, expo-gl da WebGL1: hay que quedarse en
-//  expo-three@7.0.1 + three@0.145.0).
+//  Fase 0 (cubo girando) y Fase 1 (coche recolorable) — ver el plan en
+//  C:\Users\JC\.claude\plans\ticklish-dazzling-wand.md para los escollos ya
+//  resueltos (versión de three/expo-gl, lectura de assets locales, texturas
+//  embebidas en el .glb).
 //
-//  Esta fase: cargar el modelo real (`race.glb`, del kit de coches de
-//  Kenney — mide 1.2×0.93×2.56, encaja con holgura en el canal de 2.0 del
-//  kit de pistas) y probar el recoloreado por material en vez del atlas de
-//  color de fábrica. La técnica (ver plan, Fase 1): el kit pinta todo con
-//  un único `colormap.png` compartido — así que en vez de intentar
-//  recolorear esa textura, se sustituye el material de la carrocería
-//  (mesh "body", confirmado leyendo el glTF) por uno propio, con el color
-//  fijado por código. Las ruedas se dejan con su material de fábrica.
-//
-//  Pantalla oculta a propósito (ver BETA3D_AUTOSTART en App.js).
+//  Esta fase: un circuito de PRUEBA fijo (no generado a diario todavía — ver
+//  "Fuera de alcance" del plan) ensamblado con piezas 3D reales del kit de
+//  pistas de Kenney. El banco de piezas (`src/beta3d/piecesKenney.js`) usa
+//  el MISMO patrón que el generador diario (`src/pieces.js` + `src/track.js`
+//  vía `buildTrackFromCenterline`), así que el centerline resultante es
+//  compatible con la física real del juego sin tocarla — aquí solo se
+//  RENDERIZA, no se conduce todavía (eso es la Fase 3).
 // ============================================================================
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import { Asset } from 'expo-asset';
-// SDK 57 movió readAsStringAsync a una API nueva (File/Directory) y la
-// dejó deprecada aquí — para esta beta, la legacy sigue haciendo
-// exactamente lo que necesitamos (leer un asset local a base64).
 import * as FileSystem from 'expo-file-system/legacy';
 import { toByteArray } from 'base64-js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { assembleBeta } from './beta3d/piecesKenney';
 
-// Acabados a probar — mismo vocabulario que car.js (flat/metalizado/
-// holografico), para que la comparación con el SVG actual sea justa.
+const GLB_MODULES = {
+  race: require('../assets/beta3d/race.glb'),
+  'track-straight': require('../assets/beta3d/track-straight.glb'),
+  'track-corner-small': require('../assets/beta3d/track-corner-small.glb'),
+};
+
+// Óvalo cerrado de prueba: 2 rectas + 2 "U" de 180° (cada una, 2 curvas de
+// 90° seguidas en el mismo sentido) — con las 4 curvas iguales y las 2
+// rectas iguales, cierra en posición Y en rumbo por simetría, sin tener que
+// calcular nada a mano.
+const TEST_LOOP = [
+  'straight', 'corner_small_L', 'corner_small_L',
+  'straight', 'corner_small_L', 'corner_small_L',
+];
+
+// Lee un .glb empaquetado como bytes (ver Fase 1 del plan: ni
+// GLTFLoader.load() ni fetch(uri).arrayBuffer() leen bien un file:// local
+// aquí) y lo parsea, con las texturas de fábrica stubadas a resolución
+// instantánea (ver el mismo comentario en la Fase 1 del plan — el
+// monkeypatch de expo-three sobre TextureLoader solo dispara onLoad con un
+// asset provider por setPath(), que no aplica a texturas EMBEBIDAS).
+async function loadGlb(moduleRef) {
+  const asset = Asset.fromModule(moduleRef);
+  await asset.downloadAsync();
+  const base64 = await FileSystem.readAsStringAsync(asset.localUri || asset.uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const bytes = toByteArray(base64);
+
+  const origLoad = THREE.TextureLoader.prototype.load;
+  THREE.TextureLoader.prototype.load = function (url, onLoad) {
+    const tex = new THREE.Texture();
+    if (onLoad) onLoad(tex);
+    return tex;
+  };
+  try {
+    const gltf = await new Promise((resolve, reject) => {
+      new GLTFLoader().parse(bytes.buffer, '', resolve, reject);
+    });
+    return gltf.scene;
+  } finally {
+    THREE.TextureLoader.prototype.load = origLoad;
+  }
+}
+
+// pose del centerline (x,y,angle en el plano 2D del juego) -> transform 3D.
+//
+// Mapeo: mundo.X = juego.x, mundo.Z = -juego.y (OJO al signo — ver abajo),
+// mundo.Y = arriba (pista plana, Y=0 en todos los puntos por ahora).
+//
+// El signo de Z NO es arbitrario: con mundo.Z=+juego.y directo, la recta
+// encajaba con la curva siguiente (una recta es simétrica, cualquier signo
+// "cuela") pero DOS curvas seguidas dejaban un hueco — la pieza se
+// dibujaba en espejo lateral. Motivo: una rotación pura alrededor de Y no
+// puede a la vez (a) apuntar el eje +Z local de la pieza (su "frente") en
+// la dirección de avance Y (b) apuntar su eje +X local (su lateral, el
+// ancho del canal) en la lateral correcta — con el mapeo directo, esas dos
+// condiciones se contradicen entre sí (una rotación conserva orientación;
+// arreglar solo el frente deja el lateral en espejo). Con mundo.Z=-juego.y
+// las dos condiciones coinciden en el mismo ángulo — comprobado analítica
+// y luego en dispositivo (el óvalo cierra sin huecos).
+function gameToWorldXZ(x, y) {
+  return { x, z: -y };
+}
+function headingToRotationY(angleRad) {
+  return angleRad + Math.PI / 2;
+}
+function poseToObject3D(pose) {
+  const { x, z } = gameToWorldXZ(pose.x, pose.y);
+  return { position: new THREE.Vector3(x, 0, z), rotationY: headingToRotationY(pose.angle) };
+}
+
 const FINISHES = [
   { id: 'flat_rojo', label: 'PLANO ROJO', color: 0xff5a3c, metalness: 0.1, roughness: 0.6 },
   { id: 'flat_azul', label: 'PLANO AZUL', color: 0x3c7dff, metalness: 0.1, roughness: 0.6 },
@@ -43,27 +107,7 @@ const FINISHES = [
 
 export default function Beta3D({ onBack }) {
   const [fps, setFps] = useState(0);
-  const [status, setStatus] = useState('cargando modelo…');
-  const [finishIdx, setFinishIdx] = useState(0);
-  const bodyMeshRef = useRef(null);
-  const finishIdxRef = useRef(0);
-
-  function applyFinish(idx) {
-    finishIdxRef.current = idx;
-    const mesh = bodyMeshRef.current;
-    if (!mesh) return;
-    const f = FINISHES[idx];
-    mesh.material.color.setHex(f.color);
-    mesh.material.metalness = f.metalness;
-    mesh.material.roughness = f.roughness;
-    setStatus(`race.glb cargado · ${f.label}`);
-  }
-
-  function nextFinish() {
-    const idx = (finishIdxRef.current + 1) % FINISHES.length;
-    setFinishIdx(idx);
-    applyFinish(idx);
-  }
+  const [status, setStatus] = useState('cargando pista…');
 
   async function onContextCreate(gl) {
     const renderer = new Renderer({ gl });
@@ -71,116 +115,104 @@ export default function Beta3D({ onBack }) {
     renderer.setClearColor(0x11151c);
 
     const camera = new THREE.PerspectiveCamera(
-      50,
+      55,
       gl.drawingBufferWidth / gl.drawingBufferHeight,
       0.05,
-      50,
+      100,
     );
-    // El coche mide 2.56 de largo (eje Z) — en un móvil en vertical el FOV
-    // horizontal es más estrecho que el vertical (aspect < 1), así que con
-    // la distancia ajustada solo al alto se salía por los lados. Alejada
-    // ~1.5x para que quepa entera con el morro/cola girando.
-    camera.position.set(3.3, 2.1, 3.9);
-    camera.lookAt(0, 0.3, 0);
 
     const scene = new THREE.Scene();
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-    sun.position.set(3, 5, 2);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.3);
+    sun.position.set(4, 8, 3);
     scene.add(sun);
-    const rim = new THREE.DirectionalLight(0x6f9bff, 0.5);
-    rim.position.set(-3, 2, -2);
-    scene.add(rim);
 
-    let carRoot = null;
+    let carMesh = null;
+    const bodyMeshHolder = { current: null };
+    let finishIdx = 0;
 
     try {
-      setStatus('resolviendo asset…');
-      const asset = Asset.fromModule(require('../assets/beta3d/race.glb'));
-      await asset.downloadAsync();
-      const uri = asset.localUri || asset.uri;
+      setStatus('ensamblando circuito…');
+      const { center, placements } = assembleBeta(TEST_LOOP);
 
-      // Dos intentos previos fallaron con este mismo archivo local:
-      // GLTFLoader.load() (fetch propio de three, vía FileLoader) parseaba
-      // basura como si fuera JSON, y `fetch(uri).arrayBuffer()` a secas se
-      // quedaba colgado sin resolver ni rechazar nunca — ninguno de los dos
-      // caminos de red lee bien un file:// local aquí. Vía fiable en Expo:
-      // leer el archivo como base64 con expo-file-system (pensado para
-      // esto) y decodificarlo a bytes a mano con base64-js — cero fetch,
-      // cero XHR, solo lectura de fichero + un decode síncrono.
-      setStatus('leyendo fichero (base64)…');
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const bytes = toByteArray(base64);
+      setStatus('cargando piezas de pista…');
+      const straightProto = await loadGlb(GLB_MODULES['track-straight']);
+      const cornerProto = await loadGlb(GLB_MODULES['track-corner-small']);
+      const protoByGlb = { 'track-straight': straightProto, 'track-corner-small': cornerProto };
 
-      setStatus('parseando glTF…');
-      // El monkeypatch de expo-three sobre THREE.TextureLoader.prototype.load
-      // (ver node_modules/expo-three/build/loadTexture.js) solo llama a
-      // onLoad si el loader tiene un "asset provider" puesto con setPath() —
-      // pensado para texturas en ficheros sueltos junto al modelo (OBJ+MTL),
-      // no para las que vienen EMBEBIDAS en el propio .glb (nuestro caso, un
-      // único colormap.png dentro del binario). Sin eso, onLoad no se
-      // llama nunca y GLTFLoader.parse() se queda esperando esa promesa
-      // para siempre. No necesitamos ese atlas de fábrica (el cuerpo ya
-      // lleva su propio material, ver más abajo), así que para esta fase se
-      // fuerza a que cualquier textura resuelva al instante sin decodificar
-      // nada — el material del cuerpo no la usa, y las ruedas se quedan sin
-      // textura de fábrica (planas), que es aceptable para validar el
-      // recoloreado.
-      const origLoad = THREE.TextureLoader.prototype.load;
-      THREE.TextureLoader.prototype.load = function (url, onLoad) {
-        const tex = new THREE.Texture();
-        if (onLoad) onLoad(tex);
-        return tex;
-      };
-      let gltf;
-      try {
-        gltf = await new Promise((resolve, reject) => {
-          new GLTFLoader().parse(bytes.buffer, '', resolve, reject);
-        });
-      } finally {
-        THREE.TextureLoader.prototype.load = origLoad;
+      // Igual que con el cuerpo del coche (Fase 1): el material de fábrica
+      // usa la textura "stub" vacía de loadGlb, que en las ruedas cuela
+      // (negro = neumático) pero en el asfalto se ve como un agujero sin
+      // luz. Material propio, plano, tono asfalto — no hace falta que sea
+      // recolorable todavía, esta fase es sobre si las piezas ENCAJAN.
+      const roadMat = new THREE.MeshStandardMaterial({ color: 0x3a3f47, metalness: 0.05, roughness: 0.9 });
+      for (const proto of [straightProto, cornerProto]) {
+        proto.traverse((obj) => { if (obj.isMesh) obj.material = roadMat; });
       }
-      carRoot = gltf.scene;
-      scene.add(carRoot);
 
-      carRoot.traverse((obj) => {
+      for (const pl of placements) {
+        const proto = protoByGlb[pl.glb];
+        const inst = proto.clone(true);
+        const { position, rotationY } = poseToObject3D(pl.pose);
+        inst.position.copy(position);
+        inst.rotation.y = rotationY;
+        scene.add(inst);
+      }
+
+      // Encuadre general: cámara elevada mirando al centro del bbox del
+      // circuito entero, igual de espíritu que el bbox del césped en el
+      // juego 2D (Game.js) — aquí para que la cámara SIEMPRE quepa el óvalo
+      // entero sea cual sea su tamaño, sin números mágicos por trazado.
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const p of center) {
+        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+        if (p.y < minZ) minZ = p.y; if (p.y > maxZ) maxZ = p.y;
+      }
+      // minZ/maxZ están en coordenadas de JUEGO (p.y), no de mundo three —
+      // pasan por el mismo gameToWorldXZ que las piezas para que la cámara
+      // apunte al centro real de lo que se ha dibujado.
+      const { x: worldCx, z: worldCz } = gameToWorldXZ((minX + maxX) / 2, (minZ + maxZ) / 2);
+      const spanMax = Math.max(maxX - minX, maxZ - minZ, 4);
+      // Cenital casi exacto (un pelín de offset para que lookAt no degenere
+      // con la cámara justo encima del objetivo).
+      camera.position.set(worldCx, spanMax * 4, worldCz + 0.01);
+      camera.lookAt(worldCx, 0, worldCz);
+
+      setStatus('cargando coche…');
+      const raceScene = await loadGlb(GLB_MODULES.race);
+      raceScene.traverse((obj) => {
         if (obj.isMesh && obj.name === 'body') {
-          // Material propio, SIN el atlas de color de fábrica — así el
-          // color se controla por código (ver applyFinish). El resto de
-          // piezas (ruedas) se quedan con su material tal cual venía.
           obj.material = new THREE.MeshStandardMaterial();
-          bodyMeshRef.current = obj;
+          bodyMeshHolder.current = obj;
         }
       });
-      applyFinish(finishIdxRef.current);
+      const start = center[0];
+      const startNext = center[1];
+      const startHeading = Math.atan2(startNext.y - start.y, startNext.x - start.x);
+      const startXZ = gameToWorldXZ(start.x, start.y);
+      raceScene.position.set(startXZ.x, 0.02, startXZ.z);
+      raceScene.rotation.y = headingToRotationY(startHeading);
+      scene.add(raceScene);
+      carMesh = raceScene;
+
+      if (bodyMeshHolder.current) {
+        const f = FINISHES[0];
+        bodyMeshHolder.current.material.color.setHex(f.color);
+        bodyMeshHolder.current.material.metalness = f.metalness;
+        bodyMeshHolder.current.material.roughness = f.roughness;
+      }
+
+      setStatus(`óvalo (${placements.length} piezas) + race.glb cargados`);
     } catch (err) {
-      setStatus('ERROR cargando el modelo: ' + String(err?.message || err));
+      setStatus('ERROR: ' + String(err?.message || err));
     }
 
     let frames = 0;
     let lastFpsAt = Date.now();
-
     const render = () => {
       requestAnimationFrame(render);
-
-      if (carRoot) {
-        // Plato giratorio, mismo espíritu que el garaje 2D actual — deja
-        // ver el coche desde todos los ángulos sin necesitar controles
-        // táctiles de cámara en esta fase.
-        carRoot.rotation.y += 0.012;
-
-        const mesh = bodyMeshRef.current;
-        if (mesh && FINISHES[finishIdxRef.current].holo) {
-          const hue = (Date.now() % 4000) / 4000;
-          mesh.material.color.setHSL(hue, 0.85, 0.6);
-        }
-      }
-
       renderer.render(scene, camera);
       gl.endFrameEXP();
-
       frames++;
       const now = Date.now();
       if (now - lastFpsAt >= 500) {
@@ -196,14 +228,11 @@ export default function Beta3D({ onBack }) {
     <View style={styles.root}>
       <GLView style={styles.gl} onContextCreate={onContextCreate} />
       <View style={styles.hud}>
-        <Text style={styles.hudText}>BETA 3D · Fase 1 · {fps} fps</Text>
+        <Text style={styles.hudText}>BETA 3D · Fase 2 · {fps} fps</Text>
         <Text style={styles.hudSub}>{status}</Text>
       </View>
       <Pressable style={styles.back} onPress={onBack}>
         <Text style={styles.backText}>← VOLVER</Text>
-      </Pressable>
-      <Pressable style={styles.finishBtn} onPress={nextFinish}>
-        <Text style={styles.backText}>ACABADO: {FINISHES[finishIdx].label} →</Text>
       </Pressable>
     </View>
   );
@@ -217,5 +246,4 @@ const styles = StyleSheet.create({
   hudSub: { color: '#9aa3b2', fontSize: 11, marginTop: 2, maxWidth: 260 },
   back: { position: 'absolute', top: 48, right: 16, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 8 },
   backText: { color: '#eef0f4', fontSize: 13, fontWeight: '700' },
-  finishBtn: { position: 'absolute', bottom: 48, alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 20, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 10 },
 });
