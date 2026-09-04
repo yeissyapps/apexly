@@ -87,7 +87,7 @@ const CAM_TURN_LERP = 3.5; // suavizado del giro de cámara (menor = más suave)
 
 // Paso fijo de la simulación (s). La física NO depende de los FPS de pantalla:
 // se acumula el tiempo real y se resuelven pasos de este tamaño.
-const FIXED_DT = 1 / 120;
+export const FIXED_DT = 1 / 120;
 
 // Tramos de la línea central que se miran alrededor del último conocido para
 // localizar el coche. A tope de velocidad avanza ~2 unidades por sub-paso y los
@@ -1590,7 +1590,7 @@ const TrackLayer = memo(function TrackLayer({ track, showDebug, wet, palette }) 
   );
 });
 
-function initialState(track) {
+export function initialState(track) {
   return {
     phase: 'ready', // 'ready' | 'running' | 'finished'
     x: track.startPose.x,
@@ -1659,7 +1659,7 @@ function ghostPoseAt(trace, e, idxRef) {
 // --- Un paso de simulación (feel del coche; no tocar) ----------------------
 //  El clima entra SOLO como modificadores (steerMul/speedMul/viento) encima de
 //  las constantes; con NEUTRAL el comportamiento es idéntico al de siempre.
-function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sectorBests, refSectors) {
+export function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sectorBests, refSectors) {
   const C = CONFIG;
   const W = weather || NEUTRAL;
 

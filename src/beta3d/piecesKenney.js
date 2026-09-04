@@ -19,10 +19,22 @@
 //  ellas, lo que da confianza en que el cálculo es correcto).
 // ============================================================================
 
-const KENNEY_WIDTH = 2.0; // ancho de canal del kit — MISMO valor que usa el 3D para posicionar las piezas
-const KENNEY_STRAIGHT_LEN = 4.0;
-const KENNEY_CORNER_SMALL_R = 2.0;
-const KENNEY_CORNER_LARGE_R = 4.0;
+// Fase 3: la línea central ya no vive en metros del kit, sino en las MISMAS
+// "unidades de mundo" que usa src/pieces.js (rectas 140-950, radios 70-500,
+// TRACK_WIDTH=104) — porque esas unidades son las que CONFIG.MAX_SPEED,
+// CONFIG.CAR_WIDTH, etc. dan por sentadas (stepSimulation, reutilizado tal
+// cual de Game.js, no sabe nada de metros). SCALE convierte metros de Kenney
+// -> unidades de mundo: con SCALE=52, el medio-ancho de canal del kit
+// (1.0 m) da 52 unidades, el MISMO medio-ancho que WIDE en pieces.js. El
+// render (Beta3D.js) escala cada malla .glb por este mismo factor al
+// colocarla, para que su tamaño visual seguido coincida con el espaciado
+// ahora más grande de la línea central.
+export const SCALE = 52;
+
+const KENNEY_WIDTH = 2.0 * SCALE; // ancho de canal del kit — MISMO valor que usa el 3D para posicionar las piezas
+const KENNEY_STRAIGHT_LEN = 4.0 * SCALE;
+const KENNEY_CORNER_SMALL_R = 2.0 * SCALE;
+const KENNEY_CORNER_LARGE_R = 4.0 * SCALE;
 
 function straight(len) {
   return [{ x: 0, y: 0 }, { x: len, y: 0 }];
