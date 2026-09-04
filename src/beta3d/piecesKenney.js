@@ -36,6 +36,14 @@
 //  el ancho VISUAL coincida exactamente con este valor -- ver
 //  KENNEY_TRACK_ASSET_WIDTH (el ancho real del asset narrow, para calcular
 //  el factor de reescalado) y widenCornerGeometry en Beta3D.js.
+//
+//  A petición de JC ("ponte con todas las piezas"): banco ampliado con
+//  corner_large (mismo giro de 90°, radio doble) y esse (desplazamiento
+//  lateral SIN cambiar de rumbo — la pieza 'curve' del kit, que resultó
+//  no ser una curva de radio distinto sino algo nuevo, ver el comentario
+//  de esse() más abajo), cada una en las dos direcciones (_L/_R) — ver el
+//  comentario de makePiece() para cómo se resuelve el espejo de la _R sin
+//  tener una malla "de derechas" separada (el kit no la trae).
 // ============================================================================
 
 // Fase 3: la línea central ya no vive en metros del kit, sino en las MISMAS
@@ -75,7 +83,16 @@ export const KENNEY_WIDTH_TARGET = 1.5 * SCALE;
 const KENNEY_WIDTH = 1.2 * SCALE;
 const KENNEY_STRAIGHT_LEN = 4.0 * SCALE;
 export const KENNEY_CORNER_SMALL_R = 2.0 * SCALE;
-const KENNEY_CORNER_LARGE_R = 4.0 * SCALE;
+export const KENNEY_CORNER_LARGE_R = 4.0 * SCALE;
+// Pieza 'curve' del kit: NO es un giro de 90° con otro radio (como se
+// suponía al principio) — medida en Node (accessor POSITION + comprobación
+// de que las secciones de entrada y salida están las dos en Z=0/Z=4.0
+// exactas, es decir MISMO rumbo de entrada y salida): es una "esse" — un
+// carril que se desplaza LATERALMENTE 2.0 mientras avanza 4.0, sin cambiar
+// de rumbo en ningún extremo. Es la pieza que de verdad hacía falta para
+// aproximar circuitos reales con eses, no solo óvalos.
+export const KENNEY_ESSE_LEN = 4.0 * SCALE;
+export const KENNEY_ESSE_SHIFT = 2.0 * SCALE;
 
 function straight(len) {
   return [{ x: 0, y: 0 }, { x: len, y: 0 }];
@@ -94,6 +111,24 @@ function arc(radius, turnDeg) {
     const u = (phi * i) / steps;
     const a = -s * (Math.PI / 2) + s * u;
     pts.push({ x: radius * Math.cos(a), y: radius * s + radius * Math.sin(a) });
+  }
+  return pts;
+}
+
+// Centerline de la "esse": desplazamiento lateral con paso de coseno (0 en
+// los dos extremos, así el rumbo de entrada y salida no cambia — igual que
+// mide la malla real). `shift` negativo = hacia un lado ("_L"), positivo =
+// hacia el otro ("_R"). Verificado en Node contra los vértices reales de
+// track-narrow-curve.glb: la malla transformada cae en una banda de
+// 17-30 unidades de la línea central (mismo orden que las curvas ya
+// probadas), tanto para el signo que le toca como para el opuesto en el
+// control negativo (ahí la banda se dispara a 3-207, confirma que el signo
+// importa y que este es el correcto).
+function esse(len, shift, steps) {
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    pts.push({ x: len * t, y: shift * 0.5 * (1 - Math.cos(Math.PI * t)) });
   }
   return pts;
 }
@@ -121,23 +156,41 @@ function transformPose(local, pose) {
 // encadenadas ese error se acumula pieza a pieza y el circuito no cierra
 // (comprobado: con el chord, un óvalo de 4 giros de 90° cerraba con un
 // desfase de 18° y ~0.9 unidades — con el ángulo analítico, cierra exacto).
-function makePiece(id, glb, points, width, entryAngle, exitAngle) {
+// `mirror` (por defecto true, el comportamiento de siempre): controla el
+// espejo local en X de la malla al instanciarla (ver Beta3D.js). Las piezas
+// "_L" (giro/desplazamiento hacia un lado) llevan el espejo puesto, tal
+// como se validó en la Fase 3; las "_R" (hacia el otro lado) van SIN
+// espejo — verificado en Node (no a ojo) que esa es la combinación que
+// alinea la malla real con la línea central de cada sentido: con el
+// espejo "que no toca", la banda malla<->centerline se dispara de
+// 17-30 a 3-207 unidades (ver los comentarios de arc()/esse() más arriba).
+function makePiece(id, glb, points, width, entryAngle, exitAngle, mirror = true) {
   const n = points.length;
   return {
     id,
     glb, // nombre del asset .glb a instanciar en la escena 3D
     width,
     points,
+    mirror,
     entry: { x: points[0].x, y: points[0].y, angle: entryAngle },
     exit: { x: points[n - 1].x, y: points[n - 1].y, angle: exitAngle },
   };
 }
 
+const RIGHT_ANGLE = Math.PI / 2;
+
 export const KENNEY_BANK = [
   makePiece('straight', 'track-narrow-straight', straight(KENNEY_STRAIGHT_LEN), KENNEY_WIDTH, 0, 0),
-  // "_L": gira hacia -y en la convención de arc() de arriba — ver Beta3D.js
-  // para cómo se traduce ese signo a una rotación de verdad en la escena 3D.
-  makePiece('corner_small_L', 'track-narrow-corner-small', arc(KENNEY_CORNER_SMALL_R, -90), KENNEY_WIDTH, 0, (-90 * Math.PI) / 180),
+  // "_L" gira/desplaza hacia -y en esta convención, "_R" hacia +y — ver
+  // Beta3D.js para cómo esos signos se traducen en la escena 3D real.
+  makePiece('corner_small_L', 'track-narrow-corner-small', arc(KENNEY_CORNER_SMALL_R, -90), KENNEY_WIDTH, 0, -RIGHT_ANGLE, true),
+  makePiece('corner_small_R', 'track-narrow-corner-small', arc(KENNEY_CORNER_SMALL_R, 90), KENNEY_WIDTH, 0, RIGHT_ANGLE, false),
+  makePiece('corner_large_L', 'track-narrow-corner-large', arc(KENNEY_CORNER_LARGE_R, -90), KENNEY_WIDTH, 0, -RIGHT_ANGLE, true),
+  makePiece('corner_large_R', 'track-narrow-corner-large', arc(KENNEY_CORNER_LARGE_R, 90), KENNEY_WIDTH, 0, RIGHT_ANGLE, false),
+  // Esse: el rumbo de entrada y salida es el MISMO (0) — no gira, solo
+  // desplaza el carril de lado.
+  makePiece('esse_L', 'track-narrow-curve', esse(KENNEY_ESSE_LEN, -KENNEY_ESSE_SHIFT, 40), KENNEY_WIDTH, 0, 0, true),
+  makePiece('esse_R', 'track-narrow-curve', esse(KENNEY_ESSE_LEN, KENNEY_ESSE_SHIFT, 40), KENNEY_WIDTH, 0, 0, false),
 ];
 
 const byId = Object.fromEntries(KENNEY_BANK.map((p) => [p.id, p]));
@@ -153,7 +206,7 @@ export function assembleBeta(ids) {
   for (const id of ids) {
     const p = byId[id];
     if (!p) throw new Error('Pieza beta desconocida: ' + id);
-    placements.push({ id, glb: p.glb, pose: { ...pose } });
+    placements.push({ id, glb: p.glb, mirror: p.mirror, pose: { ...pose } });
     const placed = placePoints(p.points, pose);
     for (let i = center.length ? 1 : 0; i < placed.length; i++) {
       center.push({ x: placed[i].x, y: placed[i].y, w: p.width / 2, type: p.id });

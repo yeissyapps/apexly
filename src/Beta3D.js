@@ -29,7 +29,16 @@ import { toByteArray } from 'base64-js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-import { assembleBeta, SCALE, KENNEY_TRACK_ASSET_WIDTH, KENNEY_WIDTH_TARGET, KENNEY_CORNER_SMALL_R } from './beta3d/piecesKenney';
+import {
+  assembleBeta,
+  SCALE,
+  KENNEY_TRACK_ASSET_WIDTH,
+  KENNEY_WIDTH_TARGET,
+  KENNEY_CORNER_SMALL_R,
+  KENNEY_CORNER_LARGE_R,
+  KENNEY_ESSE_LEN,
+  KENNEY_ESSE_SHIFT,
+} from './beta3d/piecesKenney';
 import { buildTrackFromCenterline } from './track';
 import { initialState, stepSimulation, FIXED_DT } from './Game';
 import { CONFIG } from './config';
@@ -42,29 +51,31 @@ const GLB_MODULES = {
   race: require('../assets/beta3d/race.glb'),
   'track-narrow-straight': require('../assets/beta3d/track-narrow-straight.glb'),
   'track-narrow-corner-small': require('../assets/beta3d/track-narrow-corner-small.glb'),
+  'track-narrow-corner-large': require('../assets/beta3d/track-narrow-corner-large.glb'),
+  'track-narrow-curve': require('../assets/beta3d/track-narrow-curve.glb'),
 };
 
 const TRACK_COLORMAP = require('../assets/beta3d/track-colormap.png');
 const CAR_COLORMAP = require('../assets/beta3d/car-colormap.png');
 
 // Circuitos CERRADOS (a petición de JC, sustituye al óvalo abierto de
-// rondas anteriores) — dos aproximaciones de forma distinta, alternables
-// en pantalla sin recompilar (ver circuitIdx/CAMBIAR CIRCUITO más abajo).
-// El banco de piezas (piecesKenney.js) hoy solo tiene curvas hacia un
-// lado (corner_small_L) — con eso, cualquier circuito cerrado es
-// necesariamente un óvalo/rectángulo redondeado (4 giros de 90° que
-// suman 360°, con los lados opuestos de la misma longitud para que
-// cierre exacto). Para aproximar circuitos reales con eses (giros a los
-// dos lados) hace falta además una pieza corner_small_R — pendiente de
-// JC, no se ha construido esta ronda por no mezclarlo con el cierre de
-// meta (ver el plan).
+// rondas anteriores), alternables en pantalla sin recompilar (ver
+// circuitIdx/CAMBIAR CIRCUITO más abajo). El banco de piezas
+// (piecesKenney.js) ya tiene giro a los dos lados (_L/_R) y dos radios de
+// curva más una "esse" de desplazamiento lateral — con eso, un circuito
+// cerrado ya no tiene que ser necesariamente un óvalo/rectángulo (4 giros
+// de 90° al mismo lado sumando 360°); solo tiene que cerrar en pose final
+// (posición Y ángulo), lo que se comprueba en Node antes de compilar
+// (mismo método de siempre) para cada trazado nuevo, no se da por
+// sentado.
 //
-// Cierre geométrico verificado en Node antes de compilar (mismo método
-// de siempre): con estas piezas, la pose final vuelve exacta al origen
-// (error 0.0000 en x/y, ángulo -360° = 0° mod 360°) y el hueco mínimo
-// entre puntos no contiguos (excluyendo la propia costura de cierre,
-// que coincide a propósito) es 122 unidades — muy por encima del medio-
-// ancho de canal físico (31.2).
+// Cierre geométrico de los dos primeros (compacto/alargado) verificado en
+// Node antes de compilar: la pose final vuelve exacta al origen (error
+// 0.0000 en x/y, ángulo -360° = 0° mod 360°) y el hueco mínimo entre
+// puntos no contiguos (excluyendo la propia costura de cierre, que
+// coincide a propósito) es 122 unidades — muy por encima del medio-ancho
+// de canal físico (31.2). Los otros dos (con las piezas nuevas) llevan su
+// propia verificación en el comentario de cada uno, más abajo.
 const CIRCUITS = [
   {
     name: 'óvalo compacto',
@@ -82,6 +93,41 @@ const CIRCUITS = [
       'corner_small_L', 'straight', 'straight',
       'corner_small_L', 'straight', 'straight', 'straight', 'straight',
       'corner_small_L', 'straight', 'straight',
+    ],
+  },
+  // Banco ampliado a petición de JC ("ponte con todas las piezas"): dos
+  // circuitos más para probar las piezas nuevas (corner_large, corner_R,
+  // esse) antes de que JC monte los suyos con nombres propios.
+  {
+    // Mismo trazado EXACTO que "óvalo compacto" pero con corner_small_R en
+    // vez de _L — el giro a la derecha nunca se había usado en un circuito
+    // ensamblado de verdad (antes solo se verificó por álgebra en Node);
+    // este es el caso más simple y directo para probarlo en mano: si el
+    // óvalo se ve tan limpio como el compacto original, el giro a la
+    // derecha funciona igual de bien que el de izquierda.
+    name: 'óvalo compacto (derecha)',
+    path: [
+      'corner_small_R', 'straight', 'straight',
+      'corner_small_R', 'straight',
+      'corner_small_R', 'straight', 'straight',
+      'corner_small_R', 'straight',
+    ],
+  },
+  {
+    // corner_large (radio doble) en las 4 esquinas + una esse_L/esse_R
+    // (desplazamiento lateral sin girar — la pieza 'curve' del kit, que
+    // resultó ser esto y no una curva de radio distinto, ver
+    // piecesKenney.js) SUSTITUYENDO las dos rectas de un lado largo, no
+    // añadida aparte (insertarla sin más no cierra el circuito: la esse
+    // avanza tanto en longitud como una recta, pero el desplazamiento
+    // lateral no compensa por sí solo esa longitud extra en el lado
+    // opuesto — verificado en Node antes de dar con este diseño).
+    name: 'banco completo',
+    path: [
+      'corner_large_L', 'esse_L', 'esse_R',
+      'corner_large_L', 'straight',
+      'corner_large_L', 'straight', 'straight',
+      'corner_large_L', 'straight',
     ],
   },
 ];
@@ -238,6 +284,52 @@ function widenCornerGeometry(geometry, radiusRaw, factor) {
     const s = newR / r;
     pos.setX(i, cx + dx * s);
     pos.setZ(i, cz + dz * s);
+  }
+  pos.needsUpdate = true;
+  geometry.computeVertexNormals();
+}
+
+// Ensancha la "esse" (la pieza 'curve' del kit: desplaza el carril de lado
+// SIN cambiar de rumbo — ver el comentario de esse() en piecesKenney.js).
+// A diferencia de la recta (un eje local fijo) o la curva circular (un
+// centro único), aquí no hay ningún eje/centro cerrado — técnica GENERAL:
+// se muestrea densamente la línea central conocida de la pieza (la MISMA
+// fórmula que ya describe su física) y cada vértice se reescala respecto
+// al punto más cercano de esa muestra, en la dirección perpendicular a la
+// tangente ahí. No hizo falta esto para straight/corner porque esas ya
+// tenían un eje/centro simple — aquí sí, y es reutilizable para cualquier
+// forma de pieza futura, no solo esta.
+function widenEsseGeometry(geometry, lenRaw, shiftRaw, factor, samples = 200) {
+  const curve = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = i / samples;
+    curve.push({ x: lenRaw * t, z: shiftRaw * 0.5 * (1 - Math.cos(Math.PI * t)) });
+  }
+  const pos = geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    let bestIdx = 0;
+    let bestD = Infinity;
+    for (let j = 0; j <= samples; j++) {
+      const dx = x - curve[j].x;
+      const dz = z - curve[j].z;
+      const d = dx * dx + dz * dz;
+      if (d < bestD) { bestD = d; bestIdx = j; }
+    }
+    const c = curve[bestIdx];
+    const prev = curve[Math.max(0, bestIdx - 1)];
+    const next = curve[Math.min(samples, bestIdx + 1)];
+    const tx = next.x - prev.x;
+    const tz = next.z - prev.z;
+    const tlen = Math.hypot(tx, tz) || 1;
+    const nx = -tz / tlen;
+    const nz = tx / tlen;
+    const dx = x - c.x;
+    const dz = z - c.z;
+    const offset = dx * nx + dz * nz; // distancia con signo a lo largo de la normal
+    pos.setX(i, c.x + nx * offset * factor);
+    pos.setZ(i, c.z + nz * offset * factor);
   }
   pos.needsUpdate = true;
   geometry.computeVertexNormals();
@@ -505,17 +597,33 @@ export default function Beta3D({ onBack }) {
       gameRef.current = s;
 
       setStatus('cargando piezas de pista…');
+      // Las piezas _L/_R comparten malla (el kit no trae una version "de
+      // derechas" separada -- ver el espejo por pieza mas abajo), asi que
+      // solo hace falta cargar/ensanchar CADA .glb una vez aunque el banco
+      // (piecesKenney.js) registre dos ids (L y R) por forma.
       const straightProto = await loadGlb(GLB_MODULES['track-narrow-straight']);
-      const cornerProto = await loadGlb(GLB_MODULES['track-narrow-corner-small']);
-      const protoByGlb = { 'track-narrow-straight': straightProto, 'track-narrow-corner-small': cornerProto };
+      const cornerSmallProto = await loadGlb(GLB_MODULES['track-narrow-corner-small']);
+      const cornerLargeProto = await loadGlb(GLB_MODULES['track-narrow-corner-large']);
+      const esseProto = await loadGlb(GLB_MODULES['track-narrow-curve']);
+      const protoByGlb = {
+        'track-narrow-straight': straightProto,
+        'track-narrow-corner-small': cornerSmallProto,
+        'track-narrow-corner-large': cornerLargeProto,
+        'track-narrow-curve': esseProto,
+      };
 
       // Ancho intermedio (ver TRACK_WIDTH_FACTOR más arriba) — se reescribe
       // UNA vez aquí, sobre el prototipo: cada pieza instanciada más abajo
       // es un .clone(true) que comparte la MISMA BufferGeometry por
       // referencia, así que todas salen ya ensanchadas sin repetir trabajo.
-      const cornerRadiusRaw = KENNEY_CORNER_SMALL_R / SCALE;
+      const cornerSmallRadiusRaw = KENNEY_CORNER_SMALL_R / SCALE;
+      const cornerLargeRadiusRaw = KENNEY_CORNER_LARGE_R / SCALE;
+      const esseLenRaw = KENNEY_ESSE_LEN / SCALE;
+      const esseShiftRaw = KENNEY_ESSE_SHIFT / SCALE;
       straightProto.traverse((obj) => { if (obj.isMesh) widenStraightGeometry(obj.geometry, TRACK_WIDTH_FACTOR); });
-      cornerProto.traverse((obj) => { if (obj.isMesh) widenCornerGeometry(obj.geometry, cornerRadiusRaw, TRACK_WIDTH_FACTOR); });
+      cornerSmallProto.traverse((obj) => { if (obj.isMesh) widenCornerGeometry(obj.geometry, cornerSmallRadiusRaw, TRACK_WIDTH_FACTOR); });
+      cornerLargeProto.traverse((obj) => { if (obj.isMesh) widenCornerGeometry(obj.geometry, cornerLargeRadiusRaw, TRACK_WIDTH_FACTOR); });
+      esseProto.traverse((obj) => { if (obj.isMesh) widenEsseGeometry(obj.geometry, esseLenRaw, esseShiftRaw, TRACK_WIDTH_FACTOR); });
 
       setStatus('cargando textura de pista…');
       const trackTex = await loadTextureRaw(gl, renderer, TRACK_COLORMAP);
@@ -527,7 +635,7 @@ export default function Beta3D({ onBack }) {
       // aplicaba aquí: la pista entera desaparecía. DoubleSide la hace
       // visible sin depender de eso.
       const roadMat = new THREE.MeshStandardMaterial({ map: trackTex, metalness: 0.05, roughness: 0.9, side: THREE.DoubleSide });
-      for (const proto of [straightProto, cornerProto]) {
+      for (const proto of [straightProto, cornerSmallProto, cornerLargeProto, esseProto]) {
         proto.traverse((obj) => { if (obj.isMesh) obj.material = roadMat; });
       }
 
@@ -563,7 +671,16 @@ export default function Beta3D({ onBack }) {
         // absorbe esa reflexión LOCALMENTE, en la malla, en vez de en todo
         // el mundo — así no vuelve a afectar al sentido de giro del coche
         // (que no usa esta función, usa headingToWorldForward directamente).
-        inst.scale.set(-SCALE, SCALE, SCALE);
+        //
+        // Piezas "_R" (giro/desplazamiento al lado contrario): el kit no
+        // trae una malla "de derechas" separada, así que en vez del
+        // espejo se usa la MISMA malla SIN espejar (pl.mirror=false, ver
+        // piecesKenney.js) — verificado en Node que esa es la combinación
+        // que alinea el contorno real de la malla con la línea central de
+        // ese sentido (banda de 17-30 unidades igual que las piezas "_L"
+        // ya probadas; con el espejo que no toca, la banda se dispara a
+        // 3-207 unidades — confirma que el signo importa).
+        inst.scale.set(pl.mirror ? -SCALE : SCALE, SCALE, SCALE);
         scene.add(inst);
       }
 
