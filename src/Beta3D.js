@@ -143,12 +143,6 @@ const CHASE_LOOK_HEIGHT = 15;
 // durante un momento — esa rotación relativa es la sensación de girar.
 const CAM_TURN_LERP = 3.5; // mismo valor que CAM_TURN_LERP en Game.js
 
-// Los "pianos" ya vienen pintados en la propia textura del kit
-// (colormap.png, incrustada en el .glb) — no hace falta fabricarlos a
-// mano: basta con decodificar esa textura de verdad en vez del stub en
-// blanco (ver textureFromImageBytes / extractGlbImageBytes más arriba) y
-// usarla como material de la pista.
-
 function fmtMain(ms) {
   const s = fmt(ms);
   return s.slice(0, s.length - 2);
@@ -256,8 +250,15 @@ export default function Beta3D({ onBack }) {
 
     let carObj = null;
 
+    // Escribe el ref (lo lee el bucle de render en cada frame) Y el estado
+    // de React directamente — solo el ref no basta durante la carga: el
+    // bucle de render no arranca hasta que ESTE try/catch entero termina,
+    // así que sin el setHud aquí cualquier mensaje intermedio (incluida
+    // una pausa de depuración) queda invisible y la pantalla se queda
+    // clavada en el texto inicial hasta el final.
     const setStatus = (msg) => {
       statusRef.current = msg;
+      setHud((prev) => ({ ...prev, status: msg }));
     };
 
     try {
@@ -273,17 +274,19 @@ export default function Beta3D({ onBack }) {
       const cornerProto = await loadGlb(GLB_MODULES['track-corner-small']);
       const protoByGlb = { 'track-straight': straightProto, 'track-corner-small': cornerProto };
 
-      // Color plano, no la textura real del kit ("colormap.png", que trae
-      // los pianos ya pintados): se intentó cargarla de verdad (es un
-      // fichero EXTERNO al .glb, no incrustado como se pensaba en la Fase
-      // 1 — copiada a mano del kit a assets/beta3d/track-colormap.png,
-      // sigue ahí por si se retoma) por 4 caminos distintos — flipY,
-      // forzar descarga real en vez del atajo de recurso Android, sin
-      // forzar espacio de color sRGB — los 4 dieron el mismo negro sólido,
-      // sin ningún cambio entre ellos. Descartado: parece un límite real
-      // de este renderer concreto (expo-three sobre WebGL1, three@0.145.0)
-      // subiendo texturas por este camino, no un parámetro suelto — ver el
-      // plan para el detalle completo de las 4 pruebas.
+      // Color plano, no la textura real del kit (los "pianos"): confirmado
+      // por qué no sale, con causa exacta — ver el plan (sección Fase 3,
+      // segunda ronda) para el detalle completo. Resumen: el fichero SÍ se
+      // descarga bien (confirmado con un diagnóstico en el propio HUD —
+      // bytes=8706, exactos), pero three.js sube una textura marcada
+      // `isDataTexture` con la firma LARGA de `texImage2D` (ancho/alto
+      // explícitos + un buffer de píxeles) — y lo que expo-three pone ahí
+      // como "buffer" es en realidad un objeto `{localUri, width, height}`,
+      // pensado para la firma CORTA que usa el puente nativo de expo-gl
+      // para decodificar imágenes locales de verdad. Incompatibilidad real
+      // entre expo-three (código de esta librería sin mantener desde hace
+      // tiempo — tiene hasta un `console.warn` de depuración olvidado) y la
+      // versión de expo-gl de este SDK, no un parámetro nuestro.
       //
       // DoubleSide: las piezas llevan escala negativa en X (el espejo
       // local que explica headingToRotationY más arriba) — eso invierte
@@ -310,8 +313,6 @@ export default function Beta3D({ onBack }) {
         // absorbe esa reflexión LOCALMENTE, en la malla, en vez de en todo
         // el mundo — así no vuelve a afectar al sentido de giro del coche
         // (que no usa esta función, usa headingToWorldForward directamente).
-        // Como efecto secundario también espeja la textura del piano —
-        // aceptable para esta beta (el patrón rojo/blanco es simétrico).
         inst.scale.set(-SCALE, SCALE, SCALE);
         scene.add(inst);
       }
