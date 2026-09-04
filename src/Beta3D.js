@@ -95,38 +95,87 @@ const CIRCUITS = [
       'corner_small_L', 'straight', 'straight',
     ],
   },
-  // Banco ampliado a petición de JC ("ponte con todas las piezas"): dos
-  // circuitos más para probar las piezas nuevas (corner_large, corner_R,
-  // esse) antes de que JC monte los suyos con nombres propios.
+  // Cinco circuitos reales aproximados a petición de JC, a partir de las
+  // fotos que dejó en assets/circuitos/ (nombres en clave suyos, no los
+  // reales — se respetan tal cual). Con el banco actual (rectas + giros
+  // de 90° en dos radios y dos sentidos + una "esse" de desplazamiento
+  // lateral sin girar) NO se puede trazar cada curva real por su ángulo
+  // o radio exactos — es una aproximación "por bloques" de la SILUETA
+  // (elongado o compacto, curvas cerradas o abiertas, dónde cae la
+  // chicane/esses más característica de cada trazado), no una copia.
+  // Mismo patrón en los 5: un rectángulo redondeado (4 giros de 90° al
+  // mismo lado, MISMO radio en los 4 para que cierre por construcción —
+  // igual que "óvalo compacto/alargado") con una o dos parejas
+  // esse_L+esse_R SUSTITUYENDO rectas (nunca añadidas aparte, ver el
+  // comentario de "banco completo" en el historial/plan) en el lado que
+  // representa la zona de eses más famosa de cada circuito real. Cierre
+  // geométrico y ausencia de auto-solape de los 5 verificados en Node
+  // antes de compilar (mismo método de siempre) — los 5 cierran exactos
+  // (dist 0.00, error de ángulo 0.00) con hueco mínimo entre 150 y 208
+  // unidades, muy por encima del medio-ancho de canal (31.2).
   {
-    // Mismo trazado EXACTO que "óvalo compacto" pero con corner_small_R en
-    // vez de _L — el giro a la derecha nunca se había usado en un circuito
-    // ensamblado de verdad (antes solo se verificó por álgebra en Node);
-    // este es el caso más simple y directo para probarlo en mano: si el
-    // óvalo se ve tan limpio como el compacto original, el giro a la
-    // derecha funciona igual de bien que el de izquierda.
-    name: 'óvalo compacto (derecha)',
+    // Carlo Monte (Monaco): el más compacto y de curvas más cerradas de
+    // los cinco (corner_small, como "óvalo compacto") — la propia foto
+    // es el circuito más pequeño y sinuoso del calendario. Una chicane
+    // (la zona de la piscina/swimming pool) en uno de los lados cortos.
+    name: 'Carlo Monte',
     path: [
-      'corner_small_R', 'straight', 'straight',
-      'corner_small_R', 'straight',
-      'corner_small_R', 'straight', 'straight',
-      'corner_small_R', 'straight',
+      'corner_small_L', 'esse_L', 'esse_R',
+      'corner_small_L', 'straight',
+      'corner_small_L', 'straight', 'straight',
+      'corner_small_L', 'straight',
     ],
   },
   {
-    // corner_large (radio doble) en las 4 esquinas + una esse_L/esse_R
-    // (desplazamiento lateral sin girar — la pieza 'curve' del kit, que
-    // resultó ser esto y no una curva de radio distinto, ver
-    // piecesKenney.js) SUSTITUYENDO las dos rectas de un lado largo, no
-    // añadida aparte (insertarla sin más no cierra el circuito: la esse
-    // avanza tanto en longitud como una recta, pero el desplazamiento
-    // lateral no compensa por sí solo esa longitud extra en el lado
-    // opuesto — verificado en Node antes de dar con este diseño).
-    name: 'banco completo',
+    // Kusuza (Suzuka): más fluido y alargado (corner_large — Suzuka tiene
+    // fama de circuito rápido) con las Esses de verdad representadas por
+    // la chicane en el lado largo. El cruce en figura de 8 del circuito
+    // real no es representable (el motor no admite que la pista se cruce
+    // consigo misma) — se aplana a un óvalo simple, aviso explícito de la
+    // aproximación.
+    name: 'Kusuza',
     path: [
-      'corner_large_L', 'esse_L', 'esse_R',
-      'corner_large_L', 'straight',
+      'corner_large_L', 'esse_L', 'esse_R', 'straight', 'straight',
       'corner_large_L', 'straight', 'straight',
+      'corner_large_L', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_L', 'straight', 'straight',
+    ],
+  },
+  {
+    // Molai (Imola): asimetría marcada — un lado muy largo (la vuelta de
+    // atrás real de Imola es larga) frente a uno corto (la zona de
+    // salida/meta) — con la chicane en el lado largo (Rivazza/Variante).
+    name: 'Molai',
+    path: [
+      'corner_large_L', 'esse_L', 'esse_R', 'straight', 'straight', 'straight',
+      'corner_large_L', 'straight',
+      'corner_large_L', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_L', 'straight',
+    ],
+  },
+  {
+    // Pas (Spa): el más alargado de los cinco (la recta Kemmel de Spa es
+    // de las más largas del calendario real) — DOS chicanes, una por cada
+    // lado largo (Eau Rouge/Raidillon a la salida + la curva Bus Stop
+    // antes de meta).
+    name: 'Pas',
+    path: [
+      'corner_large_L', 'esse_L', 'esse_R', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_L', 'straight', 'straight',
+      'corner_large_L', 'esse_L', 'esse_R', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_L', 'straight', 'straight',
+    ],
+  },
+  {
+    // Versilneto (Silverstone): fluido como Kusuza/Pas, pero con DOS
+    // parejas esse seguidas en el mismo lado — representa el tramo de
+    // eses encadenadas (Maggotts-Becketts-Chapel) más marcado del
+    // calendario real.
+    name: 'Versilneto',
+    path: [
+      'corner_large_L', 'esse_L', 'esse_R', 'esse_L', 'esse_R', 'straight',
+      'corner_large_L', 'straight',
+      'corner_large_L', 'straight', 'straight', 'straight', 'straight', 'straight',
       'corner_large_L', 'straight',
     ],
   },
