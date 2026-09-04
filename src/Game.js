@@ -1194,20 +1194,33 @@ function nextTurn(cornerData, trackIdx) {
 // más ancho de lo que teníamos, y césped/grava en los márgenes en vez de
 // nada. El límite de colisión sigue siendo track.center[i].w, ajeno a todo
 // esto — near.w en stepSimulation() no cambia ni un número, esto es 100%
-// visual. KERB_W subido de 9 a 18 (el doble); GRAVEL_W es nuevo.
+// visual. KERB_W subido de 9 a 18 (el doble); grava/césped debajo.
 const KERB_W = 18;   // ancho del piano (centrado en el borde)
 const KERB_BLOCK = 11; // largo objetivo de cada tramo rojo/blanco del piano
 const CHECK_SQ = 11; // lado de cada cuadro de la meta
 // Probado primero como polígono paralelo a la curva (mismo offsetPolygon de
-// abajo) para grava Y césped. Medido contra 60 circuitos reales: a partir de
-// offset 40 unidades, 39/60 días con algún PLIEGUE del polígono sobre sí
-// mismo en curvas cerradas encadenadas (el radio más cerrado del banco es
-// hook_L/R en pieces.js, arc(95,...), pero lo que de verdad lo dispara es
-// dos curvas seguidas sin recta entre medias — ver SECTIONS.decreasing en
-// generator.js). A 16 unidades, 1/60 — seguro de sobra. Por eso la grava se
-// queda fina y pegada a la pista, y el césped pasa a ser un rectángulo
-// (ver grassRect en geom): un rectángulo no puede plegarse nunca.
-const GRAVEL_W = 16; // ancho de la franja de grava, más allá del piano
+// abajo) para grava Y césped, a offset CONSTANTE. Medido contra 60 circuitos
+// reales: a partir de offset 40 unidades, 39/60 días con algún PLIEGUE del
+// polígono sobre sí mismo en curvas cerradas encadenadas (el radio más
+// cerrado del banco es hook_L/R en pieces.js, arc(95,...), pero lo que de
+// verdad lo dispara es dos curvas seguidas sin recta entre medias — ver
+// SECTIONS.decreasing en generator.js). A 16 unidades, 1/60 — seguro de
+// sobra. Por eso el césped pasa a ser un rectángulo (ver grassRect en geom):
+// un rectángulo no puede plegarse nunca. La grava, en cambio, JC la quería
+// "bastante más ancha" — en vez de subir el offset constante (y volver a
+// arriesgar el pliegue), ver gravelExtras() más abajo: ancho variable según
+// el radio de curvatura local, ancho en recta y estrecha solo donde de
+// verdad hace falta.
+const GRAVEL_MIN = 16; // el offset constante ya probado seguro — nunca baja de aquí
+const GRAVEL_MAX = 42; // en recta (radio ~infinito) llega a esto
+const GRAVEL_SAFETY = 0.55; // margen bajo el radio local, para el error del polígono discreto
+
+// Verde apagado (JC: el anterior "es demasiado verde, no da sensación de
+// césped") — más oliva, menos saturado, con dos tonos casi iguales para la
+// franja de siega.
+const GRASS_A = '#456237';
+const GRASS_B = '#4f6f3e';
+const GRASS_STRIPE_W = 190;
 
 // Tramos ROJOS del piano como geometría explícita, recorriendo el borde por
 // longitud de arco. Devuelve UN solo path (`d`) con un subtrazado por bloque.
@@ -1329,16 +1342,44 @@ function dashedPath(pts, dashLen, gapLen) {
 // ya es esa normal, con longitud center[i].w — solo hace falta reescalarla.
 function offsetPolygon(track, extra) {
   const c = track.center, left = track.left, right = track.right;
+  const extraAt = Array.isArray(extra) ? (i) => extra[i] : () => extra;
   const out = [];
   for (let i = 0; i < c.length; i++) {
-    const w = c[i].w, k = (w + extra) / w;
+    const w = c[i].w, k = (w + extraAt(i)) / w;
     out.push({ x: c[i].x + (left[i].x - c[i].x) * k, y: c[i].y + (left[i].y - c[i].y) * k });
   }
   for (let i = c.length - 1; i >= 0; i--) {
-    const w = c[i].w, k = (w + extra) / w;
+    const w = c[i].w, k = (w + extraAt(i)) / w;
     out.push({ x: c[i].x + (right[i].x - c[i].x) * k, y: c[i].y + (right[i].y - c[i].y) * k });
   }
   return out.map((p) => `${p.x},${p.y}`).join(' ');
+}
+
+// Radio de curvatura local (ds/dTheta entre vecinos) para modular el ancho de
+// grava punto a punto: en recta el radio tiende a infinito (ancho máximo),
+// en curva cerrada baja solo hasta el mínimo ya probado seguro. GRAVEL_SAFETY
+// deja margen porque esto es una aproximación discreta (pocos puntos), no el
+// radio exacto de la curva real.
+function gravelExtras(track) {
+  const c = track.center;
+  const n = c.length;
+  const heading = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = c[Math.max(0, i - 1)];
+    const b = c[Math.min(n - 1, i + 1)];
+    heading[i] = Math.atan2(b.y - a.y, b.x - a.x);
+  }
+  const extras = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+    let d = heading[i1] - heading[i0];
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    const ds = Math.hypot(c[i1].x - c[i0].x, c[i1].y - c[i0].y);
+    const r = Math.abs(d) < 1e-4 ? Infinity : ds / Math.abs(d);
+    extras[i] = Math.max(GRAVEL_MIN, Math.min(GRAVEL_MAX, r * GRAVEL_SAFETY));
+  }
+  return extras;
 }
 
 // Cuadros del damero de meta, alineados a la línea a→b y al sentido de marcha.
@@ -1479,10 +1520,21 @@ const TrackLayer = memo(function TrackLayer({ track, showDebug, wet, palette }) 
       if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
     }
     const PAD = 300;
+    const grassRect = { x: minX - PAD, y: minY - PAD, w: (maxX - minX) + PAD * 2, h: (maxY - minY) + PAD * 2 };
+    // Franjas de siega: JC decía que el verde plano se veía "falso". Un
+    // rectángulo liso no puede plegarse (por eso se eligió esa forma para el
+    // césped), pero tampoco tiene ninguna textura — unas bandas anchas y
+    // apagadas, alternando dos verdes muy cercanos, dan la sensación de
+    // césped cortado sin arriesgar la geometría.
+    const grassStripes = [];
+    for (let x = grassRect.x, i = 0; x < grassRect.x + grassRect.w; x += GRASS_STRIPE_W, i++) {
+      grassStripes.push({ x, w: Math.min(GRASS_STRIPE_W, grassRect.x + grassRect.w - x), color: i % 2 === 0 ? GRASS_A : GRASS_B });
+    }
     return {
       road: track.roadPolygon.map((p) => `${p.x},${p.y}`).join(' '),
-      grassRect: { x: minX - PAD, y: minY - PAD, w: (maxX - minX) + PAD * 2, h: (maxY - minY) + PAD * 2 },
-      gravel: offsetPolygon(track, GRAVEL_W),
+      grassRect,
+      grassStripes,
+      gravel: offsetPolygon(track, gravelExtras(track)),
       lane: track.center.map((p) => `${p.x},${p.y}`).join(' '),
       lanePath: dashedPath(track.center, 10, 16),
       edgeL: track.left.map((p) => `${p.x},${p.y}`).join(' '),
@@ -1501,7 +1553,9 @@ const TrackLayer = memo(function TrackLayer({ track, showDebug, wet, palette }) 
           desentone con el resto de la paleta nocturna del juego. Césped =
           rectángulo grande (ver el comentario de GRAVEL_W arriba, por qué
           no es un polígono ajustado a la curva como todo lo demás aquí). */}
-      <Rect x={geom.grassRect.x} y={geom.grassRect.y} width={geom.grassRect.w} height={geom.grassRect.h} fill="#2f6b35" />
+      {geom.grassStripes.map((s, idx) => (
+        <Rect key={idx} x={s.x} y={geom.grassRect.y} width={s.w} height={geom.grassRect.h} fill={s.color} />
+      ))}
       <Polygon points={geom.gravel} fill="#b8a074" />
       {/* Asfalto */}
       <Polygon points={geom.road} fill={asphalt} />
