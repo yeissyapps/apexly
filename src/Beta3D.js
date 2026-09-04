@@ -349,10 +349,22 @@ function widenCornerGeometry(geometry, radiusRaw, factor) {
 // tenían un eje/centro simple — aquí sí, y es reutilizable para cualquier
 // forma de pieza futura, no solo esta.
 function widenEsseGeometry(geometry, lenRaw, shiftRaw, factor, samples = 200) {
+  // OJO: aquí X es el desplazamiento lateral y Z es la longitud — al
+  // revés de como podría parecer por la convención de piecesKenney.js
+  // (donde el "length" del centerline en espacio de JUEGO se llama x).
+  // Esto son coordenadas CRUDAS de la malla real, no las del centerline
+  // de física — medido en Node directamente sobre track-narrow-curve.glb:
+  // la entrada (z=0) tiene x en [-0.5,0.5], la salida (z=4.0) tiene x en
+  // [-2.5,-1.5]. Un primer intento con los ejes cambiados (length en X,
+  // desplazamiento en Z) comparaba cada vértice contra una curva
+  // ORIENTADA MAL — el punto "más cercano" salía casi al azar, y el
+  // ensanchado resultante dejaba la malla partida en fragmentos sueltos,
+  // descolocados unos de otros (visto en el Samsung: geometría rota justo
+  // en la primera esse de cada circuito con esta pieza).
   const curve = [];
   for (let i = 0; i <= samples; i++) {
     const t = i / samples;
-    curve.push({ x: lenRaw * t, z: shiftRaw * 0.5 * (1 - Math.cos(Math.PI * t)) });
+    curve.push({ x: shiftRaw * 0.5 * (1 - Math.cos(Math.PI * t)), z: lenRaw * t });
   }
   const pos = geometry.attributes.position;
   for (let i = 0; i < pos.count; i++) {
@@ -726,7 +738,17 @@ export default function Beta3D({ onBack }) {
       const cornerSmallRadiusRaw = KENNEY_CORNER_SMALL_R / SCALE;
       const cornerLargeRadiusRaw = KENNEY_CORNER_LARGE_R / SCALE;
       const esseLenRaw = KENNEY_ESSE_LEN / SCALE;
-      const esseShiftRaw = KENNEY_ESSE_SHIFT / SCALE;
+      // Negativo a propósito: KENNEY_ESSE_SHIFT es el valor positivo que
+      // usa piecesKenney.js para su propia convención de JUEGO (esse_R
+      // desplaza hacia +, esse_L hacia -). Pero esto NO widening opera
+      // sobre la malla real, y la malla física (medida en Node) va de
+      // x=0 en la entrada a x=-2.0 en la salida — SIEMPRE en ese sentido,
+      // sea cual sea la pieza (L o R) que la use después con su espejo.
+      // Pasar aquí el signo de piecesKenney.js (positivo) hacía que la
+      // curva de referencia para el ensanchado apuntase al lado
+      // CONTRARIO de donde están de verdad los vértices — de ahí la
+      // malla partida en fragmentos sueltos que se vio en el Samsung.
+      const esseShiftRaw = -(KENNEY_ESSE_SHIFT / SCALE);
       straightProto.traverse((obj) => { if (obj.isMesh) widenStraightGeometry(obj.geometry, TRACK_WIDTH_FACTOR); });
       cornerSmallProto.traverse((obj) => { if (obj.isMesh) widenCornerGeometry(obj.geometry, cornerSmallRadiusRaw, TRACK_WIDTH_FACTOR); });
       cornerLargeProto.traverse((obj) => { if (obj.isMesh) widenCornerGeometry(obj.geometry, cornerLargeRadiusRaw, TRACK_WIDTH_FACTOR); });
