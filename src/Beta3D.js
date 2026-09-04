@@ -125,6 +125,30 @@ const CIRCUITS = [
   // ángulo 0.00) con hueco mínimo entre 150 y 208 unidades, muy por
   // encima del medio-ancho de canal (31.2) — así que aunque la silueta
   // ya no es un simple rectángulo, sigue sin haber autosolape.
+  //
+  // SEGUNDA vuelta de ajuste — JC, tras probar estos: "no has hecho bien
+  // los circuitos... tienes que hacerlo lo más parecidos posible con las
+  // piezas que tenemos, sobre todo en longitud... el tiempo tiene que
+  // estar más o menos alrededor de los 50 segundos" (poniendo Carlo
+  // Monte como referencia). Los 5 de la ronda anterior duraban entre 12
+  // y 30 segundos — mucho más cortos de lo que JC esperaba de un
+  // circuito de verdad. Recalibrados por FÍSICA, no a ojo: con
+  // CONFIG.MAX_SPEED=250 u/s (Game.js, sin tocar) y las longitudes
+  // reales de cada pieza (recta/esse=208, arco de corner_small=104·π/2≈
+  // 163, arco de corner_large=208·π/2≈327 — todo en unidades de mundo,
+  // ver piecesKenney.js), 50s de vuelta a velocidad punta son ~12500
+  // unidades de longitud total — la cota SUPERIOR real (sin contar la
+  // rampa de aceleración inicial ni ningún frenazo en curva, que solo
+  // alargan el tiempo de verdad, nunca lo acortan). Recalculadas las
+  // longitudes de recta de los 5 para acercarse a esa cifra manteniendo
+  // la MISMA silueta (L/Z/horquilla) que ya cerraba: resolviendo otra
+  // vez el mismo sistema de cierre por eje con las longitudes nuevas
+  // (mismo script de Node), los 5 siguen cerrando exactos y sin
+  // autosolape — verificado antes de compilar, no solo la primera vez.
+  // Estimación resultante (misma fórmula, longitud total/250):
+  // Carlo Monte ~52s, Kusuza ~49s, Molai ~49s, Pas ~57s, Versilneto
+  // ~53s — con el objetivo real esperado por encima de esto (por la
+  // rampa de arranque y los frenazos que la estimación no cuenta).
   {
     // Carlo Monte (Monaco): en forma de "L" compacta (corner_small, el
     // más cerrado de los cinco — Monaco es el circuito más sinuoso del
@@ -132,12 +156,12 @@ const CIRCUITS = [
     // los tramos.
     name: 'Carlo Monte',
     path: [
-      'corner_small_L', 'straight',
-      'corner_small_R', 'straight',
-      'corner_small_R', 'esse_L', 'esse_R', 'straight',
-      'corner_small_R', 'straight', 'straight', 'straight',
-      'corner_small_R', 'straight',
-      'corner_small_R', 'straight',
+      'corner_small_L', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_small_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_small_R', 'esse_L', 'esse_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_small_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_small_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_small_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
     ],
   },
   {
@@ -148,14 +172,14 @@ const CIRCUITS = [
     // misma).
     name: 'Kusuza',
     path: [
-      'corner_large_R', 'straight', 'straight',
-      'corner_large_R', 'straight',
-      'corner_large_L', 'straight', 'straight',
-      'corner_large_R', 'straight',
-      'corner_large_R', 'straight', 'straight',
-      'corner_large_L', 'straight',
-      'corner_large_R', 'straight', 'straight',
-      'corner_large_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'esse_L', 'esse_R', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight', 'straight',
+      'corner_large_L', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_L', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
     ],
   },
   {
@@ -164,28 +188,29 @@ const CIRCUITS = [
     // cortos en el resto.
     name: 'Molai',
     path: [
-      'corner_large_L', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
-      'corner_large_R', 'straight',
-      'corner_large_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
-      'corner_large_R', 'straight', 'straight', 'straight', 'straight',
-      'corner_large_R', 'straight',
-      'corner_large_R', 'straight',
+      'corner_large_L', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight',
     ],
   },
   {
-    // Pas (Spa): forma de "U"/horquilla (dos giros cóncavos seguidos en
-    // el medio) — el más alargado de los cinco, como la recta Kemmel
-    // real.
+    // Pas (Spa): forma de "Z" alargada (mismo patrón que Kusuza pero con
+    // los tramos mucho más largos y menos giros por unidad de longitud)
+    // — el más largo de los cinco, como la recta Kemmel real, con dos
+    // chicanes (Eau Rouge/Raidillon + Bus Stop).
     name: 'Pas',
     path: [
-      'corner_large_R', 'straight', 'straight', 'straight',
+      'corner_large_R', 'esse_L', 'esse_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
       'corner_large_R', 'straight', 'straight',
+      'corner_large_L', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
       'corner_large_R', 'straight', 'straight',
-      'corner_large_L', 'straight',
-      'corner_large_L', 'straight',
-      'corner_large_R', 'straight',
-      'corner_large_R', 'straight', 'straight',
-      'corner_large_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_L', 'straight', 'straight',
+      'corner_large_R', 'esse_L', 'esse_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
     ],
   },
   {
@@ -195,15 +220,15 @@ const CIRCUITS = [
     // real.
     name: 'Versilneto',
     path: [
-      'corner_large_R', 'straight',
-      'corner_large_R', 'straight',
-      'corner_large_L', 'straight',
-      'corner_large_R', 'straight',
-      'corner_large_L', 'straight',
-      'corner_large_R',
-      'corner_large_R', 'esse_L', 'esse_R', 'straight',
-      'corner_large_L',
-      'corner_large_R', 'esse_L', 'esse_R',
+      'corner_large_R', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight',
+      'corner_large_L', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight',
+      'corner_large_L', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_R', 'straight', 'straight',
+      'corner_large_R', 'esse_L', 'esse_R', 'straight', 'straight', 'straight', 'straight', 'straight',
+      'corner_large_L', 'straight', 'straight',
+      'corner_large_R', 'esse_L', 'esse_R', 'straight', 'straight', 'straight', 'straight', 'straight',
       'corner_large_R', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight', 'straight',
     ],
   },
