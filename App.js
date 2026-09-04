@@ -25,6 +25,12 @@ import {
 } from '@expo-google-fonts/ibm-plex-mono';
 
 import Game from './src/Game';
+// Fase 0 del plan de evaluación 3D (ver C:\Users\JC\.claude\plans\ticklish-dazzling-wand.md).
+// Flag de arranque directo, sin entrada de navegación — se activa a mano solo
+// para compilar la beta, nunca en un build real. Quitar cuando se cierre la
+// evaluación (si prospera, mueve esto a algo integrado; si no, se borra).
+import Beta3D from './src/Beta3D';
+const BETA3D_AUTOSTART = false;
 import { todayKey, dayOffset } from './src/daily';
 import { dailyCircuit } from './src/generator';
 import { dailyWeather, NEUTRAL } from './src/weather';
@@ -671,6 +677,12 @@ export default function App() {
       noteRaceFinished(false); // cuenta el uso, pero sin pedir nada tras un error
     }
     setRefreshKey((k) => k + 1);
+  }
+
+  // Corto-circuita TODO lo demás (fuentes, sesión, generador diario) — la
+  // beta 3D no necesita nada de eso todavía. Ver BETA3D_AUTOSTART arriba.
+  if (BETA3D_AUTOSTART) {
+    return <Beta3D onBack={() => {}} />;
   }
 
   if (!fontsLoaded || screen === 'loading') {
