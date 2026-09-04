@@ -6,14 +6,16 @@
 //  assets locales, texturas embebidas en el .glb, ángulo analítico de las
 //  piezas, espejo lateral en el mapeo 2D->3D).
 //
-//  Esta fase: TODO junto y jugable — el circuito de piezas Kenney (ahora
-//  abierto, no un óvalo cerrado: ver FASE3_PATH) + la física REAL del juego
+//  Esta fase: TODO junto y jugable — circuitos CERRADOS de piezas Kenney
+//  (ver CIRCUITS, alternables en pantalla) + la física REAL del juego
 //  (stepSimulation/initialState, importadas tal cual de Game.js, sin tocar
 //  ni una línea) + el mismo esquema de entrada táctil que la pantalla de
 //  producción (resolveEntrada con su "pulso" al soltar) + un cronómetro que
-//  usa el mismo criterio de meta que ya existe (track.finish). Cámara en
-//  persecución (no cenital como en la Fase 2): es la que de verdad deja
-//  sentir velocidad y control en un circuito 3D real.
+//  usa el mismo criterio de meta que ya existe (track.finish, con un
+//  "armado" propio de esta pantalla para que salida y meta puedan coincidir
+//  — ver el comentario junto a FINISH_ARM_FRACTION). Cámara en persecución
+//  (no cenital como en la Fase 2): es la que de verdad deja sentir
+//  velocidad y control en un circuito 3D real.
 // ============================================================================
 
 import { useRef, useState } from 'react';
@@ -45,26 +47,43 @@ const GLB_MODULES = {
 const TRACK_COLORMAP = require('../assets/beta3d/track-colormap.png');
 const CAR_COLORMAP = require('../assets/beta3d/car-colormap.png');
 
-// Circuito de prueba ABIERTO (a diferencia del óvalo cerrado de la Fase 2):
-// salida y meta separadas bien lejos (verificado en Node antes de tocar el
-// dispositivo — ver el plan), porque track.finish se coloca en el ÚLTIMO
-// punto de la línea central (igual que en el juego real, donde salida y
-// meta NUNCA coinciden — los combos de pieces.js son todos de punta a
-// punta). Con un óvalo cerrado la meta cae encima mismo de la salida y
-// stepSimulation la daría por cruzada en el primer frame. 13 piezas (los 7
-// de antes + 6 más, a petición de JC) — comprobado en Node que no se
-// solapa consigo mismo antes de compilar: hueco mínimo entre puntos no
-// contiguos de 122 unidades, muy por encima del medio-ancho de canal (26).
-const FASE3_PATH = [
-  'straight', 'straight',
-  'corner_small_L',
-  'straight',
-  'corner_small_L',
-  'straight', 'straight',
-  'corner_small_L',
-  'straight', 'straight',
-  'corner_small_L',
-  'straight', 'straight',
+// Circuitos CERRADOS (a petición de JC, sustituye al óvalo abierto de
+// rondas anteriores) — dos aproximaciones de forma distinta, alternables
+// en pantalla sin recompilar (ver circuitIdx/CAMBIAR CIRCUITO más abajo).
+// El banco de piezas (piecesKenney.js) hoy solo tiene curvas hacia un
+// lado (corner_small_L) — con eso, cualquier circuito cerrado es
+// necesariamente un óvalo/rectángulo redondeado (4 giros de 90° que
+// suman 360°, con los lados opuestos de la misma longitud para que
+// cierre exacto). Para aproximar circuitos reales con eses (giros a los
+// dos lados) hace falta además una pieza corner_small_R — pendiente de
+// JC, no se ha construido esta ronda por no mezclarlo con el cierre de
+// meta (ver el plan).
+//
+// Cierre geométrico verificado en Node antes de compilar (mismo método
+// de siempre): con estas piezas, la pose final vuelve exacta al origen
+// (error 0.0000 en x/y, ángulo -360° = 0° mod 360°) y el hueco mínimo
+// entre puntos no contiguos (excluyendo la propia costura de cierre,
+// que coincide a propósito) es 122 unidades — muy por encima del medio-
+// ancho de canal físico (31.2).
+const CIRCUITS = [
+  {
+    name: 'óvalo compacto',
+    path: [
+      'corner_small_L', 'straight', 'straight',
+      'corner_small_L', 'straight',
+      'corner_small_L', 'straight', 'straight',
+      'corner_small_L', 'straight',
+    ],
+  },
+  {
+    name: 'óvalo alargado',
+    path: [
+      'corner_small_L', 'straight', 'straight', 'straight', 'straight',
+      'corner_small_L', 'straight', 'straight',
+      'corner_small_L', 'straight', 'straight', 'straight', 'straight',
+      'corner_small_L', 'straight', 'straight',
+    ],
+  },
 ];
 
 // Camino DISTINTO al de expo-three para las texturas reales, evitando el
@@ -237,6 +256,23 @@ function widenCornerGeometry(geometry, radiusRaw, factor) {
 // (0.3 * CAR_SCALE ≈ 3.75), de sobra visible. Bajado a un margen mínimo,
 // solo para evitar parpadeo de renderizado, no para "levantar" el coche.
 const GROUND_Y = 0.08;
+// nearestOnPolyline (Game.js, sin tocar) busca el punto más cercano en una
+// VENTANA alrededor del último índice conocido (TRACK_WINDOW=25 ahí mismo),
+// sin envolver — pensado para un trazado ABIERTO donde el índice solo
+// avanza. En un circuito CERRADO, al cruzar la costura (del último punto de
+// vuelta al primero) el coche pasa a estar físicamente cerca del índice 0
+// otra vez, pero la ventana sigue centrada cerca del ÚLTIMO índice y nunca
+// mira hacia el principio del array — perdería el rastro justo al cruzar
+// meta. Arreglo sin tocar Game.js: se duplican los primeros PAD_COUNT+1
+// puntos de la vuelta al FINAL del array que se le pasa a
+// buildTrackFromCenterline, así el índice sigue avanzando sin más allá de
+// la vuelta real, sobre puntos que son copias exactas de los del principio
+// (misma x/y/w) — nearestOnPolyline nunca necesita "saltar" hacia atrás.
+// PAD_COUNT > TRACK_WINDOW con margen de sobra.
+const PAD_COUNT = 40;
+// Fracción de la vuelta que hay que recorrer antes de que la meta se
+// "arme" — ver el uso de finishRef más abajo.
+const FINISH_ARM_FRACTION = 0.2;
 // Los choques solo se notaban con el coche prácticamente fuera de la
 // pista — no era el ancho (ya ajustado dos veces), era el LARGO. La
 // colisión de stepSimulation (sin tocar, es la misma de producción) solo
@@ -285,6 +321,10 @@ function fmtFrac(ms) {
 
 export default function Beta3D({ onBack }) {
   const [hud, setHud] = useState({ status: 'cargando circuito…', fps: 0, elapsed: 0, phase: 'loading' });
+  // key del GLView (ver el JSX más abajo): cambiarla fuerza un remount
+  // completo (nuevo onContextCreate desde cero) — la forma más simple de
+  // cargar un circuito distinto sin duplicar toda la lógica de carga.
+  const [circuitIdx, setCircuitIdx] = useState(0);
 
   const pressLeft = useRef(false);
   const pressRight = useRef(false);
@@ -297,6 +337,8 @@ export default function Beta3D({ onBack }) {
   const gameRef = useRef(null);
   const trackRef = useRef(null);
   const statusRef = useRef('cargando circuito…');
+  // { real, disarmed, armIdx } — ver el comentario junto a FINISH_ARM_FRACTION.
+  const finishRef = useRef(null);
 
   // Copia exacta de resolveEntrada() en Game.js — mismo esquema de entrada
   // que la pantalla de producción (remate fijo al soltar, desempate del
@@ -347,6 +389,11 @@ export default function Beta3D({ onBack }) {
     const track = trackRef.current;
     if (!track || !gameRef.current) return;
     Object.assign(gameRef.current, initialState(track));
+    // Sin esto, un REINTENTAR en un circuito cerrado arrancaría con la
+    // meta ya armada de la vuelta anterior (bestTrackIdx del coche nuevo
+    // vuelve a 0, pero finishRef.current no se toca solo) — como salida y
+    // meta son el mismo punto, se daría por cruzada en el primer frame.
+    if (track && finishRef.current) track.finish = finishRef.current.disarmed;
     pressLeft.current = false;
     pressRight.current = false;
     entrada.current = 0;
@@ -394,8 +441,37 @@ export default function Beta3D({ onBack }) {
 
     try {
       setStatus('ensamblando circuito…');
-      const { center, placements } = assembleBeta(FASE3_PATH);
+      const { center: lapCenter, placements } = assembleBeta(CIRCUITS[circuitIdx].path);
+      // Padding para nearestOnPolyline — ver el comentario junto a
+      // PAD_COUNT más arriba. Los `placements` (piezas a instanciar) NO se
+      // tocan: la vuelta real solo se recorre una vez en pantalla, el
+      // padding es puramente para que la física no pierda el rastro al
+      // cruzar la costura.
+      const center = lapCenter.concat(lapCenter.slice(1, PAD_COUNT + 1));
       const track = buildTrackFromCenterline(center);
+      // Circuito CERRADO: la meta es la propia línea de salida (cruzarla
+      // de vuelta completa la vuelta). buildTrackFromCenterline, sin
+      // tocar, siempre coloca `finish` en el ÚLTIMO punto del array que
+      // se le pasa (pensado para un trazado ABIERTO donde salida y meta
+      // nunca coinciden) — con el array ya padded ese último punto es una
+      // copia de un punto cualquiera cerca del principio de la vuelta, no
+      // la salida de verdad. Se sobreescribe con la salida real
+      // (mismo criterio que track.startLine).
+      const realFinish = {
+        a: track.left[0],
+        b: track.right[0],
+        point: { x: track.center[0].x, y: track.center[0].y },
+        tangent: { x: Math.cos(track.startPose.heading), y: Math.sin(track.startPose.heading) },
+      };
+      // DESARMADA hasta que el coche haya recorrido un tramo de la vuelta:
+      // como salida y meta son el MISMO punto, si se deja armada desde
+      // ya, stepSimulation (sin tocar) la daría por cruzada en el
+      // primerísimo frame (coche parado justo encima). Un punto de meta
+      // inalcanzable (`1e9`) hasta entonces; el propio bucle de render, más
+      // abajo, la arma de verdad en cuanto s.bestTrackIdx pasa el umbral.
+      const disarmedFinish = { a: track.left[0], b: track.right[0], point: { x: 1e9, y: 1e9 }, tangent: { x: 1, y: 0 } };
+      track.finish = disarmedFinish;
+      finishRef.current = { real: realFinish, disarmed: disarmedFinish, armIdx: Math.floor(lapCenter.length * FINISH_ARM_FRACTION) };
       trackRef.current = track;
       const s = initialState(track);
       gameRef.current = s;
@@ -507,6 +583,14 @@ export default function Beta3D({ onBack }) {
         dt = clamp(dt, 0, 1 / 15);
 
         if (s.phase === 'running') {
+          // Arma la meta (circuito cerrado) en cuanto el coche lleva un
+          // tramo recorrido — ver el comentario de disarmedFinish más
+          // arriba. bestTrackIdx (mantenido por stepSimulation, sin
+          // tocar) solo avanza en 'running', así que basta comprobarlo
+          // aquí una vez por frame.
+          if (finishRef.current && track.finish === finishRef.current.disarmed && s.bestTrackIdx > finishRef.current.armIdx) {
+            track.finish = finishRef.current.real;
+          }
           s.acc += dt;
           let guard = 0;
           const wasTouching = s.touching;
@@ -588,10 +672,13 @@ export default function Beta3D({ onBack }) {
 
   return (
     <View style={styles.root}>
-      <GLView style={styles.gl} onContextCreate={onContextCreate} />
+      {/* key={circuitIdx}: cambiar de circuito remonta el GLView entero —
+          onContextCreate vuelve a correr desde cero con CIRCUITS[circuitIdx],
+          más simple y fiable que intentar reconstruir la escena en caliente. */}
+      <GLView key={circuitIdx} style={styles.gl} onContextCreate={onContextCreate} />
 
       <View style={styles.hud} pointerEvents="none">
-        <Text style={styles.hudText}>BETA 3D · Fase 3 · {hud.fps} fps</Text>
+        <Text style={styles.hudText}>BETA 3D · {CIRCUITS[circuitIdx].name} · {hud.fps} fps</Text>
         <Text style={styles.hudSub}>{hud.status}</Text>
       </View>
 
@@ -608,6 +695,10 @@ export default function Beta3D({ onBack }) {
 
       <Pressable style={styles.back} onPress={onBack}>
         <Text style={styles.backText}>← VOLVER</Text>
+      </Pressable>
+
+      <Pressable style={styles.switchCircuit} onPress={() => setCircuitIdx((i) => (i + 1) % CIRCUITS.length)}>
+        <Text style={styles.backText}>⟳ CIRCUITO</Text>
       </Pressable>
 
       {hud.phase === 'finished' && (
@@ -643,6 +734,7 @@ const styles = StyleSheet.create({
   hudText: { color: '#eef0f4', fontSize: 14, fontWeight: '700' },
   hudSub: { color: '#9aa3b2', fontSize: 11, marginTop: 2, maxWidth: 260 },
   back: { position: 'absolute', top: 48, right: 16, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 8 },
+  switchCircuit: { position: 'absolute', top: 92, right: 16, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 8 },
   backText: { color: '#eef0f4', fontSize: 13, fontWeight: '700' },
   timerBox: { position: 'absolute', top: 44, left: 0, right: 0, alignItems: 'center' },
   timerMain: { color: '#fff', fontSize: 34, fontWeight: '800', fontVariant: ['tabular-nums'] },
