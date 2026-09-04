@@ -1003,6 +1003,19 @@ export default function Beta3D({ onBack }) {
         <Text style={styles.backText}>⟳ CIRCUITO</Text>
       </Pressable>
 
+      {/* Antes solo había forma de reiniciar tras cruzar meta — si el coche
+          se quedaba encajado contra un muro a mitad de vuelta (sin freno ni
+          marcha atrás, y el coche sigue acelerando solo aunque esté
+          parado), no había manera de salir de ahí sin abandonar la
+          pantalla entera (VOLVER) o cambiar de circuito. Este botón cubre
+          ese hueco — visible en 'ready'/'running', se esconde en
+          'finished' porque ahí ya está el REINTENTAR grande de siempre. */}
+      {hud.phase !== 'finished' && (
+        <Pressable style={styles.resetSmall} onPress={resetRun}>
+          <Text style={styles.backText}>⟲ REINICIAR</Text>
+        </Pressable>
+      )}
+
       {hud.phase === 'finished' && (
         <Pressable style={styles.retry} onPress={resetRun}>
           <Text style={styles.retryText}>REINTENTAR</Text>
@@ -1037,6 +1050,7 @@ const styles = StyleSheet.create({
   hudSub: { color: '#9aa3b2', fontSize: 11, marginTop: 2, maxWidth: 260 },
   back: { position: 'absolute', top: 48, right: 16, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 8 },
   switchCircuit: { position: 'absolute', top: 92, right: 16, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 8 },
+  resetSmall: { position: 'absolute', top: 136, right: 16, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 8 },
   backText: { color: '#eef0f4', fontSize: 13, fontWeight: '700' },
   timerBox: { position: 'absolute', top: 44, left: 0, right: 0, alignItems: 'center' },
   timerMain: { color: '#fff', fontSize: 34, fontWeight: '800', fontVariant: ['tabular-nums'] },
