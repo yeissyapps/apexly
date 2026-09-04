@@ -309,24 +309,34 @@ const CHASE_LOOK_HEIGHT = 15;
 // cámara persigue el rumbo del coche con un lag, no lo copia al instante,
 // así que en una curva el coche SÍ rota visiblemente respecto a la cámara
 // durante un momento — esa rotación relativa es la sensación de girar.
-const CAM_TURN_LERP = 3.5; // mismo valor que CAM_TURN_LERP en Game.js
-// JC, en el óvalo alargado: "la cámara se ve mal, no siempre va detrás del
-// coche". Reproducido y aislado: en la curva que viene justo DESPUÉS del
-// lado largo (4 rectas seguidas, más velocidad de entrada que en el óvalo
-// compacto), el coche completa el giro de 90° en menos tiempo REAL del que
-// tarda la cámara en alcanzarlo con este lag — el desfase (da, más abajo)
-// se dispara y la cámara acaba mirando hacia donde el coche YA NO va, con
-// un encuadre roto (visto en pantalla: coche minúsculo y de perfil arriba
-// del todo, cámara claramente descolocada). No es un bug del cierre del
-// circuito ni de esta pista en concreto — el mismo lag fijo (independiente
-// de la velocidad) se nota más cuanto más rápido se completa el giro en
-// tiempo real, y el óvalo alargado es precisamente el que más velocidad
-// de entrada da. Tope, no una reescritura del lag: por debajo de este
-// desfase se sigue sintiendo el giro igual que hasta ahora; por encima,
-// se recorta de golpe (en vez de esperar a que el lerp lo alcance solo)
-// para que la cámara nunca se quede mirando a más de esto de donde va el
-// coche de verdad.
-const MAX_CAM_LAG = Math.PI / 3; // 60°
+// JC, dos rondas seguidas: "la cámara se ve mal, no siempre va detrás del
+// coche, sobre todo en los giros" — el primer intento (un tope de 60° al
+// desfase, dejando CAM_TURN_LERP=3.5 igual) no bastó, y con las cuentas
+// hechas después de esa ronda queda claro por qué: 3.5 no es un lag
+// "suave", es un lag que en CUALQUIER giro sostenido normal ya se va solo
+// a ese tope. Un lag de primer orden como este, persiguiendo un rumbo que
+// gira a velocidad angular ω constante (que es justo lo que pasa en mitad
+// de cualquier curva, no solo en un rebote puntual), converge a un
+// desfase ESTABLE de ω/CAM_TURN_LERP — no algo que decae, un desfase que
+// se MANTIENE mientras dura el giro. Con
+// TURN_RATE_MAX_DEG=220°/s·TURN_RATE_AT_MAX_SPEED=0.65 (Game.js, sin
+// tocar), ω ronda 2.5-3.8 rad/s según la velocidad al entrar en la curva
+// — con CAM_TURN_LERP=3.5 eso da un desfase ESTABLE de 40-60°+ DURANTE
+// TODA la curva, no un pico pasajero: el tope de la ronda anterior no
+// era una red de seguridad para un caso raro, se pasaba prácticamente en
+// cada giro. De ahí que JC lo siguiera viendo "muchas veces, sobre todo
+// en los giros" — es justo donde más pasaba.
+//
+// Fix de verdad: subir CAM_TURN_LERP (3.5→10) para que ese desfase
+// ESTABLE baje a un rango que siga dando la sensación de giro (14-22° en
+// el mismo cálculo) sin llegar a desencuadrar la cámara. MAX_CAM_LAG baja
+// en consecuencia (60°→30°): con el desfase estable ya por debajo de eso,
+// el tope pasa a ser lo que debía ser desde el principio — una red de
+// seguridad solo para un rebote/choque puntual (donde el rumbo SÍ salta
+// de golpe, no gira a ritmo constante), no algo que se toca en cada
+// curva normal.
+const CAM_TURN_LERP = 10;
+const MAX_CAM_LAG = Math.PI / 6; // 30°
 
 function fmtMain(ms) {
   const s = fmt(ms);
