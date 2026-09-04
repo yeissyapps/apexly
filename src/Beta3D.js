@@ -117,25 +117,37 @@ function headingToWorldForward(heading) {
 }
 
 const GROUND_Y = 0.02 * SCALE;
-// El coche visto en mano se veía casi tan ancho como la propia pista (el
-// kit de Kenney lo mide a 1.2 m, y SCALE convierte metros de PISTA a
-// unidades de mundo — aplicar el mismo factor al coche lo hacía ocupar
-// 62 de las 104 unidades del canal, el 60%). El juego real dibuja el coche
-// a CONFIG.CAR_WIDTH=17 (el 16% de TRACK_WIDTH=104) para la física, pero
-// visualmente el sprite SVG se ve más ancho que su hitbox — el doble es lo
-// habitual en juegos de coches (hitbox más permisiva que el dibujo). Con
-// CAR_SCALE=28 el coche renderiza a ~34 unidades de ancho (33% de la pista,
-// el "1/3" que JC recordaba) y con margen de sobra bajo el radio que
-// permite la colisión (52 - CAR_WIDTH/2 = 43.5), así que ya no debería
-// asomar a través del muro antes de que la física lo frene.
-const CAR_SCALE = 28;
+// Primer intento (1/3 del canal) seguía viéndose grande en mano — se baja
+// más, más cerca de la proporción real de colisión (CONFIG.CAR_WIDTH=17 es
+// el 16% de TRACK_WIDTH=104). Con CAR_SCALE=18 el coche renderiza a ~22
+// unidades (~21% del canal) y queda con bastante más margen bajo el radio
+// que permite la colisión (52 - CAR_WIDTH/2 = 43.5).
+const CAR_SCALE = 18;
 // Cámara en persecución: constantes en las mismas "unidades de mundo" que la
-// pista (straight=208, radio de curva=104 — ver piecesKenney.js). Ajustables
-// a ojo tras probar en mano.
-const CHASE_BEHIND = 190;
-const CHASE_HEIGHT = 125;
-const CHASE_LOOKAHEAD = 90;
-const CHASE_LOOK_HEIGHT = 25;
+// pista (straight=208, radio de curva=104 — ver piecesKenney.js). Más alta
+// que el primer intento (125->170): JC la pedía más subida, y además así se
+// ve más pista por delante. Ajustables a ojo tras probar en mano.
+const CHASE_BEHIND = 200;
+const CHASE_HEIGHT = 170;
+const CHASE_LOOKAHEAD = 110;
+const CHASE_LOOK_HEIGHT = 15;
+// La cámara persiguiendo el rumbo EXACTO del coche, frame a frame y sin
+// retraso, es justo lo que hacía que "no se sintiera" girar: el coche
+// siempre aparece perfectamente centrado y mirando al frente respecto a la
+// cámara (nunca rota RELATIVO a ella), así que la única señal de que hay
+// una curva es que la PISTA barre por la pantalla — se lee como "se mueve
+// la cámara", no como "estoy girando". Mismo arreglo que ya usa la cámara
+// 2D de Game.js (`camAngle` con retraso suave, ver CAM_TURN_LERP allí): la
+// cámara persigue el rumbo del coche con un lag, no lo copia al instante,
+// así que en una curva el coche SÍ rota visiblemente respecto a la cámara
+// durante un momento — esa rotación relativa es la sensación de girar.
+const CAM_TURN_LERP = 3.5; // mismo valor que CAM_TURN_LERP en Game.js
+
+// Los "pianos" ya vienen pintados en la propia textura del kit
+// (colormap.png, incrustada en el .glb) — no hace falta fabricarlos a
+// mano: basta con decodificar esa textura de verdad en vez del stub en
+// blanco (ver textureFromImageBytes / extractGlbImageBytes más arriba) y
+// usarla como material de la pista.
 
 function fmtMain(ms) {
   const s = fmt(ms);
@@ -221,13 +233,19 @@ export default function Beta3D({ onBack }) {
   async function onContextCreate(gl) {
     const renderer = new Renderer({ gl });
     renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
-    renderer.setClearColor(0x11151c);
+    renderer.setClearColor(0x8fc2e8); // cielo liso — antes negro, no ayudaba a "imaginarlo"
 
+    // near=15/far=3000 (1:200) no bastó — la pista seguía desapareciendo
+    // en cuanto el césped estaba en la escena, incluso separándolo mucho
+    // más en altura (-1 -> -20, sin cambio). Sospecha: el depth buffer en
+    // este puente WebGL1 puede ser de solo 16 bits (no 24, como en
+    // desktop) — con MUCHA menos resolución, y ahí hasta un 1:200 se queda
+    // corto a la distancia real de la pista. Aprieto mucho más: 1:15.
     const camera = new THREE.PerspectiveCamera(
       62,
       gl.drawingBufferWidth / gl.drawingBufferHeight,
-      1,
-      4000,
+      100,
+      1500,
     );
 
     const scene = new THREE.Scene();
@@ -255,7 +273,25 @@ export default function Beta3D({ onBack }) {
       const cornerProto = await loadGlb(GLB_MODULES['track-corner-small']);
       const protoByGlb = { 'track-straight': straightProto, 'track-corner-small': cornerProto };
 
-      const roadMat = new THREE.MeshStandardMaterial({ color: 0x3a3f47, metalness: 0.05, roughness: 0.9 });
+      // Color plano, no la textura real del kit ("colormap.png", que trae
+      // los pianos ya pintados): se intentó cargarla de verdad (es un
+      // fichero EXTERNO al .glb, no incrustado como se pensaba en la Fase
+      // 1 — copiada a mano del kit a assets/beta3d/track-colormap.png,
+      // sigue ahí por si se retoma) por 4 caminos distintos — flipY,
+      // forzar descarga real en vez del atajo de recurso Android, sin
+      // forzar espacio de color sRGB — los 4 dieron el mismo negro sólido,
+      // sin ningún cambio entre ellos. Descartado: parece un límite real
+      // de este renderer concreto (expo-three sobre WebGL1, three@0.145.0)
+      // subiendo texturas por este camino, no un parámetro suelto — ver el
+      // plan para el detalle completo de las 4 pruebas.
+      //
+      // DoubleSide: las piezas llevan escala negativa en X (el espejo
+      // local que explica headingToRotationY más arriba) — eso invierte
+      // el sentido de las caras (determinante -1), y el volteo automático
+      // de frontFace que hace three.js con un WebGLRenderer normal no se
+      // aplicaba aquí: la pista entera desaparecía. DoubleSide la hace
+      // visible sin depender de eso.
+      const roadMat = new THREE.MeshStandardMaterial({ color: 0x4d525c, metalness: 0.05, roughness: 0.9, side: THREE.DoubleSide });
       for (const proto of [straightProto, cornerProto]) {
         proto.traverse((obj) => { if (obj.isMesh) obj.material = roadMat; });
       }
@@ -274,6 +310,8 @@ export default function Beta3D({ onBack }) {
         // absorbe esa reflexión LOCALMENTE, en la malla, en vez de en todo
         // el mundo — así no vuelve a afectar al sentido de giro del coche
         // (que no usa esta función, usa headingToWorldForward directamente).
+        // Como efecto secundario también espeja la textura del piano —
+        // aceptable para esta beta (el patrón rojo/blanco es simétrico).
         inst.scale.set(-SCALE, SCALE, SCALE);
         scene.add(inst);
       }
@@ -302,6 +340,7 @@ export default function Beta3D({ onBack }) {
     let fpsNow = 0;
     let lastFpsAt = now();
     let lastHudAt = 0;
+    let camHeading = null; // null hasta el primer frame con estado listo
 
     const render = () => {
       requestAnimationFrame(render);
@@ -348,7 +387,17 @@ export default function Beta3D({ onBack }) {
           carObj.position.set(position.x, GROUND_Y, position.z);
           carObj.rotation.y = rotationY;
 
-          const fwd = headingToWorldForward(s.heading);
+          // La cámara persigue el rumbo del coche CON RETRASO (igual que
+          // camAngle en Game.js) — si lo copiara al instante, el coche
+          // nunca rotaría respecto a la cámara y una curva se leería como
+          // "se mueve la pista", no como "estoy girando".
+          if (camHeading == null) camHeading = s.heading;
+          let da = s.heading - camHeading;
+          while (da > Math.PI) da -= 2 * Math.PI;
+          while (da < -Math.PI) da += 2 * Math.PI;
+          camHeading += da * Math.min(1, dt * CAM_TURN_LERP);
+
+          const fwd = headingToWorldForward(camHeading);
           camera.position.set(
             position.x - fwd.x * CHASE_BEHIND,
             CHASE_HEIGHT,
