@@ -1190,24 +1190,9 @@ function nextTurn(cornerData, trackIdx) {
   return c;
 }
 
-// JC mandó fotos de referencia de circuitos reales (COTA, Spa) — piano mucho
-// más ancho de lo que teníamos, y césped/grava en los márgenes en vez de
-// nada. El límite de colisión sigue siendo track.center[i].w, ajeno a todo
-// esto — near.w en stepSimulation() no cambia ni un número, esto es 100%
-// visual. KERB_W subido de 9 a 18 (el doble); GRAVEL_W es nuevo.
-const KERB_W = 18;   // ancho del piano (centrado en el borde)
+const KERB_W = 9;    // ancho del piano (centrado en el borde)
 const KERB_BLOCK = 11; // largo objetivo de cada tramo rojo/blanco del piano
 const CHECK_SQ = 11; // lado de cada cuadro de la meta
-// Probado primero como polígono paralelo a la curva (mismo offsetPolygon de
-// abajo) para grava Y césped. Medido contra 60 circuitos reales: a partir de
-// offset 40 unidades, 39/60 días con algún PLIEGUE del polígono sobre sí
-// mismo en curvas cerradas encadenadas (el radio más cerrado del banco es
-// hook_L/R en pieces.js, arc(95,...), pero lo que de verdad lo dispara es
-// dos curvas seguidas sin recta entre medias — ver SECTIONS.decreasing en
-// generator.js). A 16 unidades, 1/60 — seguro de sobra. Por eso la grava se
-// queda fina y pegada a la pista, y el césped pasa a ser un rectángulo
-// (ver grassRect en geom): un rectángulo no puede plegarse nunca.
-const GRAVEL_W = 16; // ancho de la franja de grava, más allá del piano
 
 // Tramos ROJOS del piano como geometría explícita, recorriendo el borde por
 // longitud de arco. Devuelve UN solo path (`d`) con un subtrazado por bloque.
@@ -1321,24 +1306,6 @@ function dashedPath(pts, dashLen, gapLen) {
     out.push(`M${raya[0]}L${raya.slice(1).join('L')}`);
   }
   return out.join('');
-}
-
-// Polígono cerrado (izq. de ida + der. de vuelta, igual que roadPolygon en
-// track.js) pero desplazado `extra` unidades más allá del borde real. La
-// normal sale de left/right sin trigonometría propia: (left[i]-center[i])
-// ya es esa normal, con longitud center[i].w — solo hace falta reescalarla.
-function offsetPolygon(track, extra) {
-  const c = track.center, left = track.left, right = track.right;
-  const out = [];
-  for (let i = 0; i < c.length; i++) {
-    const w = c[i].w, k = (w + extra) / w;
-    out.push({ x: c[i].x + (left[i].x - c[i].x) * k, y: c[i].y + (left[i].y - c[i].y) * k });
-  }
-  for (let i = c.length - 1; i >= 0; i--) {
-    const w = c[i].w, k = (w + extra) / w;
-    out.push({ x: c[i].x + (right[i].x - c[i].x) * k, y: c[i].y + (right[i].y - c[i].y) * k });
-  }
-  return out.map((p) => `${p.x},${p.y}`).join(' ');
 }
 
 // Cuadros del damero de meta, alineados a la línea a→b y al sentido de marcha.
@@ -1464,45 +1431,19 @@ const TrackLayer = memo(function TrackLayer({ track, showDebug, wet, palette }) 
   // "hoy moja" tiene que leerse igual sea cual sea el tono de fondo.
   const asphalt = wet ? '#181f29' : palette.asphalt;
 
-  const geom = useMemo(() => {
-    // Césped: probado con polígono paralelo a la curva (mismo truco que la
-    // grava) y a partir de ~20 unidades se PLIEGA sobre sí mismo en curvas
-    // cerradas encadenadas — medido contra 60 circuitos reales, 43/60 con
-    // algún cruce a partir de offset 40. Un rectángulo no puede plegarse
-    // nunca, así que el césped pasa a ser eso: un rectángulo grande por
-    // DEBAJO de todo (+300 de margen, de sobra para cualquier zoom de
-    // cámara), y solo la grava —mucho más fina, offset 16, seguro— sigue
-    // pegada de verdad al contorno de la pista.
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of track.center) {
-      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-    }
-    const PAD = 300;
-    return {
-      road: track.roadPolygon.map((p) => `${p.x},${p.y}`).join(' '),
-      grassRect: { x: minX - PAD, y: minY - PAD, w: (maxX - minX) + PAD * 2, h: (maxY - minY) + PAD * 2 },
-      gravel: offsetPolygon(track, GRAVEL_W),
-      lane: track.center.map((p) => `${p.x},${p.y}`).join(' '),
-      lanePath: dashedPath(track.center, 10, 16),
-      edgeL: track.left.map((p) => `${p.x},${p.y}`).join(' '),
-      edgeR: track.right.map((p) => `${p.x},${p.y}`).join(' '),
-      kerbL: kerbPath(track.left, KERB_BLOCK, KERB_W / 2),
-      kerbR: kerbPath(track.right, KERB_BLOCK, KERB_W / 2),
-      checks: checkeredQuads(track.finish),
-    };
-  }, [track]);
+  const geom = useMemo(() => ({
+    road: track.roadPolygon.map((p) => `${p.x},${p.y}`).join(' '),
+    lane: track.center.map((p) => `${p.x},${p.y}`).join(' '),
+    lanePath: dashedPath(track.center, 10, 16),
+    edgeL: track.left.map((p) => `${p.x},${p.y}`).join(' '),
+    edgeR: track.right.map((p) => `${p.x},${p.y}`).join(' '),
+    kerbL: kerbPath(track.left, KERB_BLOCK, KERB_W / 2),
+    kerbR: kerbPath(track.right, KERB_BLOCK, KERB_W / 2),
+    checks: checkeredQuads(track.finish),
+  }), [track]);
 
   return (
     <G>
-      {/* Césped y grava: JC mandó fotos de COTA/Spa, quería esto en vez de
-          que la pista terminara en el vacío de la paleta. Tono apagado a
-          propósito (ni el verde ni el tostado son "de foto"), para que no
-          desentone con el resto de la paleta nocturna del juego. Césped =
-          rectángulo grande (ver el comentario de GRAVEL_W arriba, por qué
-          no es un polígono ajustado a la curva como todo lo demás aquí). */}
-      <Rect x={geom.grassRect.x} y={geom.grassRect.y} width={geom.grassRect.w} height={geom.grassRect.h} fill="#2f6b35" />
-      <Polygon points={geom.gravel} fill="#b8a074" />
       {/* Asfalto */}
       <Polygon points={geom.road} fill={asphalt} />
       {/* Piano rojo/blanco: base blanca por BORDE (no por el contorno cerrado,
