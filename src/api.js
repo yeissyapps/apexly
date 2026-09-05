@@ -754,6 +754,70 @@ export async function getGlobalBoard(day = todayKey()) {
   return { total, leaderMs, top, me, aboveRows, belowRows };
 }
 
+// Página del ranking GLOBAL completo de un día, para la pestaña "Ranking"
+// (a diferencia de getGlobalBoard, aquí SÍ se puede recorrer toda la lista,
+// pero SIEMPRE por páginas — nunca de golpe, el motivo por el que existe
+// getGlobalBoard en vez de esto para la vista compacta de Inicio).
+export async function getRankingPage(day = todayKey(), offset = 0, limit = 30) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const myId = session?.user?.id ?? null;
+
+  const { data, error } = await supabase
+    .from('attempts')
+    .select('best_ms, user_id, users(nickname, current_streak, car_frame)')
+    .eq('day', day)
+    .order('best_ms', { ascending: true })
+    .range(offset, offset + limit - 1);
+  if (error) throw error;
+
+  return (data || []).map((r, i) => ({
+    userId: r.user_id,
+    nickname: r.users?.nickname ?? '—',
+    streak: r.users?.current_streak ?? 0,
+    frame: r.users?.car_frame || 'sin_marco',
+    bestMs: r.best_ms,
+    rank: offset + i + 1,
+    isMe: r.user_id === myId,
+  }));
+}
+
+// Busca jugadores por nombre (parcial, sin mayúsculas) en el ranking de hoy
+// y devuelve sus filas YA con el puesto calculado (mismo criterio que
+// getGlobalBoard: cuántos van por delante + 1). Pensado para "¿en qué
+// puesto va fulano?" sin tener que pasar página a página hasta encontrarlo.
+export async function searchRanking(query, day = todayKey()) {
+  const clean = (query || '').trim();
+  if (!clean) return [];
+  const { data: { session } } = await supabase.auth.getSession();
+  const myId = session?.user?.id ?? null;
+
+  const { data: matches, error } = await supabase
+    .from('attempts')
+    .select('best_ms, user_id, users!inner(nickname, current_streak, car_frame)')
+    .eq('day', day)
+    .ilike('users.nickname', `%${clean}%`)
+    .limit(10);
+  if (error) throw error;
+
+  const results = await Promise.all((matches || []).map(async (r) => {
+    const { count } = await supabase
+      .from('attempts')
+      .select('user_id', { count: 'exact', head: true })
+      .eq('day', day)
+      .lt('best_ms', r.best_ms);
+    return {
+      userId: r.user_id,
+      nickname: r.users?.nickname ?? '—',
+      streak: r.users?.current_streak ?? 0,
+      frame: r.users?.car_frame || 'sin_marco',
+      bestMs: r.best_ms,
+      rank: (count ?? 0) + 1,
+      isMe: r.user_id === myId,
+    };
+  }));
+  return results.sort((a, b) => a.rank - b.rank);
+}
+
 // Leaderboard del día. `scope` = 'global' o el id de un grupo. Lista ordenada
 // (mejor primero) con datos ya calculados para la UI (soporta percentil).
 export async function getLeaderboard(scope = 'global', day = todayKey()) {

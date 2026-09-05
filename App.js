@@ -34,6 +34,7 @@ import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS } from './src/theme';
 import DangerStripe from './src/DangerStripe';
 import Identicon from './src/Identicon';
 import MiniRanking from './src/MiniRanking';
+import RankingTab from './src/RankingTab';
 import MiniTrackMap from './src/MiniTrackMap';
 import Garage from './src/Garage';
 import Tienda from './src/Tienda';
@@ -903,6 +904,7 @@ export default function App() {
         />
       )}
       {tab === 'amigos' && <AmigosTab refreshKey={refreshKey} onOpenGroup={openGroupHome} />}
+      {tab === 'ranking' && <RankingTab refreshKey={refreshKey} />}
       {tab === 'carrera' && (
         <CareerMode
           unlimited={unlimited}
@@ -1314,6 +1316,7 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
 const TABS = [
   { id: 'diario', label: 'DIARIO' },
   { id: 'amigos', label: 'AMIGOS' },
+  { id: 'ranking', label: 'RANKING' },
   { id: 'carrera', label: 'CARRERA' },
 ];
 

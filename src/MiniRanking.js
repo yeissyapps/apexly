@@ -171,7 +171,7 @@ function Tab({ label, active, dashed, onPress, color }) {
 // magenta sigue diciendo "esta fila eres tú" y el marco añade el acabado. Y
 // se pinta el de TODOS, no solo el propio — es justo lo que hace que la
 // pieza tenga sentido: es la única de la colección que ve el resto.
-function RankRow({ r, wins }) {
+export function RankRow({ r, wins }) {
   const f = frameById(r.frame);
   return (
     <View style={[styles.row, r.isMe && styles.rowMe, frameStyle(f, RD)]}>
