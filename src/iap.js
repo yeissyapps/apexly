@@ -16,6 +16,11 @@ try {
   iap = null;
 }
 
+// Para ocultar del todo la opción de compra cuando no hay módulo nativo (p.
+// ej. una build de iOS que todavía no lleva el plugin de expo-iap) en vez de
+// dejar visible un botón que siempre "falla" en silencio al tocarlo.
+export const IAP_AVAILABLE = !!iap;
+
 export const UNLIMITED_SKU = 'com.yeissyapps.circuitodiario.unlimited';
 
 const OWNED_KEY = 'unlimited_owned';

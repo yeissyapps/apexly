@@ -63,7 +63,7 @@ import { loadAttempts, consumeAttempt, grantBatch, attemptsLeft as calcLeft, AD_
 import { PUSH_ENABLED, intentosTxt } from './src/features';
 import { CONFIG } from './src/config';
 import { prepareConsent, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError, wasConsentDenied } from './src/ads';
-import { isUnlimitedCached, restoreUnlimited, buyUnlimited, getUnlimitedPrice } from './src/iap';
+import { isUnlimitedCached, restoreUnlimited, buyUnlimited, getUnlimitedPrice, IAP_AVAILABLE } from './src/iap';
 import {
   logOnboardingComplete, logRaceStart, logRaceFinish, logPaywallView,
   logAdWatched, logPurchaseUnlimited, logGarageOpen,
@@ -1680,23 +1680,27 @@ function NoMoreAttempts({ title = 'SIN INTENTOS POR HOY', adBatch = AD_BATCH, un
           {!!adMsg && !unlocking && <Text style={rd.noAttemptsMsg}>{adMsg}</Text>}
         </View>
 
-        <Text style={rd.orDivider}>O BIEN</Text>
+        {IAP_AVAILABLE && (
+          <>
+            <Text style={rd.orDivider}>O BIEN</Text>
 
-        <View style={rd.panel}>
-          <Text style={rd.labelMono}>SIN LÍMITES</Text>
-          <Text style={rd.noAttemptsBody}>
-            Intentos ilimitados para siempre, sin ver anuncios. Compra única.
-          </Text>
-          <Pressable
-            style={[rd.secondaryBtnBig, buying && rd.ctaDisabled]}
-            disabled={buying}
-            onPress={onBuyUnlimited}
-          >
-            <Text style={rd.secondaryBtnBigText}>
-              {buying ? 'Procesando…' : `Ilimitado para siempre · ${unlimitedPrice || UNLIMITED_FALLBACK_PRICE}`}
-            </Text>
-          </Pressable>
-        </View>
+            <View style={rd.panel}>
+              <Text style={rd.labelMono}>SIN LÍMITES</Text>
+              <Text style={rd.noAttemptsBody}>
+                Intentos ilimitados para siempre, sin ver anuncios. Compra única.
+              </Text>
+              <Pressable
+                style={[rd.secondaryBtnBig, buying && rd.ctaDisabled]}
+                disabled={buying}
+                onPress={onBuyUnlimited}
+              >
+                <Text style={rd.secondaryBtnBigText}>
+                  {buying ? 'Procesando…' : `Ilimitado para siempre · ${unlimitedPrice || UNLIMITED_FALLBACK_PRICE}`}
+                </Text>
+              </Pressable>
+            </View>
+          </>
+        )}
 
         <Pressable style={{ marginTop: 4 }} onPress={onBack}>
           <Text style={rd.noAttemptsSkip}>Ahora no</Text>
