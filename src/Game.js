@@ -11,7 +11,7 @@ import { Alert, Animated, AppState, Dimensions, Pressable, Share, StyleSheet, Te
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
-import Svg, { G, Line, Path, Polygon, Polyline, Rect, Circle, Text as SvgText } from 'react-native-svg';
+import Svg, { G, Line, Path, Polygon, Polyline, Rect, Circle } from 'react-native-svg';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -782,7 +782,6 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
         <Svg width={playW} height={playH} viewBox={`0 0 ${playW} ${playH}`}>
           <G transform={camTransform}>
             <TrackLayer track={track} showDebug={CONFIG.SHOW_DEBUG} wet={wx.id === 'rain'} palette={palette} />
-            <Scenery track={track} />
             {/* Coche fantasma (tu mejor vuelta), muy tenue, por debajo */}
             {view.ghost && (
               <Rect
@@ -1334,94 +1333,6 @@ function checkeredQuads(finish) {
   }
   return quads;
 }
-
-// --- Escenografía: gradas + vallas publicitarias ----------------------------
-// JC: "¿alguna posibilidad de poner unas gradas, o vallas de publicidad?".
-// Estático por trazado (useMemo, mismo patrón que TrackLayer.geom más abajo)
-// — nada de esto se recalcula por frame, cero coste nuevo cerca del hilo por
-// el que entran los toques (la lección de siempre: el volantazo fantasma
-// enseñó a no meter nada animado ahí sin pensarlo mucho).
-//
-// Las vallas hacen doble función a propósito: no es decoración pura, es el
-// mismo canal de "esto existe y no lo sabías" que ya vimos con las monedas
-// de compartir — JC: "hay que fomentarlo mucho más". Mensajes cortos por
-// legibilidad: el tablero va rotado a la tangente de la pista, así que el
-// texto se lee de refilón según entras a la recta, no de frente y quieto.
-const AD_MESSAGES = ['TU CÓDIGO', 'GRAND PRIX', 'INVITA AMIGOS', 'COMPARTE +5'];
-// Tonos claros a propósito (no RD.brand): con texto oscuro encima el
-// contraste es bueno en los tres, y RD.brand se queda para CTA de verdad —
-// ver el comentario de "uso restringido" en theme.js.
-const AD_COLORS = [RD.gold1st, RD.trackBlue, RD.successGreen];
-const BOARD_SPACING = 480; // unidades de mundo entre vallas del mismo recorrido
-const BOARD_W = 100, BOARD_H = 30;
-
-function buildScenery(track) {
-  const c = track.center;
-  const n = c.length;
-
-  // Vallas: solo en tramos de recta (el generador ya etiqueta cada punto con
-  // el tipo de pieza, ver pieces.js/assemble), cada BOARD_SPACING unidades,
-  // alternando de lado. track.left ya es centro + normal*medioAncho, así que
-  // (left - centro) / medioAncho es la normal hacia ese lado sin recalcular
-  // nada por trigonometría propia.
-  const boards = [];
-  let sinceLast = Infinity;
-  let side = 1;
-  for (let i = 1; i < n - 1; i++) {
-    sinceLast += Math.hypot(c[i].x - c[i - 1].x, c[i].y - c[i - 1].y);
-    if (c[i].type !== 'recta' || sinceLast < BOARD_SPACING) continue;
-    sinceLast = 0;
-    const w = c[i].w;
-    const nx = (track.left[i].x - c[i].x) / w, ny = (track.left[i].y - c[i].y) / w;
-    const off = w + BOARD_H * 0.9;
-    const heading = Math.atan2(c[i + 1].y - c[i - 1].y, c[i + 1].x - c[i - 1].x);
-    boards.push({
-      x: c[i].x + nx * off * side, y: c[i].y + ny * off * side,
-      deg: (heading * 180) / Math.PI,
-      msg: AD_MESSAGES[boards.length % AD_MESSAGES.length],
-      color: AD_COLORS[boards.length % AD_COLORS.length],
-    });
-    side = -side;
-  }
-
-  // Gradas: junto a la salida y la meta — únicos puntos "con nombre" del
-  // trazado, igual que en un circuito real. Mismo truco de normal que arriba.
-  function standAt(idx, refIdx) {
-    const w = c[idx].w;
-    const nx = (track.left[idx].x - c[idx].x) / w, ny = (track.left[idx].y - c[idx].y) / w;
-    const off = w + 55;
-    const heading = Math.atan2(c[idx].y - c[refIdx].y, c[idx].x - c[refIdx].x);
-    return { x: c[idx].x + nx * off, y: c[idx].y + ny * off, deg: (heading * 180) / Math.PI };
-  }
-  const stands = [standAt(0, 1), standAt(n - 1, n - 2)];
-
-  return { boards, stands };
-}
-
-const Scenery = memo(function Scenery({ track }) {
-  const scenery = useMemo(() => buildScenery(track), [track]);
-  return (
-    <G>
-      {scenery.stands.map((s, i) => (
-        <G key={'st' + i} transform={`translate(${s.x} ${s.y}) rotate(${s.deg})`}>
-          {/* Silueta de grada: tres franjas apiladas, más estrechas hacia
-              arriba — sin detalle que compita con la lectura de la pista. */}
-          <Rect x={-70} y={-8} width={140} height={16} fill="#2a2e36" />
-          <Rect x={-56} y={-20} width={112} height={14} fill="#3a3f4a" />
-          <Rect x={-42} y={-31} width={84} height={13} fill="#2a2e36" />
-        </G>
-      ))}
-      {scenery.boards.map((b, i) => (
-        <G key={'bd' + i} transform={`translate(${b.x} ${b.y}) rotate(${b.deg})`}>
-          <Rect x={-BOARD_W / 2} y={-BOARD_H / 2} width={BOARD_W} height={BOARD_H} rx={2} fill={b.color} />
-          <SvgText x={0} y={3} fontSize={9} fontWeight="700" textAnchor="middle" fill={RD.bg}>
-            {b.msg}
-          </SvgText>
-        </G>
-      ))}
-    </G>
-  );
-});
 
 // memo + useMemo: la geometría de la pista es fija durante toda la vuelta, pero
 // el componente se re-renderizaba en CADA frame (al moverse el coche) y volvía
