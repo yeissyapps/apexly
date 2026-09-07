@@ -87,7 +87,7 @@ const CAM_TURN_LERP = 3.5; // suavizado del giro de cámara (menor = más suave)
 
 // Paso fijo de la simulación (s). La física NO depende de los FPS de pantalla:
 // se acumula el tiempo real y se resuelven pasos de este tamaño.
-const FIXED_DT = 1 / 120;
+export const FIXED_DT = 1 / 120;
 
 // Tramos de la línea central que se miran alrededor del último conocido para
 // localizar el coche. A tope de velocidad avanza ~2 unidades por sub-paso y los
@@ -1388,7 +1388,7 @@ const TrackLayer = memo(function TrackLayer({ track, showDebug, wet, palette }) 
   );
 });
 
-function initialState(track) {
+export function initialState(track) {
   return {
     phase: 'ready', // 'ready' | 'running' | 'finished'
     x: track.startPose.x,
@@ -1400,6 +1400,12 @@ function initialState(track) {
     lastImpact: -9999,
     trackIdx: 0,     // último tramo conocido de la línea central (búsqueda local)
     touching: false, // ¿pegado al muro ahora mismo? (para no recontar el choque)
+    // Empieza en `true` a propósito: en circuitos cerrados (track.laps>1) la
+    // salida y la meta son el MISMO punto, así que el coche arranca ya "en"
+    // la meta — sin esto se marcaría meta en el frame 0. Ver el cruce de meta
+    // en stepSimulation (detección por flanco, no por nivel).
+    atFinish: true,
+    lapsDone: 0, // vueltas ya cruzadas (para circuitos con track.laps > 1)
     stunUntil: 0,
     flashUntil: 0,
     startTime: 0,
@@ -1457,7 +1463,7 @@ function ghostPoseAt(trace, e, idxRef) {
 // --- Un paso de simulación (feel del coche; no tocar) ----------------------
 //  El clima entra SOLO como modificadores (steerMul/speedMul/viento) encima de
 //  las constantes; con NEUTRAL el comportamiento es idéntico al de siempre.
-function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sectorBests, refSectors) {
+export function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sectorBests, refSectors) {
   const C = CONFIG;
   const W = weather || NEUTRAL;
 
@@ -1641,18 +1647,35 @@ function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sector
     s.touching = false;
   }
 
+  // Meta — con `track.laps` (circuitos CERRADOS del Grand Prix, ver
+  // buildClosedCombo en pieces.js) la línea de meta está en el MISMO sitio
+  // que la salida, así que el coche pasa por ahí una vez por vuelta antes de
+  // la de verdad. Por flanco de subida (¬atFinish -> atFinish), no por nivel:
+  // en el frame 0 el coche YA está ahí (s.atFinish arranca en true, ver
+  // initialState) y sin este filtro se marcaría la meta antes de arrancar. Un
+  // circuito abierto normal (laps=1, ver default más abajo) se comporta
+  // exactamente igual que siempre — la primera vez que se detecta el cruce ya
+  // es la única vuelta que hay.
   const f = track.finish;
   const dx = s.x - f.point.x;
   const dy = s.y - f.point.y;
   const proj = dx * f.tangent.x + dy * f.tangent.y;
-  if (proj >= 0 && Math.hypot(dx, dy) < C.TRACK_WIDTH) {
-    s.phase = 'finished';
-    s.elapsed = t - s.startTime;
-    // La meta puede llegar antes de que bestTrackIdx alcance el último punto
-    // exacto de la línea central (son dos criterios distintos) — cierra
-    // cualquier sector que se hubiera quedado a medias con el tiempo final.
-    closeSectorsUpTo(SECTOR_COUNT, s.elapsed);
+  const atFinishNow = proj >= 0 && Math.hypot(dx, dy) < C.TRACK_WIDTH;
+  if (atFinishNow && !s.atFinish) {
+    s.lapsDone += 1;
+    const totalLaps = track.laps || 1;
+    if (s.lapsDone >= totalLaps) {
+      s.phase = 'finished';
+      s.elapsed = t - s.startTime;
+      // La meta puede llegar antes de que bestTrackIdx alcance el último punto
+      // exacto de la línea central (son dos criterios distintos) — cierra
+      // cualquier sector que se hubiera quedado a medias con el tiempo final.
+      closeSectorsUpTo(SECTOR_COUNT, s.elapsed);
+    }
+    // Vuelta intermedia (lapsDone < totalLaps): se sigue corriendo tal cual,
+    // sin tocar fase ni elapsed — el cronómetro no se para entre vueltas.
   }
+  s.atFinish = atFinishNow;
 }
 
 const styles = StyleSheet.create({

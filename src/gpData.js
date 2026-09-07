@@ -12,6 +12,7 @@
 
 import { tieredCircuit } from './generator';
 import { dailyWeather } from './weather';
+import { CLOSED_COMBOS, CLOSED_COMBO_LIST, buildClosedCombo } from './pieces';
 
 export function gpSeed(gpId, dayIndex) {
   return 'gp-' + gpId + '-' + dayIndex;
@@ -55,7 +56,31 @@ export const GP_AD_BATCH = 3;
 // un GP es un evento de una semana entre amigos, no una escalera de progreso
 // — la ronda 1 tiene que ser accesible el primer día y la 7 tener más mordida,
 // sin llegar a los tiers más duros que sí tiene sentido reservar para Carrera.
+// BETA (2026-09-07): las rondas del Grand Prix usan ahora los circuitos
+// CERRADOS de 3 vueltas (ver CLOSED_COMBOS en pieces.js), en vez del
+// generador abierto de siempre — a petición explícita de JC, SOLO para el
+// Grand Prix: el Diario y Modo Carrera siguen con `tieredCircuit`/
+// `dailyCircuit` tal cual, sin tocar. Reparto determinista por ronda (misma
+// ronda -> mismo circuito siempre, sin necesitar semilla): con 8 diseños y
+// como mucho `circuitCount` rondas, cada grupo ve una selección fija en
+// orden — sencillo y suficiente para probar el formato antes de decidir si
+// hace falta variar por grupo.
 export function gpCircuitSpec(gpId, dayIndex, circuitCount = 7) {
+  const comboId = CLOSED_COMBO_LIST[(dayIndex - 1) % CLOSED_COMBO_LIST.length];
+  const combo = CLOSED_COMBOS[comboId];
+  const track = buildClosedCombo(comboId, 3);
+  return {
+    track,
+    label: `${combo.name} · 3 vueltas`,
+    half: combo.half,
+    timeEstimate: Math.round((track.lapLength / 250) * 3),
+  };
+}
+
+// Generador anterior (circuito abierto de una vuelta), conservado por si se
+// quiere volver a comparar o hace falta para otro modo — no se usa ya para
+// las rondas del Grand Prix.
+export function gpCircuitSpecOpen(gpId, dayIndex, circuitCount = 7) {
   const tt = (dayIndex - 1) / Math.max(1, circuitCount - 1);
   const t = 0.2 + 0.4 * tt;
   return tieredCircuit(gpSeed(gpId, dayIndex), t);

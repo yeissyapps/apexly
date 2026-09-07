@@ -25,7 +25,7 @@
 //     por tiempo no dice.
 // ============================================================================
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Pressable, ScrollView, Share, StatusBar, StyleSheet, Text, View } from 'react-native';
 
 import SeasonRail, { GP_ACCENT } from './SeasonRail';
@@ -292,6 +292,26 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
   const spec = gp && roundIdx != null ? gpCircuitSpec(gp.id, roundIdx, gp.circuit_count) : null;
   const frase = gp && !finished ? fraseCampeonato(standings, myId, roundIdx, gp.circuit_count) : null;
 
+  // Vuelta rápida de la ronda (JC: "si es vuelta rápida del circuito hay que
+  // mostrarlo también") — con las 3 vueltas cerradas del GP, `sectorMs` de
+  // cada fila YA es [vuelta1, vuelta2, vuelta3] (ver src/pieces.js), así que
+  // no hace falta ninguna consulta nueva: basta con mirar el mínimo de cada
+  // fila ya cargada en `roundResults`. Mismo criterio que la "vuelta rápida"
+  // de la F1: la más corta de TODAS las vueltas de TODOS, no el tiempo total.
+  const fastestLap = useMemo(() => {
+    if (!roundResults || roundResults.length === 0) return null;
+    let best = null;
+    for (const r of roundResults) {
+      if (!r.sectorMs || r.sectorMs.length === 0) continue;
+      const lap = Math.min(...r.sectorMs);
+      if (best == null || lap < best.ms) best = { ms: lap, nickname: r.nickname, userId: r.userId };
+    }
+    return best;
+  }, [roundResults]);
+  const myBestLap = result && !result.isPractice && !result.error && result.sectorMs?.length
+    ? Math.min(...result.sectorMs)
+    : null;
+
   return (
     <View style={s.screen}>
       <StatusBar hidden />
@@ -325,6 +345,12 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
                 : result.isPractice
                 ? `Práctica — ${fmtTime(result.ms)} (no cuenta, quedan vueltas de práctica o ya clasifica la siguiente)`
                 : `Clasificación ronda ${result.dayIndex} — ${fmtTime(result.ms)}${result.isBest ? ' · ¡mejor tiempo!' : ''}`}
+              {myBestLap != null && (
+                <Text style={s.resultLap}>
+                  {'\n'}Vuelta rápida: {fmtTime(myBestLap)}
+                  {fastestLap && fastestLap.userId === myId && fastestLap.ms === myBestLap ? ' · ¡la más rápida de la ronda!' : ''}
+                </Text>
+              )}
             </Text>
             <Pressable onPress={onDismissResult} hitSlop={8}>
               <Text style={s.resultClose}>✕</Text>
@@ -394,6 +420,11 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
                   <Text style={s.linkAccent}>CLASIFICACIÓN ›</Text>
                 </Pressable>
               </View>
+              {!!fastestLap && (
+                <Text style={s.fastestLapText}>
+                  Vuelta rápida: {fmtTime(fastestLap.ms)} — {fastestLap.nickname}
+                </Text>
+              )}
               {roundResults == null ? (
                 <ActivityIndicator color={GP_ACCENT} style={{ marginTop: 8 }} />
               ) : roundResults.length === 0 ? (
@@ -659,7 +690,12 @@ const s = StyleSheet.create({
   resultPractice: { borderColor: RD.panelBorder, backgroundColor: 'rgba(255,255,255,0.03)' },
   resultErr: { borderColor: RD.danger, backgroundColor: 'rgba(255,92,92,0.1)' },
   resultText: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.mono, flex: 1, marginRight: 8 },
+  resultLap: { color: SECTOR_RESULT_COLORS.purple, fontFamily: RD_FONT.monoBold },
   resultClose: { color: RD.textSecondary, fontSize: 14 },
+  fastestLapText: {
+    color: SECTOR_RESULT_COLORS.purple, fontSize: 12, fontFamily: RD_FONT.monoBold,
+    marginBottom: 2,
+  },
 
   deltaList: { gap: 1, backgroundColor: RD.gridLine },
   deltaRow: {
