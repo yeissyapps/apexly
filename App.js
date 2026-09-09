@@ -45,6 +45,7 @@ import { GroupHome, GrandPrixStandings, RoundStart } from './src/GrandPrix';
 import { gpCircuitSpec, gpWeather, GP_AD_BATCH, GP_FREE_ATTEMPTS, currentRoundIndex, gpFinished } from './src/gpData';
 import ShineBadge from './src/ShineBadge';
 import Tour, { tourRef, isTourDone } from './src/Tour';
+import { WHATS_NEW_ITEMS, WHATS_NEW_VERSION, markWhatsNewSeen, shouldShowWhatsNew } from './src/WhatsNew';
 import { noteRaceFinished } from './src/rate';
 import { CAR_DEFAULTS } from './src/car';
 
@@ -140,10 +141,11 @@ export default function App() {
   const [recap, setRecap] = useState(null); // { streak, ranking } premios de ayer, o null si no toca mostrar
   const [homeStanding, setHomeStanding] = useState(null); // { rank, total, above } resumen de rivalidad para Diario
   const [challenge, setChallenge] = useState(null); // { ms } reto recibido por deep link, si es de hoy
-  const [tab, setTab] = useState('diario'); // pestaña activa de Inicio: diario | amigos | carrera
+  const [tab, setTab] = useState('diario'); // pestaña activa de Inicio: diario | ranking | amigos
   // Recorrido guiado de la primera apertura. null = aún no sabemos si toca
   // (lo dice AsyncStorage); false = no toca o ya terminó; true = corriendo.
   const [tourOn, setTourOn] = useState(null);
+  const [whatsNew, setWhatsNew] = useState(false); // pop-up de novedades para quien actualiza (no para quien instala de cero)
   const [careerLevel, setCareerLevel] = useState(null); // nivel de Modo Carrera en juego, o null
   const [careerResult, setCareerResult] = useState(null); // { level, ms, passed, gapMs } del último intento
   const [nomoreReturn, setNomoreReturn] = useState('playing'); // a qué screen volver tras ver el anuncio en 'nomore'
@@ -595,6 +597,20 @@ export default function App() {
     isTourDone().then((done) => setTourOn(!done));
   }, [nickname, screen]);
 
+  // Novedades de la versión: solo para quien YA había terminado el tour
+  // antes de esta apertura. Si el tour SIGUE pendiente (`tourOn === true`),
+  // es una instalación nueva — nada que "actualizar" respecto a una versión
+  // anterior que nunca vio — así que se marca como vista sin mostrar nada,
+  // y ya no vuelve a comprobarse en aperturas futuras. Espera a que
+  // `tourOn` deje de ser `null` para no adelantarse al chequeo de arriba.
+  const whatsNewChecked = useRef(false);
+  useEffect(() => {
+    if (whatsNewChecked.current || tourOn === null || !nickname || screen !== 'home') return;
+    whatsNewChecked.current = true;
+    if (tourOn) { markWhatsNewSeen(); return; }
+    shouldShowWhatsNew().then((show) => { if (show) setWhatsNew(true); });
+  }, [tourOn, nickname, screen]);
+
   // Registrar token de notificaciones una vez que hay nickname... pero NO
   // mientras corre el tour. Medido en dispositivo: el diálogo de permisos de
   // Android salta justo al entrar a Inicio, que es cuando arranca el tour, y
@@ -917,6 +933,11 @@ export default function App() {
       onOpenProfile={() => setScreen('perfil')}
       tour={tourOn ? <Tour steps={TOUR_STEPS} onDone={() => setTourOn(false)} /> : null}
     >
+      {whatsNew && (
+        <WhatsNewModal
+          onClose={() => { setWhatsNew(false); markWhatsNewSeen(); }}
+        />
+      )}
       {tab === 'diario' && (
         <DiarioTab
           refreshKey={refreshKey}
@@ -1019,7 +1040,7 @@ const TOUR_STEPS = [
   {
     target: 'ranking',
     title: 'Ranking global',
-    body: 'Tu mejor tiempo del día entra aquí solo. Compites contra todos los que han corrido exactamente el mismo circuito que tú, y al cerrar el día los primeros se llevan monedas.',
+    body: 'Tu mejor tiempo del día entra aquí solo. Compites contra todos los que han corrido exactamente el mismo circuito que tú, y al cerrar el día los primeros se llevan monedas.\n\nEn la pestaña RANKING tienes la clasificación completa del día, y también la del mes: puntúa cada día como en la F1, y el 50% mejor se lleva un premio grande en monedas al cerrar el mes.',
   },
   {
     title: 'La racha',
@@ -1029,7 +1050,7 @@ const TOUR_STEPS = [
   {
     target: 'tab-amigos',
     title: 'Grand Prix',
-    body: 'Crea un grupo y pasa el código a tus amigos. Dentro de un grupo podéis arrancar un Grand Prix: 7 circuitos exclusivos vuestros, uno por día, con puntos de F1 (25-18-15…) y una clasificación general.',
+    body: 'Crea un grupo de al menos 3 amigos y arrancad un Grand Prix: 7 circuitos exclusivos vuestros, uno por día. Sectores morado y verde en vivo contra el mejor tiempo del grupo, punto extra por vuelta rápida, y puntos de F1 (25-18-15…) para la clasificación general — con premio en monedas para el podio al terminar la temporada.',
   },
   {
     target: 'perfil',
@@ -1064,6 +1085,34 @@ function RecapModal({ rewards, onClose }) {
           </View>
           <Pressable style={rd.recapBtn} onPress={onClose}>
             <Text style={rd.recapBtnText}>GENIAL</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// Pop-up "qué hay de nuevo": una vez por versión, solo para quien actualiza
+// (ver el efecto que decide cuándo mostrarlo). Contenido en src/WhatsNew.js
+// para que actualizar la lista de una versión a otra no obligue a tocar
+// App.js.
+function WhatsNewModal({ onClose }) {
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={rd.recapBackdrop}>
+        <View style={rd.whatsNewCard}>
+          <Text style={rd.recapTitle}>NOVEDADES · v{WHATS_NEW_VERSION}</Text>
+          <Text style={rd.whatsNewTitle}>Ha cambiado bastante</Text>
+          <View style={rd.whatsNewList}>
+            {WHATS_NEW_ITEMS.map((item) => (
+              <View key={item.title} style={rd.whatsNewItem}>
+                <Text style={rd.whatsNewItemTitle}>{item.title}</Text>
+                <Text style={rd.whatsNewItemBody}>{item.body}</Text>
+              </View>
+            ))}
+          </View>
+          <Pressable style={rd.recapBtn} onPress={onClose}>
+            <Text style={rd.recapBtnText}>VAMOS</Text>
           </Pressable>
         </View>
       </View>
@@ -1535,6 +1584,21 @@ const rd = StyleSheet.create({
   recapBtnText: {
     color: RD.bg, fontSize: 14, fontFamily: RD_FONT.displayBlack, textTransform: 'uppercase', letterSpacing: 0.6,
   },
+
+  // Mismo fondo/tarjeta que recapCard, pero alineado a la izquierda y sin
+  // tope de alto: una lista de 4 novedades no cabe en el mismo formato
+  // centrado y compacto de "premios de ayer".
+  whatsNewCard: {
+    width: '100%', maxWidth: 340, backgroundColor: RD.bg, borderWidth: 1, borderColor: RD.gold1st,
+    borderRadius: 2, padding: 22, gap: 4,
+  },
+  whatsNewTitle: {
+    color: RD.textPrimary, fontSize: 20, fontFamily: RD_FONT.displayBlack, marginBottom: 12,
+  },
+  whatsNewList: { gap: 16, marginBottom: 6 },
+  whatsNewItem: { gap: 3 },
+  whatsNewItemTitle: { color: RD.gold1st, fontSize: 13, fontFamily: RD_FONT.monoBold },
+  whatsNewItemBody: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, lineHeight: 17 },
 
   panel: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 8 },
   rivalryPanel: { borderColor: RD.trackBlue },
