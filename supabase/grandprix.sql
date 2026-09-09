@@ -84,6 +84,11 @@ declare
 begin
   if auth.uid() is null then raise exception 'NOT_AUTHENTICATED'; end if;
   if p_group_id not in (select public.my_group_ids()) then raise exception 'NOT_A_MEMBER'; end if;
+  -- Mínimo 3 jugadores (JC, 2026-09-09): una temporada a 2 no tiene la
+  -- tensión de "vas a X puntos del líder" que busca el propio formato.
+  if (select count(*) from public.group_members where group_id = p_group_id) < 3 then
+    raise exception 'GP_NEEDS_3_PLAYERS';
+  end if;
   begin
     insert into public.grand_prix (group_id, created_by) values (p_group_id, auth.uid())
       returning * into gp;

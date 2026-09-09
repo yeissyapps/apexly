@@ -10,6 +10,7 @@ import { supabase } from './supabase';
 import { todayKey, dayOffset } from './daily';
 import { CAR_DEFAULTS } from './car';
 import { CONFIG } from './config';
+import { F1_POINTS } from './gpData';
 
 const NICK_KEY = 'nickname';
 
@@ -135,6 +136,49 @@ export async function submitSectorSplits(sectorMs, day = todayKey()) {
         if (error && CONFIG.DIAG) console.log('[sector_submit_err]', i, error.code, error.message);
       })
       .catch((e) => { if (CONFIG.DIAG) console.log('[sector_submit_throw]', i, e?.message || String(e)); })
+  ));
+}
+
+// Equivalentes de getSectorBests/submitSectorSplits para el Grand Prix — el
+// morado ahí compara "con respecto al resto de vueltas de los jugadores del
+// grupo" (JC, 2026-09-09), no solo tu propio intento anterior (refSectors),
+// así que hace falta la misma tabla de mejores por sector que ya tiene el
+// Diario, pero acotada a (gp_id, day_index). `sector` es el índice
+// GEOGRÁFICO (0-2, el tramo del circuito) — con 3 vueltas cerradas cada
+// intento manda 9 valores, 3 por cada uno de los 3 sectores geográficos
+// (i % 3), sin importar de qué vuelta salió cada uno (igual que en la F1
+// real, el morado de la sesión puede venir de cualquier vuelta).
+export async function getGpSectorBests(gpId, dayIndex) {
+  const { data, error } = await supabase
+    .from('gp_sector_bests').select('sector, ms').eq('gp_id', gpId).eq('day_index', dayIndex);
+  if (error) return {};
+  const out = {};
+  (data || []).forEach((r) => { out[r.sector] = r.ms; });
+  return out;
+}
+
+// Igual que getGpSectorBests pero con QUIÉN lo tiene (holder_id) — para la
+// clasificación diaria, que ahora enseña "récord de sector: fulano, X.XXs"
+// (JC, 2026-09-09), no solo el número para colorear en pista. Función
+// aparte en vez de cambiar la forma de getGpSectorBests: esa la sigue
+// leyendo Game.js esperando { [sector]: ms } a secas, no romper eso.
+export async function getGpSectorRecords(gpId, dayIndex) {
+  const { data, error } = await supabase
+    .from('gp_sector_bests').select('sector, ms, holder_id').eq('gp_id', gpId).eq('day_index', dayIndex);
+  if (error) return {};
+  const out = {};
+  (data || []).forEach((r) => { out[r.sector] = { ms: r.ms, holderId: r.holder_id }; });
+  return out;
+}
+
+export async function submitGpSectorSplits(gpId, dayIndex, sectorMs9) {
+  await ensureSession();
+  await Promise.all(sectorMs9.map((ms, i) =>
+    supabase.rpc('submit_gp_sector_best', { p_gp_id: gpId, p_day_index: dayIndex, p_sector: i % 3, p_ms: Math.round(ms) })
+      .then(({ error }) => {
+        if (error && CONFIG.DIAG) console.log('[gp_sector_submit_err]', i, error.code, error.message);
+      })
+      .catch((e) => { if (CONFIG.DIAG) console.log('[gp_sector_submit_throw]', i, e?.message || String(e)); })
   ));
 }
 
@@ -758,19 +802,26 @@ export async function getGlobalBoard(day = todayKey()) {
 // (a diferencia de getGlobalBoard, aquí SÍ se puede recorrer toda la lista,
 // pero SIEMPRE por páginas — nunca de golpe, el motivo por el que existe
 // getGlobalBoard en vez de esto para la vista compacta de Inicio).
+// Devuelve también `total` (no solo la página): hace falta saber cuántos
+// jugadores hay HOY para pintar las bandas de puntos por percentil (ver
+// pointsForDailyRank) desde la primera página, sin esperar a haber cargado
+// la lista entera.
 export async function getRankingPage(day = todayKey(), offset = 0, limit = 30) {
   const { data: { session } } = await supabase.auth.getSession();
   const myId = session?.user?.id ?? null;
 
-  const { data, error } = await supabase
-    .from('attempts')
-    .select('best_ms, user_id, users(nickname, current_streak, car_frame)')
-    .eq('day', day)
-    .order('best_ms', { ascending: true })
-    .range(offset, offset + limit - 1);
+  const [{ count }, { data, error }] = await Promise.all([
+    supabase.from('attempts').select('user_id', { count: 'exact', head: true }).eq('day', day),
+    supabase
+      .from('attempts')
+      .select('best_ms, user_id, users(nickname, current_streak, car_frame)')
+      .eq('day', day)
+      .order('best_ms', { ascending: true })
+      .range(offset, offset + limit - 1),
+  ]);
   if (error) throw error;
 
-  return (data || []).map((r, i) => ({
+  const rows = (data || []).map((r, i) => ({
     userId: r.user_id,
     nickname: r.users?.nickname ?? '—',
     streak: r.users?.current_streak ?? 0,
@@ -779,6 +830,120 @@ export async function getRankingPage(day = todayKey(), offset = 0, limit = 30) {
     rank: offset + i + 1,
     isMe: r.user_id === myId,
   }));
+  return { rows, total: count ?? 0 };
+}
+
+// Reparto por PERCENTIL, no por posición fija — una tabla de 10 valores a
+// secas (índice = posición-1) solo tiene 10 huecos: con 9 jugadores reparte
+// entre todos, pero con 100 el jugador 11 ya no se lleva nada nunca, por
+// rápido que sea el grupo. JC, 2026-09-09: "eso habrá que adaptarlo... el
+// 50% último no puntúe" — igual que la propia F1, donde puntúa la mitad
+// delantera de la parrilla (10 de ~20 coches), esto reparte `tiers` (10
+// valores, de mejor a peor) en 10 bandas del 5% cada una sobre el 50% mejor.
+// Con 9 jugadores son ~4-5 los que entran, con 100 son 50 — la proporción no
+// cambia nunca, a diferencia de un top fijo. Compartida por los puntos del
+// ranking diario y las monedas del ranking del mes (mismo reparto, tablas
+// de valores distintas).
+function bandValue(rank, totalPlayers, tiers) {
+  // Entero puro a propósito: dividir dos veces por 0.05 (que no es exacto en
+  // binario) desplazaba jugadores a la banda vecina en los límites — con 20
+  // jugadores, la posición 4 caía en la banda de la 3 y se quedaban dos
+  // bandas sin usar. Multiplicar por 20 (bandas de 5%, 1/0.05) y dividir una
+  // sola vez evita el redondeo y reproduce la tabla F1 exacta con 20.
+  const band = Math.floor(((rank - 1) * 20) / totalPlayers);
+  return band < tiers.length ? tiers[band] : 0;
+}
+
+export function pointsForDailyRank(rank, totalPlayers) {
+  return bandValue(rank, totalPlayers, F1_POINTS);
+}
+
+// Premio en monedas de la clasificación del MES, por banda de posición
+// FINAL (no por día) — JC, 2026-09-09: "tiene que ser un premio grande ya
+// que es una recompensa mensual". El top casi quintuplica el premio
+// semanal del Grand Prix (100, ver gp-tick) y multiplica por 16 el del
+// ranking diario (30, ver close-ranking-rewards): se nota que es mensual.
+export const COIN_BANDS = [500, 360, 300, 240, 200, 160, 120, 80, 40, 20];
+
+export function coinsForMonthlyRank(rank, totalPlayers) {
+  return bandValue(rank, totalPlayers, COIN_BANDS);
+}
+
+// Ranking del MES (calendario, se resetea el día 1) — puntos por percentil
+// en CADA día jugado (ver pointsForDailyRank arriba), sumados a lo largo
+// del mes.
+//
+// JC, 2026-09-09: la primera versión usaba la MEDIA de tiempo, para que
+// sumar tiempos brutos no castigara a quien más juega — pero eso tenía el
+// problema contrario: alguien con 6 días muy rápidos quedaba por delante de
+// alguien con 9 días algo más lentos de media, cuando jugar más debería
+// PREMIAR, no ser neutro. Puntos por posición resuelve las dos cosas a la
+// vez: no jugar un día no resta nada (nunca hay puntos negativos, a
+// diferencia de sumar tiempos), y cada día jugado de más solo puede sumar —
+// así que más constancia siempre pesa más que unos pocos días sueltos,
+// por rápidos que sean. No hace falta mínimo de días jugados: el propio
+// sistema de puntos ya hace ese trabajo.
+//
+// Sin RPC ni tabla nueva: `attempts` (day, user_id, best_ms) ya tiene todo lo
+// que hace falta — se trae el mes entero y se puntúa aquí, día a día. Si el
+// número total de jugadores creciera mucho (miles), esto se movería a un RPC
+// que agregue en el servidor, pero a la escala actual no hace falta.
+export async function getMonthlyRanking(ref = new Date()) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const myId = session?.user?.id ?? null;
+
+  const y = ref.getFullYear(), m = ref.getMonth();
+  const monthStart = new Date(y, m, 1);
+  const monthEnd = new Date(y, m + 1, 1);
+  const startKey = todayKey(monthStart);
+  const endKey = todayKey(monthEnd);
+
+  const { data, error } = await supabase
+    .from('attempts')
+    .select('user_id, day, best_ms, users(nickname, car_frame)')
+    .gte('day', startKey)
+    .lt('day', endKey);
+  if (error) throw error;
+
+  const byDay = new Map();
+  for (const r of data || []) {
+    if (!byDay.has(r.day)) byDay.set(r.day, []);
+    byDay.get(r.day).push(r);
+  }
+
+  const byUser = new Map();
+  for (const dayRows of byDay.values()) {
+    dayRows.sort((a, b) => a.best_ms - b.best_ms);
+    const n = dayRows.length;
+    dayRows.forEach((r, i) => {
+      let e = byUser.get(r.user_id);
+      if (!e) {
+        e = {
+          userId: r.user_id,
+          nickname: r.users?.nickname ?? '—',
+          frame: r.users?.car_frame || 'sin_marco',
+          points: 0,
+          daysPlayed: 0,
+        };
+        byUser.set(r.user_id, e);
+      }
+      e.points += pointsForDailyRank(i + 1, n);
+      e.daysPlayed += 1;
+    });
+  }
+
+  // Empate a puntos: gana quien ha jugado MÁS días — mismo espíritu que el
+  // resto del sistema, la constancia desempata a favor de quien más juega.
+  const sorted = [...byUser.values()].sort((a, b) => b.points - a.points || b.daysPlayed - a.daysPlayed);
+  const totalPlayers = sorted.length;
+  const rows = sorted.map((e, i) => ({
+    ...e,
+    rank: i + 1,
+    isMe: e.userId === myId,
+    coins: coinsForMonthlyRank(i + 1, totalPlayers),
+  }));
+
+  return { rows };
 }
 
 // Busca jugadores por nombre (parcial, sin mayúsculas) en el ranking de hoy

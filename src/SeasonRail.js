@@ -4,17 +4,21 @@
 //  El Diario y el Grand Prix se estaban pintando igual: lista vertical de
 //  filas ordenadas, mismos colores, misma cabecera de rayas. Y no son lo
 //  mismo. El Diario es una CLASIFICACIÓN — una foto de hoy, ordenada por
-//  tiempo. El Grand Prix es una TEMPORADA — siete rondas, puntos que se
+//  tiempo. El Grand Prix es un CAMPEONATO — siete rondas, puntos que se
 //  acumulan y un final.
 //
 //  Esto dibuja justo lo que el Diario no puede tener: por dónde vas del
 //  recorrido. Un segmento por ronda — corridas, la de hoy, y las que faltan.
 //  Con verlo medio segundo ya sabes que estás en otra cosa.
 //
-//  Va en AZUL (RD.trackBlue) y no en el rojo de marca a propósito: en esta
-//  app el azul ya significa "tu grupo" (es el color del logro "1.º de tu
-//  grupo"), así que no es un color inventado para diferenciar, es el que ya
-//  quería decir esto.
+//  JC, 2026-09-09: "muy azul" — antes TODO el riel (corridas + en curso) era
+//  el mismo azul de marca del GP (GP_ACCENT), solo con menos opacidad para
+//  las corridas. Ahora cada estado tiene su propio color, y GP_ACCENT queda
+//  reservado para lo que JC quiere que siga siendo azul: el CTA de correr y
+//  el borde del circuito de hoy, no el riel entero.
+//   - corrida: RD.danger (el mismo naranja que ya usa el Diario para avisos)
+//   - en curso: RD.successGreen — "aquí estás jugando"
+//   - futura: RD.gridLine, sin cambios — un hueco marcado, no invisible
 // ============================================================================
 
 import { StyleSheet, Text, View } from 'react-native';
@@ -46,7 +50,7 @@ export default function SeasonRail({ total = 7, current = null, finished = false
     <View style={s.wrap}>
       <View style={s.rail}>{segs}</View>
       <Text style={s.label}>
-        {finished ? `TEMPORADA COMPLETA · ${total} RONDAS` : `RONDA ${current} DE ${total}`}
+        {finished ? `GRAND PRIX COMPLETO · ${total} RONDAS` : `RONDA ${current} DE ${total}`}
       </Text>
     </View>
   );
@@ -57,11 +61,11 @@ const s = StyleSheet.create({
   rail: { flexDirection: 'row', gap: 3 },
   // Las rondas futuras no son invisibles, son un hueco marcado: se tiene que
   // ver cuánto queda por delante, que es medio mensaje del formato.
-  seg: { flex: 1, height: 7, backgroundColor: RD.gridLine },
-  segDone: { backgroundColor: GP_ACCENT, opacity: 0.45 },
-  segNow: { backgroundColor: GP_ACCENT, height: 7 },
+  seg: { flex: 1, height: 7, borderRadius: 1, backgroundColor: RD.gridLine },
+  segDone: { backgroundColor: RD.danger, opacity: 0.55 },
+  segNow: { backgroundColor: RD.successGreen },
   label: {
-    color: GP_ACCENT, fontSize: 11, fontFamily: RD_FONT.monoBold,
+    color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.monoBold,
     letterSpacing: 1.4,
   },
 });

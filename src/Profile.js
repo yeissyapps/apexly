@@ -89,7 +89,7 @@ function StatCard({ value, label, hint, tone }) {
   );
 }
 
-export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGarage, onOpenTienda }) {
+export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGarage, onOpenTienda, onOpenCareer }) {
   const [career, setCareer] = useState(null);
   const [piecesOwned, setPiecesOwned] = useState(null);
   const [todayRank, setTodayRank] = useState(undefined); // undefined = cargando, null = no jugó hoy
@@ -155,16 +155,22 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
           </View>
         </View>
 
-        {/* Garaje y Tienda van ARRIBA: son lo accionable de esta pantalla, y
-            enterrarlos bajo el bloque de stats obligaba a hacer scroll para
-            llegar a lo único que se puede pulsar. Las stats son de leer, y
-            leer puede esperar a después de actuar. */}
+        {/* Garaje, Tienda y Carrera van ARRIBA: son lo accionable de esta
+            pantalla, y enterrarlos bajo el bloque de stats obligaba a hacer
+            scroll para llegar a lo único que se puede pulsar. Las stats son
+            de leer, y leer puede esperar a después de actuar.
+            Carrera se sumó aquí el 2026-09-09: tenía poca acogida como
+            pestaña propia y no es de lo principal del juego — vive junto a
+            Garaje/Tienda, no en la barra de abajo. */}
         <View style={s.actionsRow}>
           <Pressable style={s.actionBtn} onPress={onOpenGarage}>
             <Text style={s.actionBtnText}>GARAJE</Text>
           </Pressable>
           <Pressable style={s.actionBtn} onPress={onOpenTienda}>
             <Text style={s.actionBtnText}>TIENDA</Text>
+          </Pressable>
+          <Pressable style={s.actionBtn} onPress={onOpenCareer}>
+            <Text style={s.actionBtnText}>CARRERA</Text>
           </Pressable>
         </View>
 

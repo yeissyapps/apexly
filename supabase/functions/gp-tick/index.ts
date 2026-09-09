@@ -49,11 +49,25 @@ Deno.serve(async (_req) => {
         .from('grand_prix').update({ status: 'finished' }).eq('id', gp.id).eq('status', 'active').select('id');
       if (closed && closed.length > 0) {
         const sent = await notifyIfNew(admin, gp.id, 'finished', 0, async () => {
-          const { data: results } = await admin.from('gp_results').select('day_index, user_id, ms').eq('gp_id', gp.id);
+          const { data: results } = await admin.from('gp_results').select('day_index, user_id, ms, sector_ms').eq('gp_id', gp.id);
           const { data: users } = await admin.from('users').select('id, nickname').in('id', memberIds);
           const names = new Map((users ?? []).map((u) => [u.id, u.nickname]));
           const standing = computeStandings(results ?? [], memberIds, names);
           const podium = standing.slice(0, 3).map((s, i) => `${i + 1}. ${s.nickname} (${s.points})`).join(' · ');
+          // Recompensa de fin de temporada (JC, 2026-09-09): 50/30/20 de una
+          // bolsa fija para el podio de la general — no por ronda, solo al
+          // cerrar. Piggybacking en el idempotente de notifyIfNew (esta
+          // función ya solo se ejecuta una vez por GP vía gp_notify_log) +
+          // credit_wallet vuelve a proteger por su cuenta (una fila por
+          // user_id/día/motivo). `today` = fecha real de cierre, no ninguna
+          // fecha de ronda.
+          const today = new Date().toISOString().slice(0, 10);
+          const rewardAmounts = [100, 60, 40];
+          await Promise.all(
+            standing.slice(0, 3).filter((s) => s.points > 0).map((s, i) =>
+              admin.rpc('credit_wallet', { p_user_id: s.userId, p_amount: rewardAmounts[i], p_day: today, p_reason: 'gp' })
+            )
+          );
           return pushToUsers(admin, memberIds, 'Apexly · Grand Prix', `¡Terminado! ${podium || 'Sin resultados esta vez.'}`);
         });
         if (sent) finishedSent++;
@@ -114,7 +128,23 @@ async function pushToUsers(admin: any, userIds: string[], title: string, body: s
   });
 }
 
-function computeStandings(results: { day_index: number; user_id: string; ms: number }[], memberIds: string[], names: Map<string, string>) {
+// sectorMs = 9 valores en orden vuelta-mayor (3 sectores × 3 vueltas) — el
+// tiempo de cada vuelta es la suma de su propio trío. Mismo criterio que
+// lapTimesFromSectorMs en src/gpData.js — tienen que coincidir, este archivo
+// no puede importar de ahí (Deno, aparte del bundle de la app).
+function lapTimesFromSectorMs(sectorMs: number[] | null): number[] {
+  if (!sectorMs || sectorMs.length === 0) return [];
+  const laps: number[] = [];
+  for (let i = 0; i * 3 < sectorMs.length; i++) {
+    const trio = sectorMs.slice(i * 3, i * 3 + 3);
+    if (trio.length === 0) break;
+    laps.push(trio.reduce((a, b) => a + b, 0));
+  }
+  return laps;
+}
+const FASTEST_LAP_POINT = 1;
+
+function computeStandings(results: { day_index: number; user_id: string; ms: number; sector_ms: number[] | null }[], memberIds: string[], names: Map<string, string>) {
   const byUser = new Map<string, { userId: string; nickname: string; points: number }>();
   for (const id of memberIds) byUser.set(id, { userId: id, nickname: names.get(id) ?? '—', points: 0 });
   const byDay = new Map<number, typeof results>();
@@ -128,6 +158,17 @@ function computeStandings(results: { day_index: number; user_id: string; ms: num
       const u = byUser.get(r.user_id);
       if (u) u.points += F1_POINTS[i] || 0;
     });
+    // Vuelta rápida de la ronda: +1 punto, mismo criterio que gpData.js.
+    let best: { ms: number; userId: string } | null = null;
+    for (const r of rows) {
+      for (const lap of lapTimesFromSectorMs(r.sector_ms)) {
+        if (best == null || lap < best.ms) best = { ms: lap, userId: r.user_id };
+      }
+    }
+    if (best) {
+      const u = byUser.get(best.userId);
+      if (u) u.points += FASTEST_LAP_POINT;
+    }
   }
   return [...byUser.values()].sort((a, b) => b.points - a.points);
 }

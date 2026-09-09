@@ -42,7 +42,7 @@ import Profile from './src/Profile';
 import CareerMode from './src/CareerMode';
 import { levelSpec, gapMsFor, weatherForLevel, CAREER_AD_BATCH } from './src/career';
 import { GroupHome, GrandPrixStandings, RoundStart } from './src/GrandPrix';
-import { gpCircuitSpec, gpWeather, GP_AD_BATCH, currentRoundIndex, gpFinished } from './src/gpData';
+import { gpCircuitSpec, gpWeather, GP_AD_BATCH, GP_FREE_ATTEMPTS, currentRoundIndex, gpFinished } from './src/gpData';
 import ShineBadge from './src/ShineBadge';
 import Tour, { tourRef, isTourDone } from './src/Tour';
 import { noteRaceFinished } from './src/rate';
@@ -56,6 +56,7 @@ import {
   getMyLoadout, getWallet, claimDailyReward, getRecentRewards, claimShareReward, claimCareerLevel,
   submitGpResult, notifyGpOvertake, recordLap, submitDailyRun, getLeaderRun, getMyGpRoundSectors,
   getActiveGrandPrix, getGpResults, getMyId, getMyReferralCode,
+  getGpSectorBests, submitGpSectorSplits,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -79,15 +80,16 @@ const UNLIMITED_FALLBACK_PRICE = '2,99 €'; // si la tienda no responde con el 
 const RECAP_SEEN_KEY = 'apexly_recap_seen_day'; // último día (todayKey) en que ya se mostró el pop-up de premios
 const RANK_SEEN_KEY = 'apexly_last_rank';       // { day, rank } del último resultado visto, para "has adelantado a N"
 
-// Modo elegido para una ronda del GP: 'practica' (2 de calentamiento + la que
-// cuenta) o 'directo' (una sola vuelta, y cuenta). Se guarda por ronda.
+// Modo elegido para una ronda del GP: 'practica' (1 de calentamiento + la que
+// cuenta) o 'directo' (una sola carrera, y cuenta). Se guarda por ronda.
 const gpModeKey = (gpId, roundIdx) => `gp_mode_${gpId}_${roundIdx}`;
 
 // Intentos que quedan en una ronda del GP. 'directo' cambia el cupo gratis de
-// 3 a 1: es el precio de saltarse el ensayo, y lo que convierte la elección en
-// una decisión de verdad y no en "la opción obviamente mejor".
+// GP_FREE_ATTEMPTS (2: prueba + la que cuenta) a 1: es el precio de saltarse
+// el ensayo, y lo que convierte la elección en una decisión de verdad y no en
+// "la opción obviamente mejor".
 const gpLeftFor = (modo, att) =>
-  (modo === 'directo' ? 1 : FREE_ATTEMPTS) + (att?.bonus || 0) - (att?.used || 0);
+  (modo === 'directo' ? 1 : GP_FREE_ATTEMPTS) + (att?.bonus || 0) - (att?.used || 0);
 
 // Umbral del "casi": por debajo de esto, no batir tu récord deja de ser un
 // fracaso y pasa a ser un incentivo para tirar otra vuelta. 300ms es poco más
@@ -262,6 +264,19 @@ export default function App() {
     return () => { alive = false; };
   }, [gpActive?.id, gpRoundIndex, gpResult]);
 
+  // Morado real del GP (mejor de CUALQUIERA del grupo en ese sector, no solo
+  // tu propio intento anterior) — mismo patrón que gpRefSectors de arriba,
+  // pero contra gp_sector_bests en vez de tu último gp_results.
+  const [gpSectorBests, setGpSectorBests] = useState(null);
+  useEffect(() => {
+    if (gpActive == null || gpRoundIndex == null) { setGpSectorBests(null); return; }
+    let alive = true;
+    getGpSectorBests(gpActive.id, gpRoundIndex)
+      .then((s) => { if (alive) setGpSectorBests(s); })
+      .catch(() => { if (alive) setGpSectorBests(null); });
+    return () => { alive = false; };
+  }, [gpActive?.id, gpRoundIndex, gpResult]);
+
   // Consume un intento al empezar una vuelta (con ilimitado, no hace falta llevar la cuenta).
   function startAttempt() {
     logRaceStart();
@@ -370,7 +385,7 @@ export default function App() {
       try { await claimCareerLevel(n, Math.round(ms)); } catch (_) {}
     }
     setCareerResult({ level: n, ms, passed, gapMs });
-    setScreen('home');
+    setScreen('career');
     // El otro buen momento: acabas de desbloquear el siguiente nivel. Si has
     // fallado el tiempo NO se pide — pedir valoración justo después de perder
     // es la forma más rápida de llevarte una estrella.
@@ -438,13 +453,19 @@ export default function App() {
   async function handleGpFinish(ms, trace, sectorSplits, impacts) {
     const gp = gpActive;
     const dayIndex = gpRoundIndex;
-    // En 'directo' no hay calentamiento: la primera vuelta ya clasifica. En
-    // 'practica', las dos primeras no se mandan y desde la 3.ª cuenta (`used`
-    // ya incluye el intento que se acaba de gastar en startGpAttempt).
-    const isPractice = gpMode !== 'directo' && gpAtt.used < 3;
+    // En 'directo' no hay calentamiento: la primera carrera ya clasifica. En
+    // 'practica' SOLO la primera es de prueba (JC, 2026-09-09: antes eran 2,
+    // ahora 1) — desde la 2.ª cuenta (`used` ya incluye el intento que se
+    // acaba de gastar en startGpAttempt).
+    const isPractice = gpMode !== 'directo' && gpAtt.used < GP_FREE_ATTEMPTS;
     // También las vueltas de práctica: has estado en pista y te has chocado
     // igual, aunque esa vuelta no clasifique.
     recordLap(ms, impacts);
+    // Los sectores son accesorios, igual que en el Diario (submitSectorSplits
+    // más abajo): se mandan SIEMPRE, incluida la práctica — un sector suelto
+    // puede ser tu mejor (o el mejor del grupo) aunque la vuelta entera no
+    // clasifique.
+    if (sectorSplits && sectorSplits.length) submitGpSectorSplits(gp.id, dayIndex, sectorSplits).catch(() => {});
     if (isPractice) {
       setGpResult({ dayIndex, ms, isPractice: true });
       setScreen('group-home');
@@ -766,6 +787,19 @@ export default function App() {
         onBack={() => setScreen('home')}
         onOpenGarage={() => { logGarageOpen(); setScreen('garage'); }}
         onOpenTienda={() => setScreen('tienda')}
+        onOpenCareer={() => setScreen('career')}
+      />
+    );
+  }
+
+  if (screen === 'career') {
+    return (
+      <CareerMode
+        unlimited={unlimited}
+        result={careerResult}
+        onPlayLevel={playCareerLevel}
+        onDismissResult={() => setCareerResult(null)}
+        onBack={() => setScreen('home')}
       />
     );
   }
@@ -800,7 +834,7 @@ export default function App() {
         onAttemptStart={startCareerAttempt}
         onNeedMore={() => { setNomoreReturn('career-playing'); setScreen('nomore'); }}
         onFinish={handleCareerFinish}
-        onExit={() => setScreen('home')}
+        onExit={() => setScreen('career')}
       />
     );
   }
@@ -822,7 +856,7 @@ export default function App() {
         track={gpSpec.track}
         ghost={null}
         weather={gpWeatherVal}
-        sectorBests={null}
+        sectorBests={gpSectorBests}
         refSectors={gpRefSectors}
         loadout={loadout}
         attemptsLeft={unlimited ? Infinity : gpLeft}
@@ -850,7 +884,7 @@ export default function App() {
           if (ok) setScreen(nomoreReturn);
         }}
         onBuyUnlimited={async () => { const ok = await handleBuyUnlimited(); if (ok) setScreen('home'); }}
-        onBack={() => { setAdMsg(''); setScreen(isGp ? 'group-home' : 'home'); }}
+        onBack={() => { setAdMsg(''); setScreen(isGp ? 'group-home' : isCareer ? 'career' : 'home'); }}
       />
     );
   }
@@ -903,16 +937,8 @@ export default function App() {
           privacyOptional={privacyOptional}
         />
       )}
-      {tab === 'amigos' && <AmigosTab refreshKey={refreshKey} onOpenGroup={openGroupHome} />}
       {tab === 'ranking' && <RankingTab refreshKey={refreshKey} />}
-      {tab === 'carrera' && (
-        <CareerMode
-          unlimited={unlimited}
-          result={careerResult}
-          onPlayLevel={playCareerLevel}
-          onDismissResult={() => setCareerResult(null)}
-        />
-      )}
+      {tab === 'amigos' && <AmigosTab refreshKey={refreshKey} onOpenGroup={openGroupHome} />}
     </AppShell>
   );
 }
@@ -1002,18 +1028,13 @@ const TOUR_STEPS = [
   },
   {
     target: 'tab-amigos',
-    title: 'Amigos y Grand Prix',
+    title: 'Grand Prix',
     body: 'Crea un grupo y pasa el código a tus amigos. Dentro de un grupo podéis arrancar un Grand Prix: 7 circuitos exclusivos vuestros, uno por día, con puntos de F1 (25-18-15…) y una clasificación general.',
   },
   {
-    target: 'tab-carrera',
-    title: 'Modo carrera',
-    body: '30 niveles en solitario, de dificultad creciente. Cada uno te pide bajar de un tiempo objetivo para desbloquear el siguiente, y los últimos añaden viento y lluvia.',
-  },
-  {
     target: 'perfil',
-    title: 'Perfil, garaje y tienda',
-    body: 'Aquí ves tus estadísticas y entras al Garaje, para personalizar el coche, y a la Tienda, donde se gastan las monedas en sobres. Las piezas del coche salen de esos sobres.',
+    title: 'Perfil, garaje, tienda y carrera',
+    body: 'Aquí ves tus estadísticas y entras al Garaje, para personalizar el coche, a la Tienda, donde se gastan las monedas en sobres, y al Modo Carrera: 30 niveles en solitario de dificultad creciente, cada uno con un tiempo objetivo que desbloquea el siguiente.',
   },
 ];
 
@@ -1311,13 +1332,15 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
   );
 }
 
-// Pestaña "Carrera" — Modo Carrera (niveles con gap). Placeholder hasta que
-// se construya (siguiente fase del plan).
+// JC, 2026-09-09: Carrera tenía poca acogida y no es de lo principal del
+// juego — se quitó de aquí y pasó a colgar del Perfil, como Garaje/Tienda
+// (ver pantalla 'career'). El id 'amigos' se conserva tal cual (toda la
+// lógica de grupos no cambia), solo se renombra su pestaña a GRAND PRIX:
+// es lo único que se hace ahí dentro hoy.
 const TABS = [
   { id: 'diario', label: 'DIARIO' },
-  { id: 'amigos', label: 'AMIGOS' },
   { id: 'ranking', label: 'RANKING' },
-  { id: 'carrera', label: 'CARRERA' },
+  { id: 'amigos', label: 'GRAND PRIX' },
 ];
 
 // (Aquí vivía ProfileIcon, un contorno genérico de cabeza+hombros. Se

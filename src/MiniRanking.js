@@ -171,22 +171,31 @@ function Tab({ label, active, dashed, onPress, color }) {
 // magenta sigue diciendo "esta fila eres tú" y el marco añade el acabado. Y
 // se pinta el de TODOS, no solo el propio — es justo lo que hace que la
 // pieza tenga sentido: es la única de la colección que ve el resto.
-export function RankRow({ r, wins }) {
+// `timeLabel`/`sub` son opcionales — sin ellos se comporta exactamente como
+// antes (tiempo del día, sin segunda línea). El ranking del MES los usa para
+// mostrar la media en vez del mejor tiempo, con los días jugados debajo (ver
+// RankingTab.js): mismo look de fila, otro dato.
+export function RankRow({ r, wins, timeLabel, sub }) {
   const f = frameById(r.frame);
   return (
     <View style={[styles.row, r.isMe && styles.rowMe, frameStyle(f, RD)]}>
       <View style={styles.rowLeft}>
         <Text style={[styles.rowRank, r.isMe && styles.rowRankMe]}>{String(r.rank).padStart(2, '0')}</Text>
-        <Text style={[styles.rowName, r.isMe && styles.rowNameMe]} numberOfLines={1}>
-          {r.isMe ? `${r.nickname} (tú)` : r.nickname}
-        </Text>
-        {!!f.glyph && <Text style={[styles.rowGlyph, { color: frameGlyphColor(f, RD) }]}>{f.glyph}</Text>}
-        {/* Cuántas veces ha sido 1.º del mundo, no solo si lo ha sido —
-            independiente de si hoy lleva puesta la corona o cambió de marco:
-            es un hecho de la cuenta, no del cosmético equipado. */}
-        {wins > 0 && <Text style={[styles.rowWins, { color: RD.gold1st }]}>×{wins}</Text>}
+        <View style={styles.rowNameCol}>
+          <View style={styles.rowNameLine}>
+            <Text style={[styles.rowName, r.isMe && styles.rowNameMe]} numberOfLines={1}>
+              {r.isMe ? `${r.nickname} (tú)` : r.nickname}
+            </Text>
+            {!!f.glyph && <Text style={[styles.rowGlyph, { color: frameGlyphColor(f, RD) }]}>{f.glyph}</Text>}
+            {/* Cuántas veces ha sido 1.º del mundo, no solo si lo ha sido —
+                independiente de si hoy lleva puesta la corona o cambió de marco:
+                es un hecho de la cuenta, no del cosmético equipado. */}
+            {wins > 0 && <Text style={[styles.rowWins, { color: RD.gold1st }]}>×{wins}</Text>}
+          </View>
+          {!!sub && <Text style={styles.rowSub}>{sub}</Text>}
+        </View>
       </View>
-      <Text style={styles.rowTime}>{fmtTime(r.bestMs)}</Text>
+      <Text style={styles.rowTime}>{timeLabel ?? fmtTime(r.bestMs)}</Text>
     </View>
   );
 }
@@ -260,10 +269,13 @@ const styles = StyleSheet.create({
   rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
   rowRank: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, width: 18 },
   rowRankMe: { color: RD.youMagenta },
+  rowNameCol: { minWidth: 0, flexShrink: 1 },
+  rowNameLine: { flexDirection: 'row', alignItems: 'center' },
   rowName: { color: RD.textPrimary, fontSize: 13, fontWeight: '700', flexShrink: 1 },
   rowGlyph: { fontSize: 13, marginLeft: 5 },
   rowWins: { fontSize: 10, fontFamily: RD_FONT.monoBold, marginLeft: 3 },
   rowNameMe: { color: RD.textPrimary },
+  rowSub: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, marginTop: 1 },
   rowTime: { color: RD.cream, fontSize: 12, fontFamily: RD_FONT.mono },
 
   totalLabel: {

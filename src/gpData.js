@@ -47,10 +47,17 @@ export function gpFinished(gp) {
   return Date.now() >= new Date(gp.started_at).getTime() + gp.circuit_count * DAY_MS;
 }
 
-// Un anuncio en el GP da más intentos que en el diario — mismo razonamiento
-// que Carrera (CAREER_AD_BATCH): la ronda es del grupo, no un cupo diario
-// compartido con nadie más.
-export const GP_AD_BATCH = 3;
+// Un anuncio en el GP da +1 intento (JC, 2026-09-09: "puedes ver un vídeo y
+// tener un intento más, no 3 intentos más" — antes daba +3, como Carrera; el
+// GP es una carrera de 3 vueltas, mucho más cara en tiempo que un intento
+// suelto de Diario/Carrera, así que +1 ya es un premio real).
+export const GP_AD_BATCH = 1;
+
+// Modo "calentar primero" del GP: 1 intento de prueba (no clasifica) + 1 que
+// SÍ clasifica — no 2+1 como Diario/Carrera (JC, 2026-09-09: "eso ya no es
+// así, solo tendrás un intento de prueba"). Ver isPractice en App.js
+// (handleGpFinish) y gpLeftFor, que ya lo usan.
+export const GP_FREE_ATTEMPTS = 2;
 
 // Rampa de dificultad MÁS SUAVE que Modo Carrera (t 0.2 -> 0.6, no 0 -> 1):
 // un GP es un evento de una semana entre amigos, no una escalera de progreso
@@ -104,13 +111,35 @@ export function roundLabel(dayIndex, spec) {
 // haga falta reescalar nada según el tamaño del grupo.
 export const F1_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 
+// Punto extra por vuelta rápida de la ronda (JC, 2026-09-09) — mismo espíritu
+// que la F1 real: un punto de premio, no reemplaza la puntuación por posición.
+export const FASTEST_LAP_POINT = 1;
+
+// sectorMs de un resultado de GP = 9 valores en orden vuelta-mayor (3
+// sectores × 3 vueltas, ver src/pieces.js/Game.js) — el tiempo de cada
+// vuelta es la suma de su propio trío. Filas antiguas (de antes de este
+// cambio, con solo 3 valores) devuelven un único "lap" = la suma de los 3,
+// que sigue siendo su mejor aproximación razonable. Compartida entre
+// GrandPrix.js (banner/panel de vuelta rápida) y computeStandings de aquí
+// abajo — un solo criterio, cliente y servidor (gp-tick) deben coincidir.
+export function lapTimesFromSectorMs(sectorMs) {
+  if (!sectorMs || sectorMs.length === 0) return [];
+  const laps = [];
+  for (let i = 0; i * 3 < sectorMs.length; i++) {
+    const trio = sectorMs.slice(i * 3, i * 3 + 3);
+    if (trio.length === 0) break;
+    laps.push(trio.reduce((a, b) => a + b, 0));
+  }
+  return laps;
+}
+
 // Agrega resultados crudos (de getGpResults) en la general del campeonato.
 // `members`: [{ userId, nickname }] — TODOS los del grupo, para que aparezca
 // hasta quien aún no ha clasificado ningún tiempo (con 0 puntos). Quien no
 // corrió una ronda concreta simplemente no ocupa puesto ese día (JC: "cero
 // puntos ese circuito", el resto se reparte solo entre quien sí clasificó).
 // Devuelve un array ordenado por puntos desc: { userId, nickname, points,
-// rounds: { [dayIndex]: { ms, pos, pts } } }.
+// rounds: { [dayIndex]: { ms, pos, pts, fastestLap } } }.
 export function computeStandings(results, members) {
   const byUser = new Map();
   const ensure = (userId, nickname) => {
@@ -131,8 +160,31 @@ export function computeStandings(results, members) {
       const pts = F1_POINTS[i] || 0;
       const u = ensure(r.userId, r.nickname);
       u.points += pts;
-      u.rounds[dayIndex] = { ms: r.ms, pos: i + 1, pts };
+      u.rounds[dayIndex] = { ms: r.ms, pos: i + 1, pts, fastestLap: false };
     });
+
+    // Vuelta rápida de la ronda: la más corta de TODAS las vueltas de TODOS
+    // (no el tiempo total) — mismo criterio que fastestLap en GrandPrix.js.
+    // +1 punto además de los de posición, y se marca en la celda de esa
+    // ronda para el emblema morado de RoundStrip.
+    let best = null;
+    for (const r of rows) {
+      for (const lap of lapTimesFromSectorMs(r.sectorMs)) {
+        if (best == null || lap < best.ms) best = { ms: lap, userId: r.userId };
+      }
+    }
+    if (best) {
+      const u = byUser.get(best.userId);
+      if (u) {
+        u.points += FASTEST_LAP_POINT;
+        // También en el desglose de la ronda, para que el número de la
+        // celda (RoundStrip) sume igual que el total de la general.
+        if (u.rounds[dayIndex]) {
+          u.rounds[dayIndex].pts += FASTEST_LAP_POINT;
+          u.rounds[dayIndex].fastestLap = true;
+        }
+      }
+    }
   }
 
   return [...byUser.values()].sort((a, b) => b.points - a.points);

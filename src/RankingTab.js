@@ -11,16 +11,93 @@
 // propio scroll/virtualización). Con nombres random y search-heavy en
 // hasta miles de filas, "cargar más" explícito es además más barato que
 // paginar sola de fondo.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { getRankingPage, getWorldWinCounts, searchRanking } from './api';
+import { getMonthlyRanking, getRankingPage, getWorldWinCounts, pointsForDailyRank, searchRanking } from './api';
 import { RD, RD_FONT } from './theme';
 import { RankRow } from './MiniRanking';
 
+// Agrupa una lista YA ORDENADA en tramos consecutivos del mismo valor
+// (puntos o monedas) — para pintar una línea divisoria cada vez que cambia
+// la banda, en vez de un número repetido fila a fila. JC, 2026-09-09: "hay
+// que indicarlo de alguna forma visual, por colores, o líneas divisorias".
+function groupByBand(rows, valueOf) {
+  const groups = [];
+  for (const r of rows) {
+    const value = valueOf(r);
+    const last = groups[groups.length - 1];
+    if (last && last.value === value) last.items.push(r);
+    else groups.push({ value, items: [r] });
+  }
+  return groups;
+}
+
+function BandDivider({ value, unit, zeroLabel = 'NO PUNTÚA', formatLabel }) {
+  const scores = value > 0;
+  const label = scores ? (formatLabel ? formatLabel(value) : `${value} ${unit}`) : zeroLabel;
+  return (
+    <View style={styles.bandDivider}>
+      <View style={[styles.bandDividerLine, scores && styles.bandDividerLineGold]} />
+      <Text style={[styles.bandDividerText, scores && styles.bandDividerTextGold]}>{label}</Text>
+      <View style={[styles.bandDividerLine, scores && styles.bandDividerLineGold]} />
+    </View>
+  );
+}
+
+// Filas fuera del 50% que puntúa: atenuadas, no ocultas — se sigue viendo
+// dónde queda cada uno, solo queda claro de un vistazo que ese tramo no
+// se lleva nada.
+function BandedRows({ rows, valueOf, unit, zeroLabel, formatLabel, wins, extraRowProps }) {
+  return groupByBand(rows, valueOf).map((g, gi) => (
+    <Fragment key={gi}>
+      <BandDivider value={g.value} unit={unit} zeroLabel={zeroLabel} formatLabel={formatLabel} />
+      {g.items.map((r) => (
+        <View key={r.userId} style={g.value <= 0 && styles.rowDimmed}>
+          <RankRow r={r} wins={wins[r.userId]} {...(extraRowProps ? extraRowProps(r) : null)} />
+        </View>
+      ))}
+    </Fragment>
+  ));
+}
+
 const PAGE_SIZE = 30;
+const MONTH_NAMES = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
+
+// `new Date(y, m + 1, 0)` es el último día del mes `m` — el truco estándar
+// de JS (día 0 del mes siguiente = último día de este), así sale bien el
+// largo real de cada mes (28, 29, 30 o 31) sin tabla escrita a mano.
+function daysUntilNextMonth(ref = new Date()) {
+  const lastDay = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
+  return lastDay - ref.getDate();
+}
 
 export default function RankingTab({ refreshKey = 0 }) {
+  const [view, setView] = useState('hoy'); // 'hoy' | 'mes'
+
+  return (
+    <View style={styles.wrap}>
+      <View style={styles.viewTabs}>
+        <Pressable style={styles.viewTab} onPress={() => setView('hoy')} hitSlop={6}>
+          <Text style={[styles.viewTabText, view === 'hoy' && styles.viewTabTextActive]}>HOY</Text>
+          {view === 'hoy' && <View style={styles.viewTabIndicator} />}
+        </Pressable>
+        <Pressable style={styles.viewTab} onPress={() => setView('mes')} hitSlop={6}>
+          <Text style={[styles.viewTabText, view === 'mes' && styles.viewTabTextActive]}>MES</Text>
+          {view === 'mes' && <View style={styles.viewTabIndicator} />}
+        </Pressable>
+      </View>
+      {view === 'hoy' ? <DailyRanking refreshKey={refreshKey} /> : <MonthlyRanking refreshKey={refreshKey} />}
+    </View>
+  );
+}
+
+// Ranking del día — el que ya había, sin más cambio que vivir en su propio
+// componente (antes era el cuerpo entero de RankingTab).
+function DailyRanking({ refreshKey = 0 }) {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(null); // null = aún no se sabe
   const [loadingMore, setLoadingMore] = useState(false);
@@ -36,9 +113,9 @@ export default function RankingTab({ refreshKey = 0 }) {
     setLoadingMore(true);
     setError(false);
     getRankingPage(undefined, offset, PAGE_SIZE)
-      .then((page) => {
+      .then(({ rows: page, total: t }) => {
         setRows((prev) => (offset === 0 ? page : [...prev, ...page]));
-        if (page.length < PAGE_SIZE) setTotal(offset + page.length);
+        setTotal(t);
         getWorldWinCounts(page.map((r) => r.userId))
           .then((wc) => setWinCounts((prev) => ({ ...prev, ...wc })))
           .catch(() => {});
@@ -74,9 +151,7 @@ export default function RankingTab({ refreshKey = 0 }) {
   const remaining = total != null ? total - rows.length : null;
 
   return (
-    <View style={styles.wrap}>
-      <Text style={styles.title}>Ranking de hoy</Text>
-
+    <View style={styles.section}>
       <View style={styles.searchBox}>
         <TextInput
           value={query}
@@ -118,7 +193,12 @@ export default function RankingTab({ refreshKey = 0 }) {
             <Text style={styles.muted}>Aún no hay tiempos. ¡Sé el primero!</Text>
           ) : (
             <View style={styles.list}>
-              {rows.map((r) => <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} />)}
+              <BandedRows
+                rows={rows}
+                valueOf={(r) => pointsForDailyRank(r.rank, total || rows.length)}
+                unit="PTS"
+                wins={winCounts}
+              />
             </View>
           )}
 
@@ -135,14 +215,121 @@ export default function RankingTab({ refreshKey = 0 }) {
   );
 }
 
+// Ranking del MES — media de tiempo por jugador entre los días corridos de
+// este mes de calendario (no la suma: ver el comentario de getMonthlyRanking
+// en api.js). Búsqueda en cliente, no en servidor: a diferencia del ranking
+// diario (que puede tener miles de filas y pide páginas al servidor), aquí
+// solo entran los jugadores que han corrido al menos un día del mes — la
+// lista ya está entera en memoria, filtrar en el propio array es más simple
+// y no hace falta una consulta nueva.
+function MonthlyRanking({ refreshKey = 0 }) {
+  const [rows, setRows] = useState(null); // null = cargando
+  const [error, setError] = useState(false);
+  const [winCounts, setWinCounts] = useState({});
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    setRows(null);
+    setError(false);
+    getMonthlyRanking()
+      .then((res) => {
+        if (!alive) return;
+        setRows(res.rows);
+        getWorldWinCounts(res.rows.map((r) => r.userId))
+          .then((wc) => { if (alive) setWinCounts(wc); })
+          .catch(() => {});
+      })
+      .catch(() => { if (alive) setError(true); });
+    return () => { alive = false; };
+  }, [refreshKey]);
+
+  const now = new Date();
+  const monthLabel = MONTH_NAMES[now.getMonth()];
+  const daysLeft = daysUntilNextMonth(now);
+  const countdown = daysLeft <= 0
+    ? `Hoy cierra ${monthLabel}`
+    : `Quedan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'} para que cierre ${monthLabel}`;
+
+  const showingSearch = query.trim().length > 0;
+  const filteredRows = showingSearch && rows
+    ? rows.filter((r) => r.nickname.toLowerCase().includes(query.trim().toLowerCase()))
+    : rows;
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.monthCountdown}>{countdown}</Text>
+      <Text style={styles.muted}>
+        Puntos por posición cada día (top 50%, como en la F1). Al cerrar el mes, el top 50%
+        se lleva monedas: cuanto más arriba, más premio.
+      </Text>
+
+      <View style={styles.searchBox}>
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Buscar jugador por nombre…"
+          placeholderTextColor={RD.textTertiary}
+          style={styles.searchInput}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {showingSearch && (
+          <Pressable onPress={() => setQuery('')} hitSlop={8}>
+            <Text style={styles.searchClear}>✕</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {error && !rows ? (
+        <Text style={styles.muted}>No se pudo cargar el ranking del mes.</Text>
+      ) : !rows ? (
+        <View style={styles.center}><ActivityIndicator color={RD.brand} /></View>
+      ) : rows.length === 0 ? (
+        <Text style={styles.muted}>Todavía nadie ha corrido este mes. ¡Sé el primero!</Text>
+      ) : filteredRows.length === 0 ? (
+        <Text style={styles.muted}>Nadie con ese nombre ha corrido este mes.</Text>
+      ) : (
+        <View style={styles.list}>
+          <BandedRows
+            rows={filteredRows}
+            valueOf={(r) => r.coins}
+            unit="MONEDAS"
+            zeroLabel="SIN PREMIO"
+            formatLabel={(v) => `PREMIO: ${v} MONEDAS`}
+            wins={winCounts}
+            extraRowProps={(r) => ({
+              timeLabel: `${r.points} pts`,
+              sub: `${r.daysPlayed} ${r.daysPlayed === 1 ? 'día jugado' : 'días jugados'}`,
+            })}
+          />
+        </View>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   wrap: { gap: 10 },
+  section: { gap: 10 },
+
+  viewTabs: { flexDirection: 'row', gap: 28, borderBottomWidth: 1, borderBottomColor: RD.gridLine, isolation: 'isolate' },
+  viewTab: { paddingBottom: 12, position: 'relative' },
+  viewTabText: {
+    color: RD.textTertiary, fontSize: 17, fontFamily: RD_FONT.displayBlack, letterSpacing: 0.4,
+  },
+  viewTabTextActive: { color: RD.textPrimary },
+  viewTabIndicator: { position: 'absolute', left: 0, right: 0, bottom: -1, height: 3, backgroundColor: RD.brand },
+
   title: {
     color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.monoBold,
     letterSpacing: 1.2, textTransform: 'uppercase',
   },
   center: { paddingVertical: 20, alignItems: 'center' },
   muted: { color: RD.textTertiary, fontSize: 14, fontFamily: RD_FONT.mono, paddingVertical: 10 },
+  monthCountdown: {
+    color: RD.gold1st, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.4,
+  },
 
   searchBox: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -156,6 +343,18 @@ const styles = StyleSheet.create({
     letterSpacing: 1, marginTop: 2, marginBottom: 2,
   },
   list: { flexDirection: 'column', gap: 1, backgroundColor: RD.gridLine },
+
+  bandDivider: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 6, backgroundColor: RD.bg,
+  },
+  bandDividerLine: { flex: 1, height: 1, backgroundColor: RD.gridLine },
+  bandDividerLineGold: { backgroundColor: RD.gold1st, opacity: 0.5 },
+  bandDividerText: {
+    color: RD.textDisabled, fontSize: 9, fontFamily: RD_FONT.monoBold, letterSpacing: 1,
+  },
+  bandDividerTextGold: { color: RD.gold1st },
+  rowDimmed: { opacity: 0.4 },
 
   moreBtn: {
     borderWidth: 1, borderColor: '#3a3a3a', paddingVertical: 12, alignItems: 'center', marginTop: 4,

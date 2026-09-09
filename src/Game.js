@@ -104,6 +104,18 @@ function sectorOfIdx(idx, totalPoints) {
   return clamp(s, 0, SECTOR_COUNT - 1);
 }
 
+// Igual que sectorOfIdx, pero relativo a la vuelta EN CURSO, no a todo el
+// trazado — para circuitos cerrados de varias vueltas (track.laps > 1, ver
+// buildClosedCombo en pieces.js), cada vuelta tiene sus PROPIOS 3 sectores
+// (JC, 2026-09-09: "cada vuelta estará dividida en sus 3 sectores"), no un
+// tercio de la carrera entera. `oneLapLen` = nº de puntos de UNA vuelta del
+// centerline (las vueltas se concatenan compartiendo el punto de costura,
+// ver buildClosedCombo: cada vuelta añade oneLapLen-1 puntos nuevos).
+function lapLocalSectorOfIdx(idx, oneLapLen, lapsDone) {
+  const lapStart = lapsDone * (oneLapLen - 1);
+  return sectorOfIdx(idx - lapStart, oneLapLen);
+}
+
 // Convierte la traza del fantasma [[t,x,y,h],...] en una tabla progreso->tiempo:
 // para cada muestra, en qué punto de la línea central estaba (nearestOnPolyline)
 // y a qué tiempo. Se hace UNA VEZ al cargar el fantasma (no en el bucle de
@@ -1007,16 +1019,22 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
         <View style={rd.sectorBlock}>
           <View style={rd.sectorBar}>
             {Array.from({ length: SECTOR_COUNT }).map((_, i) => {
+              // Con varias vueltas, sectorColors acumula las 9 entradas de
+              // toda la carrera (nunca se vacía) mientras view.sector cicla
+              // 0-2 por vuelta — hay que mirar el trío de LA VUELTA actual,
+              // no los 3 primeros del historial completo.
+              const lapBase = (view.lapsDone || 0) * SECTOR_COUNT;
               const done = i < view.sector;
               const active = i === view.sector && view.phase === 'running';
               const color = done
-                ? SECTOR_COLORS[view.sectorColors[i]] || SECTOR_COLORS.none
+                ? SECTOR_COLORS[view.sectorColors[lapBase + i]] || SECTOR_COLORS.none
                 : active ? SECTOR_COLORS.active : SECTOR_COLORS.pending;
               return <View key={i} style={[rd.sectorSeg, { backgroundColor: color }]} />;
             })}
           </View>
           <View style={rd.sectorLabelRow}>
             <Text style={rd.sectorLabel}>
+              {track.laps > 1 ? `VUELTA ${Math.min((view.lapsDone || 0) + 1, track.laps)}/${track.laps} · ` : ''}
               SECTOR {Math.min(view.sector + 1, SECTOR_COUNT)}/{SECTOR_COUNT}
             </Text>
             {view.phase !== 'ready' && view.ghostDeltaMs != null && (
@@ -1430,6 +1448,7 @@ export function initialState(track) {
     sectorDeltas: [],       // ms vs el fantasma por sector (null si no había fantasma)
     ghostDeltaMs: null,     // delta en vivo contra el fantasma (null si no hay fantasma)
     sectorEvents: [],       // cola de {index,color,ms} que vacía el bucle de frame
+    liveSectorBests: null,  // copia de sectorBests que se actualiza EN CALIENTE dentro de esta carrera (ver closeSector) — null hasta el primer sector cerrado
   };
 }
 
@@ -1437,6 +1456,7 @@ function toView(s, flash, ghost, leader) {
   return {
     x: s.x, y: s.y, heading: s.heading, camAngle: s.camAngle, elapsed: s.elapsed, phase: s.phase, flash, ghost, leader, fps: s.fps,
     sector: s.sector, sectorColors: s.sectorColors, ghostDeltaMs: s.ghostDeltaMs, impacts: s.impacts,
+    lapsDone: s.lapsDone,
     trackIdx: s.trackIdx, // para el indicador de "siguiente curva" — ya se calculaba cada paso para sectores/fantasma
   };
 }
@@ -1466,6 +1486,11 @@ function ghostPoseAt(trace, e, idxRef) {
 export function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress, sectorBests, refSectors) {
   const C = CONFIG;
   const W = weather || NEUTRAL;
+  // Nº de puntos de UNA vuelta del centerline (circuitos cerrados de varias
+  // vueltas, ver buildClosedCombo en pieces.js: cada vuelta añade
+  // oneLapLen-1 puntos nuevos, compartiendo el punto de costura). Sin
+  // `track.laps` (circuito normal de siempre) no se usa para nada.
+  const oneLapLen = track.laps > 1 ? Math.round((track.center.length - 1) / track.laps) + 1 : track.center.length;
 
   // Cierra el sector `s.sector` en el instante `elapsedNow`, decidiendo el
   // color estilo F1: MORADO si es el mejor de ese sector hoy entre todos los
@@ -1474,9 +1499,14 @@ export function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress,
   // tu propio fantasma; si no, AMARILLO. Sin fantasma ni mejor mundial -> null
   // (se muestra el tiempo sin colorear).
   function closeSector(elapsedNow) {
-    const total = track.center.length;
-    const boundaryIdx = Math.round(((s.sector + 1) / SECTOR_COUNT) * (total - 1));
-    const startIdx = Math.round((s.sector / SECTOR_COUNT) * (total - 1));
+    // Circuitos cerrados de varias vueltas: cada vuelta tiene sus propios 3
+    // sectores (JC, 2026-09-09), así que boundary/start se calculan dentro
+    // de LA VUELTA en curso (oneLapLen/lapStart), no de todo el trazado. Un
+    // circuito normal (track.laps ausente o 1) sigue igual que siempre.
+    const total = track.laps > 1 ? oneLapLen : track.center.length;
+    const lapStart = track.laps > 1 ? s.lapsDone * (oneLapLen - 1) : 0;
+    const boundaryIdx = lapStart + Math.round(((s.sector + 1) / SECTOR_COUNT) * (total - 1));
+    const startIdx = lapStart + Math.round((s.sector / SECTOR_COUNT) * (total - 1));
     const mySplit = elapsedNow - s.lastSectorElapsed;
     const ghostSplit = ghostProgress
       ? ghostTimeAtIdx(ghostProgress, boundaryIdx) - ghostTimeAtIdx(ghostProgress, startIdx)
@@ -1495,12 +1525,28 @@ export function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress,
     // se leía igual que "eres el primero del día" y todo salía morado en cada
     // vuelta, aunque fueras más lento en todos los sectores.
     const hayMundial = sectorBests != null;
-    const worldBest = hayMundial ? sectorBests[s.sector] : null;
+    // El morado del GP tiene que compararse TAMBIÉN dentro de la misma
+    // carrera: sectorBests (prop) es una FOTO tomada al entrar a la pantalla
+    // — los splits de la vuelta 1 no llegan al servidor hasta que las 3
+    // vueltas terminan (onFinish), así que sin esto la vuelta 2 y 3 nunca
+    // podían ver lo que acababa de hacer la vuelta 1 de SU PROPIA carrera, y
+    // salían moradas por la misma razón que la vuelta 1 (nada que comparar).
+    // JC, 2026-09-09: "la primera vuelta... marcará los sectores... a partir
+    // de ahí todas se compararán con esa vuelta". `s.liveSectorBests` nace
+    // como copia de sectorBests (una vez, al primer sector que se cierra) y
+    // se va actualizando en caliente cada vez que se bate — así la vuelta 3
+    // ya compara contra lo mejor de la 1 Y la 2, sin esperar a ningún envío
+    // al servidor.
+    if (s.liveSectorBests == null) s.liveSectorBests = hayMundial ? { ...sectorBests } : null;
+    const worldBest = hayMundial ? s.liveSectorBests[s.sector] : null;
     // Referencia de respaldo cuando no hay fantasma: en el GP, tus propios
     // splits del mejor intento de esa ronda.
     const refSplit = refSectors ? refSectors[s.sector] : null;
     let color = null;
-    if (hayMundial && (worldBest == null || mySplit <= worldBest)) color = 'purple';
+    if (hayMundial && (worldBest == null || mySplit <= worldBest)) {
+      color = 'purple';
+      s.liveSectorBests[s.sector] = mySplit;
+    }
     else if (ghostSplit != null) color = mySplit < ghostSplit ? 'green' : 'yellow';
     else if (refSplit != null) color = mySplit < refSplit ? 'green' : 'yellow';
     // Hay mejor mundial pero no lo bates, y no hay fantasma propio que batir:
@@ -1597,7 +1643,9 @@ export function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress,
     s.bestTrackIdx = Math.max(s.bestTrackIdx, s.trackIdx);
     const elapsedNow = t - s.startTime;
     if (ghostProgress) s.ghostDeltaMs = elapsedNow - ghostTimeAtIdx(ghostProgress, s.bestTrackIdx);
-    const newSector = sectorOfIdx(s.bestTrackIdx, track.center.length);
+    const newSector = track.laps > 1
+      ? lapLocalSectorOfIdx(s.bestTrackIdx, oneLapLen, s.lapsDone)
+      : sectorOfIdx(s.bestTrackIdx, track.center.length);
     closeSectorsUpTo(newSector, elapsedNow);
   }
 
@@ -1662,18 +1710,27 @@ export function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress,
   const proj = dx * f.tangent.x + dy * f.tangent.y;
   const atFinishNow = proj >= 0 && Math.hypot(dx, dy) < C.TRACK_WIDTH;
   if (atFinishNow && !s.atFinish) {
+    const elapsedNow = t - s.startTime;
+    // Cierra cualquier sector que se hubiera quedado a medias de ESTA vuelta
+    // (bestTrackIdx puede no haber alcanzado el último punto exacto de la
+    // vuelta cuando la meta ya se ha cruzado — dos criterios distintos,
+    // mismo motivo que ya justificaba este cierre para la meta final).
+    // Se hace ANTES de incrementar lapsDone/resetear s.sector: closeSector
+    // todavía necesita el `s.lapsDone` de la vuelta que se está cerrando
+    // para calcular su boundaryIdx/startIdx correctos.
+    closeSectorsUpTo(SECTOR_COUNT, elapsedNow);
     s.lapsDone += 1;
     const totalLaps = track.laps || 1;
     if (s.lapsDone >= totalLaps) {
       s.phase = 'finished';
-      s.elapsed = t - s.startTime;
-      // La meta puede llegar antes de que bestTrackIdx alcance el último punto
-      // exacto de la línea central (son dos criterios distintos) — cierra
-      // cualquier sector que se hubiera quedado a medias con el tiempo final.
-      closeSectorsUpTo(SECTOR_COUNT, s.elapsed);
+      s.elapsed = elapsedNow;
+    } else {
+      // Vuelta intermedia: se sigue corriendo tal cual, sin tocar fase ni
+      // elapsed (el cronómetro no se para entre vueltas) — solo se resetea
+      // el contador de sector para que la vuelta siguiente arranque con sus
+      // propios 3 sectores en blanco (JC, 2026-09-09).
+      s.sector = 0;
     }
-    // Vuelta intermedia (lapsDone < totalLaps): se sigue corriendo tal cual,
-    // sin tocar fase ni elapsed — el cronómetro no se para entre vueltas.
   }
   s.atFinish = atFinishNow;
 }
