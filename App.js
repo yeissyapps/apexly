@@ -45,7 +45,7 @@ import { GroupHome, GrandPrixStandings, RoundStart } from './src/GrandPrix';
 import { gpCircuitSpec, gpWeather, GP_AD_BATCH, GP_FREE_ATTEMPTS, currentRoundIndex, gpFinished } from './src/gpData';
 import ShineBadge from './src/ShineBadge';
 import Tour, { tourRef, isTourDone } from './src/Tour';
-import { WHATS_NEW_ITEMS, WHATS_NEW_VERSION, markWhatsNewSeen, shouldShowWhatsNew } from './src/WhatsNew';
+import { WHATS_NEW_ITEMS, WHATS_NEW_TITLE, WHATS_NEW_VERSION, markWhatsNewSeen, shouldShowWhatsNew } from './src/WhatsNew';
 import { noteRaceFinished } from './src/rate';
 import { CAR_DEFAULTS } from './src/car';
 
@@ -1102,7 +1102,7 @@ function WhatsNewModal({ onClose }) {
       <View style={rd.recapBackdrop}>
         <View style={rd.whatsNewCard}>
           <Text style={rd.recapTitle}>NOVEDADES · v{WHATS_NEW_VERSION}</Text>
-          <Text style={rd.whatsNewTitle}>Ha cambiado bastante</Text>
+          <Text style={rd.whatsNewTitle}>{WHATS_NEW_TITLE}</Text>
           <View style={rd.whatsNewList}>
             {WHATS_NEW_ITEMS.map((item) => (
               <View key={item.title} style={rd.whatsNewItem}>

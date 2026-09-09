@@ -18,22 +18,24 @@ const KEY = 'whatsnew:lastSeenVersion';
 // tocar esto (y así no le sale el pop-up a nadie por él).
 export const WHATS_NEW_VERSION = '2.4.3';
 
+export const WHATS_NEW_TITLE = 'Os hemos escuchado';
+
 export const WHATS_NEW_ITEMS = [
   {
-    title: 'Grand Prix con sectores de verdad',
-    body: 'Morado y verde en vivo contra el mejor tiempo real del grupo, punto extra por vuelta rápida y podio con colores en la clasificación.',
+    title: 'Recuperamos la conducción de la versión anterior',
+    body: 'Hemos escuchado vuestro feedback y hemos vuelto a implementar la misma conducción que en la versión anterior.',
   },
   {
-    title: 'Ranking del mes',
-    body: 'Puntúa cada día como en la F1 — el 50% mejor se lleva un premio grande en monedas al cerrar el mes.',
+    title: 'Un Grand Prix renovado',
+    body: 'Circuitos cerrados y 3 vueltas seguidas. Compite con tus amigos por la vuelta rápida, por los sectores y por ser el más rápido.',
+  },
+  {
+    title: 'Ranking mejorado',
+    body: 'Ahora puedes ver el ranking completo, tanto el de hoy como el nuevo ranking del mes, donde puedes competir por más y mejores recompensas.',
   },
   {
     title: 'Carrera se muda',
     body: 'El modo Carrera ahora vive en tu Perfil, junto al Garaje y la Tienda.',
-  },
-  {
-    title: 'Volante más preciso',
-    body: 'Vuelve a responder al instante al soltar el dedo, sin el retraso que llevaba dando la lata.',
   },
 ];
 
