@@ -201,11 +201,6 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
   // por evento táctil (no en la física) para que "izq+der a la vez" se resuelva
   // en un solo sitio. Ver resolveEntrada.
   const entrada = useRef(0);
-  const ultimoLado = useRef(0); // último lado que pasó de suelto a pulsado
-  // Pulso: remate fijo al soltar, ver resolveEntrada.
-  const pulsoDir = useRef(0);
-  const pulsoHasta = useRef(0);
-  const relojAbajo = useRef(0); // Date.now() de cuando empezó el toque actual
   const entradaEfectiva = useRef(0); // lo que realmente lee la física
   const rec = useRef(new Float64Array(REC_N * REC_FIELDS)); // grabadora (beta)
   const recAt = useRef(0); // nº total de frames escritos (el índice va en módulo)
@@ -325,69 +320,44 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
     }
   }
 
-  // BOTONES en vez de zona táctil única (experimento, ver historial: ya se
-  // había probado esto antes y se abandonó por "menos fiable en iOS" — pero
-  // aquello fue al inicio del proyecto, con un problema distinto al que
-  // perseguimos ahora. Los dos intentos previos para el volantazo fantasma
-  // (tope al pulso reconstruido, memoizar el render) no cambiaron NADA la
-  // grabación: mismo hueco entre el timestamp nativo de pulsar/soltar y
-  // cuándo lo procesa JS, con los frames siempre a 60fps. Eso descarta que
-  // sea nuestro código de render o de reconstrucción — así que el siguiente
-  // punto a mover es la propia API de toque: `Pressable` en vez de la vista
-  // cruda con onResponderGrant/Move/End sobre TODA la pantalla.
+  // Volante SIN memoria — modelo de la build 21, restaurado. JC, 2026-09-09:
+  // varios jugadores llevaban desde el cambio a este mismo cálculo (tomado
+  // de la build de Android para descartar el volantazo fantasma como causa
+  // de entrada, ver más abajo) diciendo que el volante iba "torpe/lento".
   //
-  // Cada botón es dueño de un solo lado — ya no hace falta leer
-  // `nativeEvent.touches` ni decidir izq/der por `pageX`, ni rastrear
-  // identifiers para saber qué toque es "nuevo" en el evento. Lo único que
-  // sigue haciendo falta es el desempate "los dos pulsados a la vez": si
-  // sueltas un lado y ya tenías el otro pulsado, manda el que sigue pulsado
-  // (obvio); si tienes los dos pulsados, manda el ÚLTIMO que pulsaste, para
-  // que un dedo fantasma en un lado nunca pueda dejarte con volante muerto
-  // (-1+1 = 0) mientras el otro lado sigue de verdad pulsado.
+  // La versión que se retira aquí añadía un REMATE FIJO al soltar
+  // (MIN_INPUT_MS): tras levantar el dedo, el volante seguía mandando la
+  // MISMA orden hasta que se cumplían 130ms desde que EMPEZÓ el toque, sin
+  // importar cuándo soltaste de verdad. En cualquier toquecito corto de
+  // corrección — el caso típico de ir centrando el coche en recta — eso es
+  // justo la sensación de "se pasa y hay que corregir la corrección": el
+  // volante sigue respondiendo a un toque que ya soltaste.
+  //
+  // Aquí no hay nada de eso: cada evento se recalcula desde cero, a partir
+  // de qué lado está apoyado AHORA MISMO. Sin pulso, sin reloj, sin memoria
+  // entre eventos — en el frame en que sueltas, la orden ya es 0. "Los dos
+  // pulsados a la vez" da directamente 0 (volante al centro), no el último
+  // lado pulsado: no hace falta ese desempate si no hay estado que se pueda
+  // quedar pegado.
+  //
+  // Esto NO toca el volantazo fantasma (el giro brusco al chocar contra un
+  // muro) — ese es un bug de física en la colisión, ya investigado a fondo y
+  // confirmado que NO es de la capa táctil (ver el bloque de colisión más
+  // abajo y el historial de git de este archivo). Son dos síntomas
+  // distintos con causas distintas; este cambio solo arregla el segundo
+  // ("torpe/lento"), no el primero.
   function resolveEntrada() {
     const left = pressLeft.current;
     const right = pressRight.current;
     dedos.current = (left ? 1 : 0) + (right ? 1 : 0);
 
-    if (left && right) entrada.current = ultimoLado.current || -1;
+    if (left && right) entrada.current = 0;
     else if (left) entrada.current = -1;
     else if (right) entrada.current = 1;
     else entrada.current = 0;
-
-    // REMATE AL SOLTAR: fijo (MIN_INPUT_MS desde que empezó el toque), NUNCA
-    // calculado a partir de cuánto duró "de verdad" el dedo abajo.
-    //
-    // Se probó reconstruir la duración real por timestamp nativo (historial
-    // completo: builds 45 a 61 — tope al pulso, memoizar el render, botones
-    // en vez de zona única, alejar del borde, zona muerta de 20ms). El hueco
-    // nativo-vs-JS se fue reduciendo en cada vuelta, pero seguía siendo un
-    // % grande justo en los toques MÁS cortos — los de "centrar el coche en
-    // recta", que es donde más se notaba: 20ms de ruido son nada en una
-    // horquilla de 600ms, pero casi la mitad de un toquecito de 60ms. Un
-    // toque de "0,45s" reconstruido con 20-50ms de más giraba de más
-    // justo lo suficiente para notarse, aunque la medición ya fuera buena.
-    //
-    // Mientras el dedo sigue apoyado de verdad, el volante YA gira
-    // proporcional en tiempo real, frame a frame — sin depender de ningún
-    // timestamp, por eso las horquillas (mantener pulsado) van bien. Al
-    // soltar, ya no se intenta adivinar cuánto duró de verdad: cada toque,
-    // corto o largo, se remata con el mismo MIN_INPUT_MS fijo desde que
-    // empezó — nunca menos, nunca más, pase lo que pase con el reloj.
-    if (entrada.current !== 0) {
-      if (pulsoDir.current !== entrada.current || relojAbajo.current === 0) {
-        relojAbajo.current = now();
-      }
-      pulsoDir.current = entrada.current;
-    } else if (relojAbajo.current !== 0) {
-      const hasta = relojAbajo.current + CONFIG.MIN_INPUT_MS;
-      pulsoHasta.current = hasta > now() ? hasta : 0;
-      relojAbajo.current = 0;
-    }
   }
 
   function onSidePress(lado, evt) {
-    const yaEstaba = lado === -1 ? pressLeft.current : pressRight.current;
-    if (!yaEstaba) ultimoLado.current = lado; // pasó de suelto a pulsado
     if (lado === -1) pressLeft.current = true; else pressRight.current = true;
     resolveEntrada();
     logTouch(lado === -1 ? 'IZQ ⬇' : 'DER ⬇', evt.nativeEvent);
@@ -558,10 +528,6 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
     pressRight.current = false;
     dedos.current = 0;
     entrada.current = 0;
-    ultimoLado.current = 0;
-    pulsoDir.current = 0;
-    pulsoHasta.current = 0;
-    relojAbajo.current = 0;
     entradaEfectiva.current = 0;
     touchLog.current = [];
     setView(toView(
@@ -598,16 +564,10 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
         s.acc += dt;
         let guard = 0;
         const wasTouching = s.touching;
-        // Si el dedo sigue apoyado manda lo que hay. Si ya se levantó, sigue
-        // mandando el pulso mínimo hasta que se agote (ver resolveEntrada).
+        // entrada.current YA es lo que hay que mandar (ver resolveEntrada) —
+        // salvo la salida forzada recta de LAUNCH_STRAIGHT_MS.
         entradaEfectiva.current =
-          t - s.startTime < CONFIG.LAUNCH_STRAIGHT_MS
-            ? 0
-            : entrada.current !== 0
-              ? entrada.current
-              : t < pulsoHasta.current
-                ? pulsoDir.current
-                : 0;
+          t - s.startTime < CONFIG.LAUNCH_STRAIGHT_MS ? 0 : entrada.current;
         while (s.acc >= FIXED_DT && guard < 10) {
           stepSimulation(s, FIXED_DT, t, track, entradaEfectiva, weatherRef.current, ghostProgressRef.current, sectorBestsRef.current, refSectorsRef.current);
           s.acc -= FIXED_DT;
@@ -847,9 +807,9 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
         </View>
 
         {/* Volante: dos zonas invisibles, no botones. Solo cambia la GEOMETRIA
-            del area tactil — onSidePress/onSideRelease y el remate fijo de
-            MIN_INPUT_MS son los mismos que llevan los botones, porque esos si
-            funcionaron y no dependen de que haya nada dibujado.
+            del area tactil — onSidePress/onSideRelease resuelven la orden
+            igual que con botones (ver resolveEntrada), no depende de que
+            haya nada dibujado.
 
             Ocupan la mitad INFERIOR de la pantalla, no entera. Con zonas de
             arriba abajo, la mano que agarra el movil cuenta como girar: un
@@ -1619,9 +1579,11 @@ export function stepSimulation(s, dt, t, track, entrada, weather, ghostProgress,
   // (versionCode 7, ya en la Play Store) usa EXACTAMENTE esta fórmula y este
   // TURN_SPEED_DRAG — sin suelo de velocidad, sin giro por radio, sin tope de
   // rebote, sin empuje pasivo al rozar. Esa build funciona bien en Android, así
-  // que la física nunca fue el problema. El bug es de entrega de eventos
-  // táctiles en iOS (ver MIN_INPUT_MS más arriba y resolveEntrada — a fecha
-  // de este comentario, todavía en investigación). Ver también el historial
+  // que la física nunca fue el problema. El volantazo fantasma (giro brusco
+  // al chocar) es un bug de la rama de colisión, no de esta fórmula ni de la
+  // entrada táctil — ver el bloque de choque más abajo y el historial de git
+  // de este archivo (siete hipótesis probadas, ninguna confirmada en
+  // dispositivo real a fecha de este comentario). Ver también el historial
   // de este archivo si hace falta recuperar el modelo por radio para otra cosa.
   const stunned = t < s.stunUntil;
   if (!stunned) {

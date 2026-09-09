@@ -41,9 +41,9 @@ export const CONFIG = {
   // la referencia de "en Android va perfecto" es la build de producción
   // (versionCode 7, commit 61de5b0) que lleva ESTE mismo valor y el modelo de
   // giro de grados fijos de abajo. Lección: el grueso del problema no era la
-  // física sino la entrega de eventos táctiles en iOS (ver MIN_INPUT_MS y
-  // applyTouches en Game.js); cambiar la física para compensar un problema de
-  // toques solo creaba un juego distinto al que ya funcionaba.
+  // física sino la entrega de eventos táctiles en iOS (ver resolveEntrada en
+  // Game.js); cambiar la física para compensar un problema de toques solo
+  // creaba un juego distinto al que ya funcionaba.
   //
   // Lo único de física que SÍ hizo falta es el suelo de aquí abajo
   // (MIN_TURN_SPEED), y por un motivo propio y medible: -200 u/s² netos dejan
@@ -88,29 +88,26 @@ export const CONFIG = {
   STEER_EASE_IN: 0.1, // s
   STEER_EASE_OUT: 0.03, // s
 
-  // Remate FIJO que recibe todo toque al soltar (independiente de cuánto
-  // duró de verdad el dedo abajo) — ver resolveEntrada en Game.js.
+  // NOTA HISTORICA — MIN_INPUT_MS ya no existe.
   //
-  // Historia, porque costó varias vueltas: builds 45 a 61 fueron
-  // reconstruyendo la duración REAL del toque desde `nativeEvent.timestamp`,
-  // cada vez con menos error (el hueco nativo-vs-JS bajó de 200-400ms a
-  // 10-50ms según se fue arreglando el render, los botones y su distancia al
-  // borde). Pero el error, aunque cada vez más pequeño en ms absolutos, es
-  // proporcionalmente MUCHO más grande en un toque corto que en uno largo:
-  // 20ms de ruido son nada en una horquilla de 600ms, pero casi la mitad de
-  // un toquecito de 60ms — justo los toques de "centrar el coche en recta",
-  // que es donde JC seguía notando el fallo aun con el hueco ya pequeño.
+  // Fue un remate FIJO que recibía todo toque al soltar (130ms desde que
+  // EMPEZABA el toque, sin importar cuándo soltaras de verdad) — el intento
+  // de reemplazar la reconstrucción por timestamp (builds 45-61, con error
+  // real pero decreciente) por algo determinista. Se probó, se publicó, y
+  // varios jugadores dijeron que el volante iba "torpe/lento": cualquier
+  // toquecito corto de corrección (centrar el coche en recta) seguía
+  // respondiendo hasta 130ms después de haber soltado el dedo — el coche se
+  // pasaba y había que corregir la corrección.
   //
-  // La salida: dejar de reconstruir. Mientras el dedo sigue apoyado de
-  // verdad, el volante ya gira proporcional en tiempo real, frame a frame,
-  // sin depender de ningún timestamp (por eso las horquillas, que dependen
-  // de mantener pulsado, iban bien incluso antes de este cambio). Al soltar,
-  // ya no se intenta adivinar cuánto duró el toque: se remata siempre con
-  // este mismo valor fijo, corto o largo el toque, pase lo que pase con el
-  // reloj. Con el ease de abajo (100ms para llegar a tope), da un toquecito
-  // de ~20-25°, similar en orden de magnitud a lo que pedía JC (~35°) pero
-  // calculado con la física que ya existe, no un número nuevo inventado.
-  MIN_INPUT_MS: 130,
+  // JC, 2026-09-09: "quiero exactamente la misma conducción que la build
+  // 21" — que no reconstruye NADA. El volante sale directo de qué dedos
+  // están apoyados AHORA MISMO (ver resolveEntrada en Game.js): sin pulso,
+  // sin remate, sin memoria entre eventos. En el frame en que sueltas, la
+  // orden ya es 0.
+  //
+  // Si alguien vuelve a proponer un remate fijo al soltar, que sepa que ya
+  // se probó en producción y empeoró la sensación de control — no es una
+  // idea nueva, es la misma que se retiró aquí.
 
   // Milisegundos de salida OBLIGATORIAMENTE recta desde que arranca la vuelta.
   // El mismo toque que arranca la carrera (tocar la zona izq/der) es también
