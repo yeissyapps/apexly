@@ -17,20 +17,28 @@
 import { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import DangerStripe from './DangerStripe';
-import Identicon from './Identicon';
 import StatTrend from './StatTrend';
+import AvatarViewer from './AvatarViewer';
+import { variantIndexForSeed } from './PilotViewer';
+import { AVATARS } from './avatarCatalog';
 import { RD, RD_FONT } from './theme';
 import { fmtTime } from './format';
 import { dailyTimeEstimate } from './generator';
 import {
-  getCareerProgress, getInventory, getGlobalBoard,
+  getCareerProgress, getInventory, getGlobalBoard, getMyId, getPlayerRankToday,
   getPlayerStats, getMyDailyHistory, getMyPurpleSectors, getLifetimeCoins,
 } from './api';
 import { LEVEL_COUNT } from './career';
 import { TOTAL_PIECES } from './car';
+
+// Media pantalla de verdad, no un porcentaje del contenido del ScrollView
+// (ahí "50%" no significa nada sin un padre de altura fija) — se mide
+// directo contra la ventana. JC, 2026-09-15: "vea en media pantalla de
+// arriba su avatar".
+const AVATAR_HEIGHT = Dimensions.get('window').height * 0.5;
 
 // TOTAL_PIECES ahora vive en car.js (una sola fuente, calculada del catálogo)
 // — antes se calculaba aquí y estaba escrito a mano en Tienda.js, así que al
@@ -79,6 +87,17 @@ function fmtDuration(ms) {
   return `${sec}s`;
 }
 
+// Perfil dejó de caber en un solo scroll al sumar avatar 3D + stats +
+// tendencia + acciones (JC, 2026-09-16: "muchísima info en el perfil").
+// PILOTO agrupa lo visual/accionable (Garaje/Tienda/Carrera, avatar); STATS
+// agrupa lo de leer (RACHA/HOY, tendencia, contadores). El avatar se queda
+// a media pantalla tal cual se pidió — se reparte el contenido en dos
+// pestañas en vez de encogerlo.
+const PROFILE_TABS = [
+  { id: 'piloto', label: 'PILOTO' },
+  { id: 'stats', label: 'STATS' },
+];
+
 function StatCard({ value, label, hint, tone }) {
   return (
     <View style={s.statCard}>
@@ -89,7 +108,11 @@ function StatCard({ value, label, hint, tone }) {
   );
 }
 
-export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGarage, onOpenTienda, onOpenCareer }) {
+export default function Profile({
+  nickname, myStreak, wallet, onBack, onOpenGarage, onOpenTienda, onOpenCareer, onOpenPilotTest,
+  onOpenAvatarTest,
+  viewUserId, viewNickname, viewStreak,
+}) {
   const [career, setCareer] = useState(null);
   const [piecesOwned, setPiecesOwned] = useState(null);
   const [todayRank, setTodayRank] = useState(undefined); // undefined = cargando, null = no jugó hoy
@@ -97,27 +120,52 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
   const [purple, setPurple] = useState(null);
   const [lifetimeCoins, setLifetimeCoins] = useState(null);
   const [trend, setTrend] = useState(null);
+  const [myId, setMyId] = useState(null);
+  const [tab, setTab] = useState('piloto');
+
+  // Perfil público de otro jugador (JC, 2026-09-15) — viewUserId llega al
+  // tocar un nombre/avatar en cualquier ranking (ver App.js:
+  // openPlayerProfile). Se compara contra tu propio id (no solo "¿llegó
+  // viewUserId?") porque tocar TU PROPIA fila en un ranking también pasa
+  // por aquí, y debe verse como "mi perfil" de toda la vida, con sus
+  // botones y sus monedas — no como el de un desconocido.
+  const isOwnProfile = !viewUserId || viewUserId === myId;
+  const displayNickname = isOwnProfile ? nickname : (viewNickname || '···');
 
   useEffect(() => {
     let alive = true;
-    getCareerProgress().then((n) => alive && setCareer(n)).catch(() => alive && setCareer(0));
-    getInventory()
+    getMyId().then((id) => alive && setMyId(id)).catch(() => {});
+    getCareerProgress(viewUserId).then((n) => alive && setCareer(n)).catch(() => alive && setCareer(0));
+    getInventory(viewUserId)
       .then((items) => {
         if (!alive) return;
         setPiecesOwned(new Set(items.map((p) => `${p.category}:${p.pieceId}`)).size);
       })
       .catch(() => alive && setPiecesOwned(0));
-    getGlobalBoard()
-      .then((b) => alive && setTodayRank(b.me ? b.me.rank : null))
-      .catch(() => alive && setTodayRank(null));
-    getPlayerStats().then((v) => alive && setStats(v)).catch(() => alive && setStats(null));
-    getMyPurpleSectors().then((v) => alive && setPurple(v)).catch(() => {});
-    getLifetimeCoins().then((v) => alive && setLifetimeCoins(v)).catch(() => {});
+
+    // El puesto de hoy: la tuya usa getGlobalBoard (ventana completa, ya la
+    // pedía Inicio); la de otro jugador solo necesita SU número, no toda
+    // la ventana de vecinos — getPlayerRankToday es más barata para eso.
+    if (viewUserId) {
+      getPlayerRankToday(viewUserId).then((r) => alive && setTodayRank(r)).catch(() => alive && setTodayRank(null));
+    } else {
+      getGlobalBoard()
+        .then((b) => alive && setTodayRank(b.me ? b.me.rank : null))
+        .catch(() => alive && setTodayRank(null));
+    }
+
+    getPlayerStats(viewUserId).then((v) => alive && setStats(v)).catch(() => alive && setStats(null));
+    getMyPurpleSectors(undefined, viewUserId).then((v) => alive && setPurple(v)).catch(() => {});
+    // Las monedas son privadas (JC: público el avatar y las stats, no el
+    // saldo) — ni se piden para el perfil de otro jugador.
+    if (!viewUserId) {
+      getLifetimeCoins().then((v) => alive && setLifetimeCoins(v)).catch(() => {});
+    }
 
     // El gráfico va aparte y DESPUÉS: necesita calcular el objetivo de cada
     // día, que es caro la primera vez. Se resuelve fuera del primer pintado
     // para que el resto del perfil aparezca ya.
-    getMyDailyHistory(30)
+    getMyDailyHistory(30, viewUserId)
       .then(async (rows) => {
         if (!alive || rows.length === 0) { if (alive) setTrend([]); return; }
         const targets = await loadTargets(rows.map((r) => r.day));
@@ -127,13 +175,25 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
       .catch(() => alive && setTrend([]));
 
     return () => { alive = false; };
-  }, []);
+  }, [viewUserId]);
 
   const daysRaced = trend ? trend.length : null;
   // Choques por vuelta es más honesto que el total: 400 choques en 500
   // vueltas es un dato distinto a 400 en 50, y el total solo premia a quien
   // más ha jugado.
   const crashRate = stats && stats.laps > 0 ? (stats.crashes / stats.laps).toFixed(1) : null;
+
+  // Mismo diseño que vería en su miniatura de lista (AvatarThumb.js) — se
+  // deriva del mismo hash por userId sobre el mismo catálogo (avatarCatalog
+  // .js) en los dos sitios, así el jugador ve siempre el mismo muñeco en su
+  // avatar en vivo y en cualquier ranking. `profileId`: el de la persona
+  // que se está viendo (otro jugador o, sin viewUserId, tú mismo). JC,
+  // 2026-09-16: el visor en vivo usaba todavía el PilotViewer viejo (piezas
+  // recoloreadas) en vez del sistema de muñecos enteros ya en producción en
+  // las listas — "cambia el avatar que aparece ahora en el perfil, ese ya
+  // no lo vamos a usar".
+  const profileId = viewUserId || myId;
+  const avatar = profileId ? AVATARS[variantIndexForSeed(profileId, AVATARS.length)] : AVATARS[0];
 
   return (
     <View style={s.screen}>
@@ -145,9 +205,8 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
         </Pressable>
 
         <View style={s.identity}>
-          <Identicon seed={nickname} size={56} />
           <View style={s.identityText}>
-            <Text style={s.nickname} numberOfLines={1}>{nickname}</Text>
+            <Text style={s.nickname} numberOfLines={1}>{displayNickname}</Text>
             <Text style={s.identitySub}>
               {daysRaced != null ? `${daysRaced} ${daysRaced === 1 ? 'día corrido' : 'días corridos'}` : '···'}
               {stats?.bestMs ? ` · mejor ${fmtTime(stats.bestMs)}` : ''}
@@ -155,91 +214,163 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
           </View>
         </View>
 
-        {/* Garaje, Tienda y Carrera van ARRIBA: son lo accionable de esta
-            pantalla, y enterrarlos bajo el bloque de stats obligaba a hacer
-            scroll para llegar a lo único que se puede pulsar. Las stats son
-            de leer, y leer puede esperar a después de actuar.
-            Carrera se sumó aquí el 2026-09-09: tenía poca acogida como
-            pestaña propia y no es de lo principal del juego — vive junto a
-            Garaje/Tienda, no en la barra de abajo. */}
-        <View style={s.actionsRow}>
-          <Pressable style={s.actionBtn} onPress={onOpenGarage}>
-            <Text style={s.actionBtnText}>GARAJE</Text>
-          </Pressable>
-          <Pressable style={s.actionBtn} onPress={onOpenTienda}>
-            <Text style={s.actionBtnText}>TIENDA</Text>
-          </Pressable>
-          <Pressable style={s.actionBtn} onPress={onOpenCareer}>
-            <Text style={s.actionBtnText}>CARRERA</Text>
-          </Pressable>
+        {/* Dos pestañas (JC, 2026-09-16: "muchísima info en el perfil") en
+            vez de un único scroll largo — ver PROFILE_TABS arriba. */}
+        <View style={s.tabsRow}>
+          {PROFILE_TABS.map((t) => (
+            <Pressable
+              key={t.id}
+              style={[s.tab, tab === t.id && s.tabActive]}
+              onPress={() => setTab(t.id)}
+            >
+              <Text style={[s.tabText, tab === t.id && s.tabTextActive]}>{t.label}</Text>
+            </Pressable>
+          ))}
         </View>
 
-        {/* Fila de titulares: lo que de verdad presume el jugador. Va en una
-            fila propia y más grande que el resto — si todo pesa igual, nada
-            destaca (que era el problema de la versión anterior). */}
-        <View style={s.heroRow}>
-          <View style={s.heroCard}>
-            <Text style={s.heroValue}>{myStreak?.current ?? 0}</Text>
-            <Text style={s.heroLabel}>RACHA</Text>
-            <Text style={s.heroHint}>máx. {myStreak?.longest ?? 0}</Text>
-          </View>
-          <View style={s.heroCard}>
-            {/* El dorado SOLO si de verdad vas primero. Antes lo llevaban
-                todos los números de la pantalla, así que no distinguía nada;
-                apareciendo solo aquí, vuelve a significar "podio". */}
-            <Text style={[s.heroValue, todayRank === 1 && s.heroValueGold]}>
-              {todayRank ? `#${todayRank}` : todayRank === null ? '—' : '···'}
-            </Text>
-            <Text style={s.heroLabel}>HOY</Text>
-            <Text style={s.heroHint}>
-              {purple ? `${purple.mine}/3 morados` : ' '}
-            </Text>
-          </View>
-        </View>
+        {tab === 'piloto' && (
+          <>
+            {/* Garaje, Tienda y Carrera actúan sobre TU cuenta — solo tienen
+                sentido en tu propio perfil, no en el de otro jugador (JC,
+                2026-09-15: perfiles públicos). Carrera se sumó aquí el
+                2026-09-09: tenía poca acogida como pestaña propia y no es
+                de lo principal del juego — vive junto a Garaje/Tienda, no
+                en la barra de abajo. */}
+            {isOwnProfile && (
+              <View style={s.actionsRow}>
+                {/* Colores distintos por botón (JC, 2026-09-16) — antes los
+                    3 llevaban el mismo trackBlue y se leían como una sola
+                    pieza de 3 partes en vez de 3 destinos distintos. Cada
+                    color reutiliza un token que YA significa algo en el
+                    resto de la app (ver theme.js): trackBlue es "coche",
+                    gold1st es "moneda/récord", successGreen es "progreso". */}
+                <Pressable style={[s.actionBtn, s.actionBtnGaraje]} onPress={onOpenGarage}>
+                  <Text style={[s.actionBtnText, s.actionBtnTextGaraje]}>GARAJE</Text>
+                </Pressable>
+                <Pressable style={[s.actionBtn, s.actionBtnTienda]} onPress={onOpenTienda}>
+                  <Text style={[s.actionBtnText, s.actionBtnTextTienda]}>TIENDA</Text>
+                </Pressable>
+                <Pressable style={[s.actionBtn, s.actionBtnCarrera]} onPress={onOpenCareer}>
+                  <Text style={[s.actionBtnText, s.actionBtnTextCarrera]}>CARRERA</Text>
+                </Pressable>
+              </View>
+            )}
 
-        <StatTrend points={trend || []} />
+            {/* Botón de prueba SOLO en dev — desaparece solo en cualquier
+                build de release, no hace falta acordarse de quitarlo. Sirve
+                para ver el PilotViewer (Fase 1 de avatares) mientras se
+                construye. */}
+            {isOwnProfile && __DEV__ && !!onOpenPilotTest && (
+              <Pressable style={s.devBtn} onPress={onOpenPilotTest}>
+                <Text style={s.devBtnText}>[DEV] PILOTO 3D</Text>
+              </Pressable>
+            )}
 
-        <Text style={s.sectionLabel}>EN PISTA</Text>
-        <View style={s.statsRow}>
-          <StatCard
-            value={stats ? stats.laps : '—'}
-            label="VUELTAS"
-            tone={stats ? null : 'dim'}
-          />
-          <StatCard
-            value={stats ? fmtDuration(stats.raceMs) : '—'}
-            label="AL VOLANTE"
-            tone={stats ? null : 'dim'}
-          />
-          <StatCard
-            value={stats ? stats.crashes : '—'}
-            label="CHOQUES"
-            hint={crashRate ? `${crashRate}/vuelta` : null}
-            tone={stats ? null : 'dim'}
-          />
-        </View>
+            {/* Fase 4 (JC, 2026-09-15): muñecos enteros desbloqueables por
+                rareza, con textura real en vez de tinte por piezas. */}
+            {isOwnProfile && __DEV__ && !!onOpenAvatarTest && (
+              <Pressable style={s.devBtn} onPress={onOpenAvatarTest}>
+                <Text style={s.devBtnText}>[DEV] AVATARES</Text>
+              </Pressable>
+            )}
 
-        <Text style={s.sectionLabel}>COLECCIÓN</Text>
-        <View style={s.statsRow}>
-          <StatCard
-            value={career != null ? `${career}/${LEVEL_COUNT}` : '—'}
-            label="NIVELES"
-          />
-          <StatCard
-            value={piecesOwned != null ? `${piecesOwned}/${TOTAL_PIECES}` : '—'}
-            label="PIEZAS"
-          />
-          <StatCard
-            value={lifetimeCoins != null ? lifetimeCoins : (wallet?.balance ?? 0)}
-            label={lifetimeCoins != null ? 'MONEDAS GANADAS' : 'MONEDAS'}
-            hint={lifetimeCoins != null ? `${wallet?.balance ?? 0} ahora` : null}
-          />
-        </View>
+            {/* El avatar a media pantalla, tal como se pidió — ahora el
+                muñeco entero de verdad (Fase 4, avatarCatalog.js), no el
+                configurador viejo por piezas. */}
+            <View style={s.avatarStage}>
+              <AvatarViewer key={avatar.key} source={avatar.glb} cacheKey={avatar.key} />
+            </View>
+          </>
+        )}
 
-        {stats === null && (
-          <Text style={s.statsMissing}>
-            Los contadores de pista se activan al correr supabase/stats.sql.
-          </Text>
+        {tab === 'stats' && (
+          <>
+            {/* Fila de titulares: antes vivía en PILOTO, pero competía con
+                el avatar por protagonismo — JC, 2026-09-16: "quitaría
+                racha y hoy de ahí". Aquí es lo primero que se lee, que es
+                donde encaja: STATS es la pantalla de leer números. */}
+            <View style={s.heroRow}>
+              <View style={s.heroCard}>
+                {/* viewStreak (JC, 2026-09-16: "no se ve la racha en los
+                    perfiles de la gente") llega como número plano desde las
+                    filas de ranking (`r.streak = users.current_streak`,
+                    ver api.js) — no como {current, longest}, que es la
+                    forma de myStreak (la tuya, cargada aparte en Inicio).
+                    Pedirle `.current` a un número da undefined siempre. */}
+                <Text style={s.heroValue}>{(isOwnProfile ? myStreak?.current : viewStreak) ?? 0}</Text>
+                <Text style={s.heroLabel}>RACHA</Text>
+                {/* La racha MÁXIMA solo la tienes tú misma cargada (viene
+                    por prop desde Inicio) — el ranking no manda
+                    longest_streak de otros jugadores, así que en un perfil
+                    ajeno se omite en vez de enseñar un "máx. 0" que sería
+                    mentira. */}
+                {isOwnProfile && <Text style={s.heroHint}>máx. {myStreak?.longest ?? 0}</Text>}
+              </View>
+              <View style={s.heroCard}>
+                {/* El dorado SOLO si de verdad vas primero. Antes lo
+                    llevaban todos los números de la pantalla, así que no
+                    distinguía nada; apareciendo solo aquí, vuelve a
+                    significar "podio". */}
+                <Text style={[s.heroValue, todayRank === 1 && s.heroValueGold]}>
+                  {todayRank ? `#${todayRank}` : todayRank === null ? '—' : '···'}
+                </Text>
+                <Text style={s.heroLabel}>HOY</Text>
+                <Text style={s.heroHint}>
+                  {purple ? `${purple.mine}/3 morados` : ' '}
+                </Text>
+              </View>
+            </View>
+
+            <StatTrend points={trend || []} own={isOwnProfile} />
+
+            <Text style={s.sectionLabel}>EN PISTA</Text>
+            <View style={s.statsRow}>
+              <StatCard
+                value={stats ? stats.laps : '—'}
+                label="VUELTAS"
+                tone={stats ? null : 'dim'}
+              />
+              <StatCard
+                value={stats ? fmtDuration(stats.raceMs) : '—'}
+                label="AL VOLANTE"
+                tone={stats ? null : 'dim'}
+              />
+              <StatCard
+                value={stats ? stats.crashes : '—'}
+                label="CHOQUES"
+                hint={crashRate ? `${crashRate}/vuelta` : null}
+                tone={stats ? null : 'dim'}
+              />
+            </View>
+
+            <Text style={s.sectionLabel}>COLECCIÓN</Text>
+            <View style={s.statsRow}>
+              <StatCard
+                value={career != null ? `${career}/${LEVEL_COUNT}` : '—'}
+                label="NIVELES"
+              />
+              <StatCard
+                value={piecesOwned != null ? `${piecesOwned}/${TOTAL_PIECES}` : '—'}
+                label="PIEZAS"
+              />
+              {/* Las monedas se quedan fuera del perfil público (JC,
+                  2026-09-15: "público su avatar y sus stats" — el saldo no
+                  es una stat de pista/colección, es dinero). */}
+              {isOwnProfile && (
+                <StatCard
+                  value={lifetimeCoins != null ? lifetimeCoins : (wallet?.balance ?? 0)}
+                  label={lifetimeCoins != null ? 'MONEDAS GANADAS' : 'MONEDAS'}
+                  hint={lifetimeCoins != null ? `${wallet?.balance ?? 0} ahora` : null}
+                />
+              )}
+            </View>
+
+            {stats === null && (
+              <Text style={s.statsMissing}>
+                Los contadores de pista se activan al correr supabase/stats.sql.
+              </Text>
+            )}
+          </>
         )}
       </ScrollView>
     </View>
@@ -258,6 +389,15 @@ const s = StyleSheet.create({
     textTransform: 'uppercase',
   },
   identitySub: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono },
+
+  tabsRow: { flexDirection: 'row', gap: 6 },
+  tab: {
+    flex: 1, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    paddingVertical: 9, alignItems: 'center', justifyContent: 'center',
+  },
+  tabActive: { borderColor: RD.brand },
+  tabText: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 1 },
+  tabTextActive: { color: RD.textPrimary },
 
   heroRow: { flexDirection: 'row', gap: 10 },
   heroCard: {
@@ -301,8 +441,34 @@ const s = StyleSheet.create({
 
   actionsRow: { flexDirection: 'row', gap: 10, marginBottom: 2 },
   actionBtn: {
-    flex: 1, borderWidth: 1, borderColor: RD.trackBlue, borderRadius: 2,
+    flex: 1, borderWidth: 1, borderRadius: 2,
     paddingVertical: 14, alignItems: 'center',
   },
-  actionBtnText: { color: RD.trackBlue, fontSize: 14, fontFamily: RD_FONT.monoBold },
+  actionBtnText: { fontSize: 14, fontFamily: RD_FONT.monoBold },
+  actionBtnGaraje: { borderColor: RD.trackBlue },
+  actionBtnTextGaraje: { color: RD.trackBlue },
+  actionBtnTienda: { borderColor: RD.gold1st },
+  actionBtnTextTienda: { color: RD.gold1st },
+  actionBtnCarrera: { borderColor: RD.successGreen },
+  actionBtnTextCarrera: { color: RD.successGreen },
+
+  devBtn: {
+    borderWidth: 1, borderColor: '#665', borderStyle: 'dashed', borderRadius: 2,
+    paddingVertical: 10, alignItems: 'center', marginTop: -4,
+  },
+  devBtnText: { color: '#aa8', fontSize: 11, fontFamily: RD_FONT.mono },
+
+  // El escenario del piloto: JC, 2026-09-15, "reducir márgenes... se ve
+  // apagado" — el margen negativo recorta el hueco que dejaba el `gap` del
+  // ScrollView por encima/debajo (antes 14+14 de vacío, ahora la mitad), y
+  // el fondo ligeramente más claro que el negro puro de la pantalla + las
+  // dos líneas finas lo enmarcan como un panel propio en vez de negro
+  // fundiéndose con negro.
+  avatarStage: {
+    height: AVATAR_HEIGHT,
+    marginHorizontal: -18,
+    marginVertical: -8,
+    backgroundColor: '#111113',
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: RD.panelBorder,
+  },
 });

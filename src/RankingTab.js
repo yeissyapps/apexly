@@ -48,13 +48,13 @@ function BandDivider({ value, unit, zeroLabel = 'NO PUNTÚA', formatLabel }) {
 // Filas fuera del 50% que puntúa: atenuadas, no ocultas — se sigue viendo
 // dónde queda cada uno, solo queda claro de un vistazo que ese tramo no
 // se lleva nada.
-function BandedRows({ rows, valueOf, unit, zeroLabel, formatLabel, wins, extraRowProps }) {
+function BandedRows({ rows, valueOf, unit, zeroLabel, formatLabel, wins, extraRowProps, onOpenPlayer }) {
   return groupByBand(rows, valueOf).map((g, gi) => (
     <Fragment key={gi}>
       <BandDivider value={g.value} unit={unit} zeroLabel={zeroLabel} formatLabel={formatLabel} />
       {g.items.map((r) => (
         <View key={r.userId} style={g.value <= 0 && styles.rowDimmed}>
-          <RankRow r={r} wins={wins[r.userId]} {...(extraRowProps ? extraRowProps(r) : null)} />
+          <RankRow r={r} wins={wins[r.userId]} onPress={onOpenPlayer} {...(extraRowProps ? extraRowProps(r) : null)} />
         </View>
       ))}
     </Fragment>
@@ -75,8 +75,13 @@ function daysUntilNextMonth(ref = new Date()) {
   return lastDay - ref.getDate();
 }
 
-export default function RankingTab({ refreshKey = 0 }) {
+export default function RankingTab({ refreshKey = 0, onOpenPlayer }) {
   const [view, setView] = useState('hoy'); // 'hoy' | 'mes'
+  // JC, 2026-09-16: "en lugar de MES ponga el nombre del mes... que el uno
+  // de octubre se actualice" — new Date() se lee en cada render, así que
+  // en cuanto alguien abra Ranking ya en octubre esto sale solo sin tocar
+  // nada más (mismo cálculo que ya usaba MonthlyRanking para monthLabel).
+  const monthLabel = MONTH_NAMES[new Date().getMonth()].toUpperCase();
 
   return (
     <View style={styles.wrap}>
@@ -86,18 +91,20 @@ export default function RankingTab({ refreshKey = 0 }) {
           {view === 'hoy' && <View style={styles.viewTabIndicator} />}
         </Pressable>
         <Pressable style={styles.viewTab} onPress={() => setView('mes')} hitSlop={6}>
-          <Text style={[styles.viewTabText, view === 'mes' && styles.viewTabTextActive]}>MES</Text>
+          <Text style={[styles.viewTabText, view === 'mes' && styles.viewTabTextActive]}>{monthLabel}</Text>
           {view === 'mes' && <View style={styles.viewTabIndicator} />}
         </Pressable>
       </View>
-      {view === 'hoy' ? <DailyRanking refreshKey={refreshKey} /> : <MonthlyRanking refreshKey={refreshKey} />}
+      {view === 'hoy'
+        ? <DailyRanking refreshKey={refreshKey} onOpenPlayer={onOpenPlayer} />
+        : <MonthlyRanking refreshKey={refreshKey} onOpenPlayer={onOpenPlayer} />}
     </View>
   );
 }
 
 // Ranking del día — el que ya había, sin más cambio que vivir en su propio
 // componente (antes era el cuerpo entero de RankingTab).
-function DailyRanking({ refreshKey = 0 }) {
+function DailyRanking({ refreshKey = 0, onOpenPlayer }) {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(null); // null = aún no se sabe
   const [loadingMore, setLoadingMore] = useState(false);
@@ -176,7 +183,9 @@ function DailyRanking({ refreshKey = 0 }) {
           <Text style={styles.muted}>Nadie con ese nombre ha corrido hoy.</Text>
         ) : (
           <View style={styles.list}>
-            {searchResults.map((r) => <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} />)}
+            {searchResults.map((r) => (
+              <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} onPress={onOpenPlayer} />
+            ))}
           </View>
         )
       ) : (
@@ -198,6 +207,7 @@ function DailyRanking({ refreshKey = 0 }) {
                 valueOf={(r) => pointsForDailyRank(r.rank, total || rows.length)}
                 unit="PTS"
                 wins={winCounts}
+                onOpenPlayer={onOpenPlayer}
               />
             </View>
           )}
@@ -222,7 +232,7 @@ function DailyRanking({ refreshKey = 0 }) {
 // solo entran los jugadores que han corrido al menos un día del mes — la
 // lista ya está entera en memoria, filtrar en el propio array es más simple
 // y no hace falta una consulta nueva.
-function MonthlyRanking({ refreshKey = 0 }) {
+function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
   const [rows, setRows] = useState(null); // null = cargando
   const [error, setError] = useState(false);
   const [winCounts, setWinCounts] = useState({});
@@ -298,6 +308,7 @@ function MonthlyRanking({ refreshKey = 0 }) {
             zeroLabel="SIN PREMIO"
             formatLabel={(v) => `PREMIO: ${v} MONEDAS`}
             wins={winCounts}
+            onOpenPlayer={onOpenPlayer}
             extraRowProps={(r) => ({
               timeLabel: `${r.points} pts`,
               sub: `${r.daysPlayed} ${r.daysPlayed === 1 ? 'día jugado' : 'días jugados'}`,

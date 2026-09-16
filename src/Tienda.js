@@ -11,6 +11,7 @@ import { Pressable, ScrollView, Share, StatusBar, StyleSheet, Text, TextInput, V
 import Svg, { Ellipse } from 'react-native-svg';
 
 import DangerStripe from './DangerStripe';
+import CoinIcon from './CoinIcon';
 import CarSprite from './CarSprite';
 import ShineBadge from './ShineBadge';
 import PackArt from './PackArt';
@@ -182,12 +183,13 @@ export default function Tienda({ onBack }) {
           <Text style={s.backLink}>‹ INICIO</Text>
         </Pressable>
         {/* Título y monedas en la MISMA fila: el saldo ocupaba un panel
-            entero para un solo número, y encima lo llamaba "saldo" cuando en
-            Inicio se llama "monedas". Mismo nombre en toda la app. */}
+            entero para un solo número. Mismo icono que la cabecera de
+            Inicio (JC, 2026-09-16: "lo mismo para tienda") — sin recuadro,
+            solo el símbolo + el número. */}
         <View style={s.titleRow}>
           <Text style={s.pageTitle}>Tienda</Text>
           <View style={s.coinChip}>
-            <Text style={s.coinChipLabel}>MONEDAS</Text>
+            <CoinIcon size={20} />
             <Text style={s.coinChipValue}>{wallet.balance}</Text>
           </View>
         </View>
@@ -337,13 +339,8 @@ const s = StyleSheet.create({
   },
   disclaimer: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, marginBottom: -4 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  coinChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 7,
-    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2,
-    paddingHorizontal: 9, paddingVertical: 5, backgroundColor: RD.gold1stShade,
-  },
-  coinChipLabel: { color: RD.gold1st, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 0.8, opacity: 0.85 },
-  coinChipValue: { color: RD.gold1st, fontSize: 13, fontFamily: RD_FONT.monoBold },
+  coinChip: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  coinChipValue: { color: RD.gold1st, fontSize: 17, fontFamily: RD_FONT.monoBold },
 
   hero: {
     borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,

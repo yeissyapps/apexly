@@ -32,6 +32,7 @@ import { dailyWeather, NEUTRAL } from './src/weather';
 import { fmtTime, fmtSecs, fmtCountdown } from './src/format';
 import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS } from './src/theme';
 import DangerStripe from './src/DangerStripe';
+import CoinIcon from './src/CoinIcon';
 import Identicon from './src/Identicon';
 import MiniRanking from './src/MiniRanking';
 import RankingTab from './src/RankingTab';
@@ -139,7 +140,15 @@ export default function App() {
   const [myStreak, setMyStreak] = useState(null);
   const [wallet, setWallet] = useState({ balance: 0, pendingPacks: 0 }); // monedas + sobres pendientes
   const [recap, setRecap] = useState(null); // { streak, ranking } premios de ayer, o null si no toca mostrar
-  const [homeStanding, setHomeStanding] = useState(null); // { rank, total, above } resumen de rivalidad para Diario
+  // Perfil público de OTRO jugador (JC, 2026-09-15) — null = viendo el tuyo
+  // propio (el de siempre). Se rellena al tocar un nombre/avatar en
+  // cualquier ranking (MiniRanking, RankingTab, GrandPrixStandings).
+  const [viewedPlayer, setViewedPlayer] = useState(null);
+  function openPlayerProfile(p) {
+    if (!p || !p.userId) return;
+    setViewedPlayer(p);
+    setScreen('perfil');
+  }
   const [challenge, setChallenge] = useState(null); // { ms } reto recibido por deep link, si es de hoy
   const [tab, setTab] = useState('diario'); // pestaña activa de Inicio: diario | ranking | amigos
   // Recorrido guiado de la primera apertura. null = aún no sabemos si toca
@@ -502,28 +511,6 @@ export default function App() {
     getWallet().then(setWallet).catch(() => {});
   }, [nickname, refreshKey]);
 
-  // Rivalidad de hoy (para el resumen de Diario — el ranking completo vive
-  // en la pestaña Amigos, esto es solo el titular). Null si aún no has
-  // jugado hoy (no hay puesto que mostrar). Misma llamada que ya usa
-  // Results para su propio "standing", por eso la forma coincide.
-  useEffect(() => {
-    if (!nickname) return;
-    let alive = true;
-    getGlobalBoard()
-      .then((b) => {
-        if (!alive) return;
-        if (!b.me) { setHomeStanding(null); return; }
-        const rival = b.aboveRows?.[0];
-        setHomeStanding({
-          rank: b.me.rank,
-          total: b.total,
-          above: rival ? { nickname: rival.nickname, gapMs: b.me.bestMs - rival.bestMs } : null,
-        });
-      })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [nickname, refreshKey]);
-
   // Pop-up de "premios de ayer": una vez por día local, la primera vez que
   // hay nickname (primera entrada del día). Si no hubo nada que cobrar
   // (racha rota, sin premio de ranking), no se muestra nada.
@@ -772,6 +759,7 @@ export default function App() {
         group={gpGroup}
         gp={gpActive}
         onBack={() => setScreen('group-home')}
+        onOpenPlayer={openPlayerProfile}
       />
     );
   }
@@ -800,12 +788,34 @@ export default function App() {
         nickname={nickname}
         myStreak={myStreak}
         wallet={wallet}
-        onBack={() => setScreen('home')}
+        viewUserId={viewedPlayer?.userId}
+        viewNickname={viewedPlayer?.nickname}
+        viewStreak={viewedPlayer?.streak}
+        onBack={() => { setViewedPlayer(null); setScreen('home'); }}
         onOpenGarage={() => { logGarageOpen(); setScreen('garage'); }}
         onOpenTienda={() => setScreen('tienda')}
         onOpenCareer={() => setScreen('career')}
+        onOpenPilotTest={__DEV__ ? () => setScreen('pilot-test') : undefined}
+        onOpenAvatarTest={__DEV__ ? () => setScreen('avatar-test') : undefined}
       />
     );
+  }
+
+  // Pantalla de prueba SOLO dev (ver Profile.js) — Fase 1 de avatares,
+  // visor 3D + selector de color de humo, antes de construir el
+  // configurador real (con inventario/rareza/guardado) de la Fase 4.
+  if (screen === 'pilot-test') {
+    const PilotColorTest = require('./src/PilotColorTest').default;
+    return <PilotColorTest onBack={() => setScreen('perfil')} />;
+  }
+
+  // Pantalla de prueba SOLO dev — Fase 4, "muñecos enteros" desbloqueables
+  // por rareza (JC, 2026-09-15). Visor con textura real, sin tinte por
+  // piezas — sustituye conceptualmente a pilot-test para el contenido
+  // nuevo, pero convive con él hasta que se decida la migración completa.
+  if (screen === 'avatar-test') {
+    const AvatarTest = require('./src/AvatarTest').default;
+    return <AvatarTest onBack={() => setScreen('perfil')} />;
   }
 
   if (screen === 'career') {
@@ -919,6 +929,7 @@ export default function App() {
         refreshKey={refreshKey}
         onRetry={tryPlay}
         onHome={() => setScreen('home')}
+        onOpenPlayer={openPlayerProfile}
       />
     );
   }
@@ -943,7 +954,6 @@ export default function App() {
           refreshKey={refreshKey}
           myStreak={myStreak}
           wallet={wallet}
-          homeStanding={homeStanding}
           recap={recap}
           onCloseRecap={() => setRecap(null)}
           challenge={challenge}
@@ -956,9 +966,10 @@ export default function App() {
           unlimited={unlimited}
           tryPlay={tryPlay}
           privacyOptional={privacyOptional}
+          onOpenPlayer={openPlayerProfile}
         />
       )}
-      {tab === 'ranking' && <RankingTab refreshKey={refreshKey} />}
+      {tab === 'ranking' && <RankingTab refreshKey={refreshKey} onOpenPlayer={openPlayerProfile} />}
       {tab === 'amigos' && <AmigosTab refreshKey={refreshKey} onOpenGroup={openGroupHome} />}
     </AppShell>
   );
@@ -973,6 +984,13 @@ const STREAK_AMOUNTS = [5, 5, 10, 10, 15, 15, 20];
 function StreakPath({ current }) {
   if (!current || current < 1) return null;
   const pos = ((current - 1) % 7) + 1;
+  // Día ABSOLUTO de la racha para el día 1 de esta semana (p.ej. racha 15,
+  // semana 3 -> empieza en el 15). JC, 2026-09-16: "si ponemos el día de la
+  // racha dentro del número, podemos quitar el rectángulo amarillo" — antes
+  // el punto de hoy solo decía "1" (posición en el ciclo semanal) y hacía
+  // falta el chip "RACHA 15" aparte para saber el número real; ahora el
+  // propio punto ya lo dice, así que el chip sobra (quitado en DiarioTab).
+  const weekStartDay = current - pos + 1;
   return (
     <View style={rd.streakPath}>
       <View style={rd.streakDotsRow}>
@@ -984,7 +1002,7 @@ function StreakPath({ current }) {
             <Fragment key={day}>
               <View style={rd.streakDotCol}>
                 <View style={[rd.streakDot, done && rd.streakDotDone, isToday && rd.streakDotToday]}>
-                  <Text style={[rd.streakDotText, done && rd.streakDotTextDone]}>{day}</Text>
+                  <Text style={[rd.streakDotText, done && rd.streakDotTextDone]}>{weekStartDay + i}</Text>
                 </View>
               </View>
               {day < 7 && <View style={[rd.streakConnector, day < pos && rd.streakConnectorDone]} />}
@@ -992,6 +1010,12 @@ function StreakPath({ current }) {
           );
         })}
       </View>
+      {/* JC, 2026-09-16: quitar la leyenda de texto ("monedas por día...")
+          y decirlo con el mismo CoinIcon del chip de cabecera en cada
+          día — coherencia de un solo símbolo para "esto es dinero" en vez
+          de repetir la palabra. El día 7 sigue en texto ("SOBRE"): no es
+          una cantidad de moneda, es un objeto distinto (piezas), así que
+          un icono de moneda ahí mentiría. */}
       <View style={rd.streakLabelsRow}>
         {STREAK_AMOUNTS.map((amount, i) => {
           const day = i + 1;
@@ -1000,12 +1024,21 @@ function StreakPath({ current }) {
           return (
             <Fragment key={day}>
               <View style={[rd.streakLabelCol, isLast && rd.streakLabelColLast]}>
-                <Text
-                  style={[rd.streakAmount, isLast && rd.streakGiftText, done && (isLast ? rd.streakGiftDone : rd.streakAmountDone)]}
-                  numberOfLines={1}
-                >
-                  {isLast ? 'SOBRE' : amount}
-                </Text>
+                {isLast ? (
+                  <Text
+                    style={[rd.streakAmount, rd.streakGiftText, done && rd.streakGiftDone]}
+                    numberOfLines={1}
+                  >
+                    SOBRE
+                  </Text>
+                ) : (
+                  <View style={rd.streakAmountRow}>
+                    <CoinIcon size={8} />
+                    <Text style={[rd.streakAmount, done && rd.streakAmountDone]} numberOfLines={1}>
+                      {amount}
+                    </Text>
+                  </View>
+                )}
               </View>
               {day < 7 && <View style={rd.streakConnectorSpacer} />}
             </Fragment>
@@ -1127,8 +1160,8 @@ function WhatsNewModal({ onClose }) {
 // monedas y el acceso a Garaje/Tienda viven en la cabecera fija (AppShell)
 // y en Perfil, ya no aquí, para no duplicar info entre sitios.
 function DiarioTab({
-  refreshKey, myStreak, wallet, homeStanding, recap, onCloseRecap, challenge, onCloseChallenge, daily, weather, midnightLabel,
-  left, total, unlimited, tryPlay, privacyOptional,
+  refreshKey, myStreak, wallet, recap, onCloseRecap, challenge, onCloseChallenge, daily, weather, midnightLabel,
+  left, total, unlimited, tryPlay, privacyOptional, onOpenPlayer,
 }) {
   return (
     <>
@@ -1140,34 +1173,28 @@ function DiarioTab({
         </Pressable>
       )}
 
-      {/* Titular de rivalidad — el ranking completo vive en la pestaña
-          Amigos, esto es solo el gancho: dónde vas y a quién persigues,
-          sin tener que salir de Diario para verlo. */}
-      {homeStanding && (
-        <View style={[rd.panel, rd.rivalryPanel]}>
-          <Text style={rd.labelMono}>TU PUESTO DE HOY</Text>
-          <Text style={rd.rivalryHeadline}>
-            {homeStanding.rank === 1 ? (
-              <>Vas <Text style={rd.rivalryStrong}>1.º</Text> de {homeStanding.total} — nadie te ha alcanzado hoy</>
-            ) : homeStanding.above ? (
-              <>
-                Vas <Text style={rd.rivalryStrong}>{homeStanding.rank}.º</Text> · a{' '}
-                <Text style={rd.rivalryStrong}>{fmtSecs(homeStanding.above.gapMs)}s</Text> de {homeStanding.above.nickname}
-              </>
-            ) : (
-              <>Vas <Text style={rd.rivalryStrong}>{homeStanding.rank}.º</Text> de {homeStanding.total}</>
-            )}
-          </Text>
-        </View>
-      )}
+      {/* El titular "TU PUESTO DE HOY" que iba aquí se quitó (JC,
+          2026-09-16: "ya tenemos dos rankings para eso") — el RANKING
+          GLOBAL DE HOY de más abajo en esta misma pestaña y la pestaña
+          Ranking ya cubren esa info, y no merecía la pena duplicarla ni
+          mantener la consulta getGlobalBoard() aparte solo para esto. */}
 
       {myStreak?.current >= 1 && (
         <View style={rd.panel}>
           <View style={rd.panelHeadRow}>
-            <Text style={rd.labelMono}>TU RACHA</Text>
-            <View style={rd.streakChip}>
-              <Text style={rd.streakChipText}>RACHA {myStreak.current}</Text>
-            </View>
+            {/* JC, 2026-09-16: "si es la racha 15, debe ser el primer día
+                de la 3ª semana" — los 7 puntos de abajo SIEMPRE marcan la
+                posición 1-7 dentro del ciclo semanal (así funciona el pago,
+                ver grant_daily_reward en economy.sql), así que una racha de
+                15 se ve IGUAL que una de 1 o de 8: día 1 destacado, nada
+                distingue en qué semana real estás. La etiqueta lo dice en
+                texto en vez de inventar una fila de puntos por semana. */}
+            {/* El chip dorado "RACHA N" que iba aquí sobraba (JC,
+                2026-09-16) en cuanto el punto de "hoy" de StreakPath pasó a
+                mostrar el día absoluto de la racha en vez de la posición
+                1-7 del ciclo — el número ya está debajo, no hace falta
+                repetirlo. */}
+            <Text style={rd.labelMono}>TU RACHA · SEMANA {Math.ceil(myStreak.current / 7)}</Text>
           </View>
           <StreakPath current={myStreak?.current} />
         </View>
@@ -1202,7 +1229,7 @@ function DiarioTab({
           Amigos (que ahora es solo grupos/Grand Prix). */}
       <View style={rd.rankingBlock} ref={tourRef('ranking')} collapsable={false}>
         <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING GLOBAL DE HOY</Text>
-        <MiniRanking refreshKey={refreshKey} showTabs={false} />
+        <MiniRanking refreshKey={refreshKey} showTabs={false} onOpenPlayer={onOpenPlayer} />
       </View>
 
       {privacyOptional && (
@@ -1397,9 +1424,9 @@ const TABS = [
 // no se entendiera el icono, sino que no tenía identidad y desaparecía al
 // lado del chip dorado de monedas.)
 
-// (Aquí vivía CoinIcon, dos círculos concéntricos. Se quitó porque no se leía
-// como "moneda" — podía ser un objetivo, un ajuste o un disco. La palabra
-// MONEDAS ocupa parecido y no deja lugar a dudas.)
+// CoinIcon (círculo dorado con "$") ahora vive en src/CoinIcon.js — Tienda
+// lo necesitaba también (JC, 2026-09-16: "lo mismo para tienda") y no tenía
+// sentido duplicar el SVG por pantalla.
 
 // Cabecera fija + barra de pestañas — envuelve las 3 pestañas de arriba.
 // Perfil (stats + Garaje + Tienda) vive fuera, es pantalla completa aparte.
@@ -1430,10 +1457,8 @@ function AppShell({ tab, setTab, nickname, wallet, onOpenProfile, tour, children
           <Text style={rd.profileBtnChevron}>›</Text>
           {wallet?.pendingPacks > 0 && <View style={rd.profileBadge} />}
         </Pressable>
-        {/* Rotulado a palabra: el icono de moneda solo no se entendía, y el
-            número suelto podía ser cualquier cosa (puntos, nivel, posición). */}
         <View style={rd.coinChip}>
-          <Text style={rd.coinChipLabel}>MONEDAS</Text>
+          <CoinIcon size={20} />
           <Text style={rd.coinChipText}>{wallet?.balance ?? 0}</Text>
         </View>
       </View>
@@ -1485,15 +1510,11 @@ const rd = StyleSheet.create({
   onboardTagline: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 3 },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
-  coinChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 7,
-    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 9, paddingVertical: 5,
-    backgroundColor: RD.gold1stShade,
-  },
-  coinChipLabel: {
-    color: RD.gold1st, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 0.8, opacity: 0.85,
-  },
-  coinChipText: { color: RD.gold1st, fontSize: 13, fontFamily: RD_FONT.monoBold },
+  // JC, 2026-09-16: "quita el rectángulo amarillo" — el icono + número ya
+  // se leen como moneda por sí solos, no hace falta además enmarcarlos en
+  // un chip con borde y fondo.
+  coinChip: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  coinChipText: { color: RD.gold1st, fontSize: 17, fontFamily: RD_FONT.monoBold },
 
   // Cabecera fija + barra de pestañas (AppShell) — envuelve Diario/Amigos/Carrera.
   shell: { flex: 1, backgroundColor: RD.bg },
@@ -1525,10 +1546,6 @@ const rd = StyleSheet.create({
   tabBarBtnText: { color: RD.textDisabled, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
   tabBarBtnTextActive: { color: RD.textPrimary },
   tabBarIndicator: { width: 18, height: 2, backgroundColor: RD.brand },
-  streakChip: {
-    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 7, paddingVertical: 4,
-  },
-  streakChipText: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold },
 
   challengeBanner: {
     borderWidth: 1, borderColor: RD.brand, borderRadius: 2,
@@ -1557,6 +1574,7 @@ const rd = StyleSheet.create({
   streakLabelCol: { width: 22, alignItems: 'center' },
   streakLabelColLast: { width: 22, alignItems: 'center', position: 'relative' },
   streakConnectorSpacer: { flex: 1, marginHorizontal: 2 },
+  streakAmountRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   streakAmount: { color: RD.textDisabled, fontSize: 9, fontFamily: RD_FONT.mono },
   streakAmountDone: { color: RD.textSecondary },
   streakGiftText: {
@@ -1601,9 +1619,6 @@ const rd = StyleSheet.create({
   whatsNewItemBody: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, lineHeight: 17 },
 
   panel: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 8 },
-  rivalryPanel: { borderColor: RD.trackBlue },
-  rivalryHeadline: { color: RD.textPrimary, fontSize: 15, fontFamily: RD_FONT.mono, lineHeight: 21 },
-  rivalryStrong: { color: RD.trackBlue, fontFamily: RD_FONT.monoBold },
   panelHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   labelMono: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1.4 },
   attBadge: { backgroundColor: RD.cream, paddingHorizontal: 6, paddingVertical: 3 },
@@ -1927,7 +1942,7 @@ function RevealValue({ shown, style, children }) {
 // ---------------------------------------------------------------------------
 //  Resultado: tiempo + stats + tarjeta para compartir. Micro-recompensa si récord.
 // ---------------------------------------------------------------------------
-function Results({ result, label, track, weather, nickname, attemptsLeft = Infinity, total = 0, unlimited = false, refreshKey, onRetry, onHome }) {
+function Results({ result, label, track, weather, nickname, attemptsLeft = Infinity, total = 0, unlimited = false, refreshKey, onRetry, onHome, onOpenPlayer }) {
   const wx = weather || { icon: '', label: '' };
   const outOfAttempts = attemptsLeft <= 0;
   const cardRef = useRef(null);
@@ -2299,7 +2314,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
       </View>
 
       <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING DE HOY</Text>
-      <MiniRanking refreshKey={refreshKey} showTabs={false} />
+      <MiniRanking refreshKey={refreshKey} showTabs={false} onOpenPlayer={onOpenPlayer} />
 
       {/* Tarjeta para compartir: renderizada fuera de pantalla y capturada a PNG.
           Usa vibeColor y no timeColor, para que el acento no dependa de en qué

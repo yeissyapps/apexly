@@ -42,18 +42,22 @@ function barColor(pct) {
   return RD.danger;                        // lejos
 }
 
-export default function StatTrend({ points, title = 'TUS VUELTAS' }) {
+// `own`: false en el perfil PÚBLICO de otro jugador (JC, 2026-09-15) — el
+// título y el texto vacío estaban en segunda persona a pelo ("tus vueltas",
+// "tu evolución"), que suena raro mirando la gráfica de otro.
+export default function StatTrend({ points, title, own = true }) {
   // points: [{ day, ms, targetMs }] de más antiguo a más reciente
   const usable = (points || []).filter((p) => p.targetMs > 0);
+  const heading = title ?? (own ? 'TUS VUELTAS' : 'SUS VUELTAS');
 
   if (usable.length < 2) {
     return (
       <View style={s.wrap}>
-        <Text style={s.title}>{title}</Text>
+        <Text style={s.title}>{heading}</Text>
         <Text style={s.empty}>
           {usable.length === 0
-            ? 'Corre un par de días y aquí verás tu evolución.'
-            : 'Un día más y podrás comparar tu evolución.'}
+            ? (own ? 'Corre un par de días y aquí verás tu evolución.' : 'Todavía no ha corrido lo bastante para ver su evolución.')
+            : (own ? 'Un día más y podrás comparar tu evolución.' : 'Un día más y se podrá comparar su evolución.')}
         </Text>
       </View>
     );
@@ -80,7 +84,7 @@ export default function StatTrend({ points, title = 'TUS VUELTAS' }) {
   return (
     <View style={s.wrap}>
       <View style={s.header}>
-        <Text style={s.title}>{title}</Text>
+        <Text style={s.title}>{heading}</Text>
         {canCompare && (
           <Text style={[s.delta, improving && s.deltaUp, worsening && s.deltaDown]}>
             {improving ? '▲' : worsening ? '▼' : '='} {Math.abs(delta).toFixed(1)}%

@@ -31,6 +31,7 @@ import { ActivityIndicator, Alert, Dimensions, Pressable, ScrollView, Share, Sta
 import SeasonRail, { GP_ACCENT } from './SeasonRail';
 import ShineBadge from './ShineBadge';
 import MiniTrackMap from './MiniTrackMap';
+import AvatarThumb from './AvatarThumb';
 import { RD, RD_FONT, SECTOR_RESULT_COLORS } from './theme';
 import { CONFIG } from './config';
 import { fmtTime, fmtSecs, fmtGap, fmtCountdown } from './format';
@@ -636,7 +637,7 @@ function HistoricStandings({ results, maxDay }) {
   );
 }
 
-export function GrandPrixStandings({ group, gp, onBack }) {
+export function GrandPrixStandings({ group, gp, onBack, onOpenPlayer }) {
   const [members, setMembers] = useState(null);
   const [results, setResults] = useState(null);
   const [view, setView] = useState('general'); // 'general' | 'historico'
@@ -686,9 +687,14 @@ export function GrandPrixStandings({ group, gp, onBack }) {
             <View style={s.standingsList}>
               {rows.map((r, i) => {
                 const podiumColor = SEASON_PODIUM[i];
+                const RowWrap = onOpenPlayer ? Pressable : View;
                 const row = (
-                  <View style={[s.standingRow, i === 0 && s.standingRowLead, podiumColor && { borderColor: podiumColor }]}>
+                  <RowWrap
+                    style={[s.standingRow, i === 0 && s.standingRowLead, podiumColor && { borderColor: podiumColor }]}
+                    {...(onOpenPlayer ? { onPress: () => onOpenPlayer(r) } : null)}
+                  >
                     <Text style={[s.standingPos, i === 0 && s.standingPosLead]}>{i + 1}</Text>
+                    <AvatarThumb uri={r.avatarThumbUrl} seed={r.userId} size={52} />
                     <View style={s.standingInfo}>
                       <View style={s.standingNameRow}>
                         <Text style={s.standingName} numberOfLines={1}>{r.nickname}</Text>
@@ -700,7 +706,7 @@ export function GrandPrixStandings({ group, gp, onBack }) {
                       <Text style={[s.standingPoints, i === 0 && s.standingPointsLead]}>{r.points}</Text>
                       <Text style={s.pointsUnit}>PTS</Text>
                     </View>
-                  </View>
+                  </RowWrap>
                 );
                 return i === 0
                   ? <ShineBadge key={r.userId} style={{ borderRadius: 2 }}>{row}</ShineBadge>

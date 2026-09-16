@@ -6,6 +6,8 @@
 // ============================================================================
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
+import { toByteArray } from 'base64-js';
 import { supabase } from './supabase';
 import { todayKey, dayOffset } from './daily';
 import { CAR_DEFAULTS } from './car';
@@ -459,12 +461,19 @@ export async function openPack(source = 'paid') {
 }
 
 // Piezas premium que ya posees. Devuelve pares { category, pieceId }.
-export async function getInventory() {
+// userId opcional: sin él, la tuya (como siempre). Con él, la de OTRO
+// jugador — perfil público, ver Profile.js. inventory ahora es de lectura
+// pública (supabase/public_profiles.sql, 2026-09-15), igual que ya lo era
+// player_stats desde el principio. `ensureSession()` se llama SIEMPRE (no
+// solo cuando falta userId): sigue haciendo falta estar autenticado tú
+// mismo para leer nada, aunque el dato pedido sea el de otro.
+export async function getInventory(userId) {
   const user = await ensureSession();
+  const uid = userId || user.id;
   const { data, error } = await supabase
     .from('inventory')
     .select('category, piece_id')
-    .eq('user_id', user.id);
+    .eq('user_id', uid);
   if (error) return [];
   return (data || []).map((r) => ({ category: r.category, pieceId: r.piece_id }));
 }
@@ -473,12 +482,12 @@ export async function getInventory() {
 // Contadores de por vida: vueltas, choques, tiempo en pista, mejor vuelta.
 // Devuelve null si la tabla todavía no existe (supabase/stats.sql sin correr),
 // para que el Perfil enseñe un guion en esas casillas en vez de romperse.
-export async function getPlayerStats() {
+export async function getPlayerStats(userId) {
   const user = await ensureSession();
   const { data, error } = await supabase
     .from('player_stats')
     .select('laps, crashes, race_ms, best_ms')
-    .eq('user_id', user.id)
+    .eq('user_id', userId || user.id)
     .maybeSingle();
   if (error) return null;
   if (!data) return { laps: 0, crashes: 0, raceMs: 0, bestMs: null };
@@ -497,14 +506,59 @@ export async function recordLap(ms, crashes) {
   }
 }
 
+// ---- Miniatura de avatar (Fase 2 de avatares de piloto) --------------------
+// Sube la foto capturada por PilotViewer.capture() a Supabase Storage. Ruta
+// "<user_id>/<fileName>" — las policies de pilot_avatar.sql solo dejan
+// escribir en tu propia carpeta. `fileName` por defecto es "thumb.png" (el
+// uso normal, uno por jugador); PilotColorTest.js lo usa también con
+// "variant-N.png" para generar las variantes por defecto SIN pisar tu
+// propia miniatura real, subiendo varios archivos a tu misma carpeta.
+//
+// `updateUser`: solo la miniatura REAL del jugador (thumb.png) debe quedar
+// apuntada en users.avatar_thumb_url — las variantes de plantilla son
+// contenido de la app, no tu avatar, así que no tocan tu fila.
+//
+// OJO: se pasa el ArrayBuffer directo a .upload(), NUNCA envuelto en un
+// `new Blob([...])` — React Native no soporta construir Blobs a partir de
+// ArrayBuffer/ArrayBufferView (mismo fallo ya visto con GLTFLoader en
+// PilotViewer.js). supabase-js sí acepta ArrayBuffer tal cual como cuerpo,
+// sin pasar por Blob.
+export async function uploadPilotThumbnail(localUri, fileName = 'thumb.png', updateUser = true) {
+  const user = await ensureSession();
+  const base64 = await FileSystem.readAsStringAsync(localUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const bytes = toByteArray(base64);
+  const path = `${user.id}/${fileName}`;
+
+  const { error: upErr } = await supabase.storage.from('avatars').upload(path, bytes.buffer, {
+    contentType: 'image/png',
+    upsert: true,
+  });
+  if (upErr) throw upErr;
+
+  const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+  // Cache-buster: la URL pública es siempre la misma ruta, así que sin esto
+  // el <Image> de React Native podría seguir enseñando la miniatura vieja
+  // cacheada tras subir una nueva.
+  const url = `${data.publicUrl}?v=${Date.now()}`;
+
+  if (!updateUser) return url;
+
+  const { error } = await supabase.from('users').update({ avatar_thumb_url: url }).eq('id', user.id);
+  if (error) throw error;
+
+  return url;
+}
+
 // Tus mejores tiempos por día (para el gráfico de evolución del Perfil).
 // Devuelve [{ day, ms }] de más antiguo a más reciente.
-export async function getMyDailyHistory(limit = 30) {
+export async function getMyDailyHistory(limit = 30, userId) {
   const user = await ensureSession();
   const { data, error } = await supabase
     .from('attempts')
     .select('day, best_ms')
-    .eq('user_id', user.id)
+    .eq('user_id', userId || user.id)
     .order('day', { ascending: false })
     .limit(limit);
   if (error) return [];
@@ -516,15 +570,16 @@ export async function getMyDailyHistory(limit = 30) {
 // Cuántos sectores del día tienes en tu poder (los "morados" estilo F1) y
 // cuántos hay en total. Es la stat de presumir: no es tu tiempo, es cuántos
 // trozos del circuito de hoy son tuyos y de nadie más.
-export async function getMyPurpleSectors(day = todayKey()) {
+export async function getMyPurpleSectors(day = todayKey(), userId) {
   const user = await ensureSession();
+  const uid = userId || user.id;
   const { data, error } = await supabase
     .from('sector_bests')
     .select('sector, holder_id')
     .eq('day', day);
   if (error) return { mine: 0, total: 0 };
   const rows = data || [];
-  return { mine: rows.filter((r) => r.holder_id === user.id).length, total: rows.length };
+  return { mine: rows.filter((r) => r.holder_id === uid).length, total: rows.length };
 }
 
 // Monedas ganadas en total (solo ingresos: los gastos van en negativo y no
@@ -542,12 +597,12 @@ export async function getLifetimeCoins() {
 
 // ---- Modo Carrera (niveles con gap) -----------------------------------------
 // Nivel más alto ya superado (0 = ninguno todavía).
-export async function getCareerProgress() {
+export async function getCareerProgress(userId) {
   const user = await ensureSession();
   const { data } = await supabase
     .from('career_progress')
     .select('cleared')
-    .eq('user_id', user.id)
+    .eq('user_id', userId || user.id)
     .maybeSingle();
   return data?.cleared ?? 0;
 }
@@ -628,10 +683,14 @@ export async function getGroupMembers(groupId) {
   await ensureSession();
   const { data, error } = await supabase
     .from('group_members')
-    .select('user_id, users(nickname)')
+    .select('user_id, users(nickname, avatar_thumb_url)')
     .eq('group_id', groupId);
   if (error) throw error;
-  return (data || []).map((m) => ({ userId: m.user_id, nickname: m.users?.nickname ?? '—' }));
+  return (data || []).map((m) => ({
+    userId: m.user_id,
+    nickname: m.users?.nickname ?? '—',
+    avatarThumbUrl: m.users?.avatar_thumb_url ?? null,
+  }));
 }
 
 // Todos los resultados clasificados de un GP (todas las rondas, todo el
@@ -641,13 +700,14 @@ export async function getGpResults(gpId) {
   await ensureSession();
   const { data, error } = await supabase
     .from('gp_results')
-    .select('day_index, user_id, ms, sector_ms, users(nickname)')
+    .select('day_index, user_id, ms, sector_ms, users(nickname, avatar_thumb_url)')
     .eq('gp_id', gpId);
   if (error) throw error;
   return (data || []).map((r) => ({
     dayIndex: r.day_index,
     userId: r.user_id,
     nickname: r.users?.nickname ?? '—',
+    avatarThumbUrl: r.users?.avatar_thumb_url ?? null,
     ms: r.ms,
     sectorMs: r.sector_ms ?? null,
   }));
@@ -734,14 +794,29 @@ export async function getWorldWinCounts(userIds) {
 // posición, hasta 2 vecinos a cada lado (para poder centrar la ventana de 3
 // incluso en los bordes: 4.º puesto o último) y el total. Consultas ligeras
 // (limit/count por best_ms). Para grupos, usa getLeaderboard.
+// El puesto de HOY de un jugador concreto (perfil público de otro —
+// Profile.js — no necesita el tablero entero de getGlobalBoard, solo su
+// número). null si no ha jugado hoy.
+export async function getPlayerRankToday(userId, day = todayKey()) {
+  await ensureSession();
+  const { data: mine } = await supabase
+    .from('attempts').select('best_ms').eq('day', day).eq('user_id', userId).maybeSingle();
+  if (!mine) return null;
+  const { count } = await supabase
+    .from('attempts').select('user_id', { count: 'exact', head: true })
+    .eq('day', day).lt('best_ms', mine.best_ms);
+  return (count ?? 0) + 1;
+}
+
 export async function getGlobalBoard(day = todayKey()) {
   const { data: { session } } = await supabase.auth.getSession();
   const myId = session?.user?.id ?? null;
 
-  const SEL = 'best_ms, updated_at, user_id, users(nickname, current_streak, car_frame)';
+  const SEL = 'best_ms, updated_at, user_id, users(nickname, current_streak, car_frame, avatar_thumb_url)';
   const mapRow = (r, rank, leaderMs) => ({
     userId: r.user_id,
     nickname: r.users?.nickname ?? '—',
+    avatarThumbUrl: r.users?.avatar_thumb_url ?? null,
     streak: r.users?.current_streak ?? 0,
     frame: r.users?.car_frame || 'sin_marco',
     bestMs: r.best_ms,
@@ -764,7 +839,7 @@ export async function getGlobalBoard(day = todayKey()) {
   let me = null, aboveRows = [], belowRows = [];
   if (myId) {
     const { data: mine } = await supabase
-      .from('attempts').select('best_ms, users(nickname, current_streak, car_frame)')
+      .from('attempts').select('best_ms, users(nickname, current_streak, car_frame, avatar_thumb_url)')
       .eq('day', day).eq('user_id', myId).maybeSingle();
     if (mine) {
       const myBest = mine.best_ms;
@@ -781,6 +856,7 @@ export async function getGlobalBoard(day = todayKey()) {
       me = {
         userId: myId,
         nickname: mine.users?.nickname ?? 'Tú',
+        avatarThumbUrl: mine.users?.avatar_thumb_url ?? null,
         streak: mine.users?.current_streak ?? 0,
         frame: mine.users?.car_frame || 'sin_marco',
         bestMs: myBest,
@@ -814,7 +890,7 @@ export async function getRankingPage(day = todayKey(), offset = 0, limit = 30) {
     supabase.from('attempts').select('user_id', { count: 'exact', head: true }).eq('day', day),
     supabase
       .from('attempts')
-      .select('best_ms, user_id, users(nickname, current_streak, car_frame)')
+      .select('best_ms, user_id, users(nickname, current_streak, car_frame, avatar_thumb_url)')
       .eq('day', day)
       .order('best_ms', { ascending: true })
       .range(offset, offset + limit - 1),
@@ -824,6 +900,7 @@ export async function getRankingPage(day = todayKey(), offset = 0, limit = 30) {
   const rows = (data || []).map((r, i) => ({
     userId: r.user_id,
     nickname: r.users?.nickname ?? '—',
+    avatarThumbUrl: r.users?.avatar_thumb_url ?? null,
     streak: r.users?.current_streak ?? 0,
     frame: r.users?.car_frame || 'sin_marco',
     bestMs: r.best_ms,
@@ -900,7 +977,7 @@ export async function getMonthlyRanking(ref = new Date()) {
 
   const { data, error } = await supabase
     .from('attempts')
-    .select('user_id, day, best_ms, users(nickname, car_frame)')
+    .select('user_id, day, best_ms, users(nickname, car_frame, avatar_thumb_url)')
     .gte('day', startKey)
     .lt('day', endKey);
   if (error) throw error;
@@ -921,6 +998,7 @@ export async function getMonthlyRanking(ref = new Date()) {
         e = {
           userId: r.user_id,
           nickname: r.users?.nickname ?? '—',
+          avatarThumbUrl: r.users?.avatar_thumb_url ?? null,
           frame: r.users?.car_frame || 'sin_marco',
           points: 0,
           daysPlayed: 0,
@@ -958,7 +1036,7 @@ export async function searchRanking(query, day = todayKey()) {
 
   const { data: matches, error } = await supabase
     .from('attempts')
-    .select('best_ms, user_id, users!inner(nickname, current_streak, car_frame)')
+    .select('best_ms, user_id, users!inner(nickname, current_streak, car_frame, avatar_thumb_url)')
     .eq('day', day)
     .ilike('users.nickname', `%${clean}%`)
     .limit(10);
@@ -973,6 +1051,7 @@ export async function searchRanking(query, day = todayKey()) {
     return {
       userId: r.user_id,
       nickname: r.users?.nickname ?? '—',
+      avatarThumbUrl: r.users?.avatar_thumb_url ?? null,
       streak: r.users?.current_streak ?? 0,
       frame: r.users?.car_frame || 'sin_marco',
       bestMs: r.best_ms,
@@ -1002,7 +1081,7 @@ export async function getLeaderboard(scope = 'global', day = todayKey()) {
 
   let q = supabase
     .from('attempts')
-    .select('best_ms, updated_at, user_id, users(nickname, current_streak, car_frame)')
+    .select('best_ms, updated_at, user_id, users(nickname, current_streak, car_frame, avatar_thumb_url)')
     .eq('day', day)
     .order('best_ms', { ascending: true });
   if (memberIds) q = q.in('user_id', memberIds);
@@ -1018,6 +1097,7 @@ export async function getLeaderboard(scope = 'global', day = todayKey()) {
     return {
       userId: r.user_id,
       nickname: r.users?.nickname ?? '—',
+      avatarThumbUrl: r.users?.avatar_thumb_url ?? null,
       streak: r.users?.current_streak ?? 0,
       frame: r.users?.car_frame || 'sin_marco',
       bestMs: r.best_ms,
