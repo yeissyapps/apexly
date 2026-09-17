@@ -175,8 +175,7 @@ export default function Tienda({ onBack }) {
     if (!reveal) return;
     try {
       if (reveal.category === 'avatar') {
-        const avatar = AVATARS.find((a) => a.key === reveal.pieceId);
-        await savePilotAvatar(reveal.pieceId, avatar?.thumb);
+        await savePilotAvatar(reveal.pieceId);
       } else {
         const next = previewLoadoutFor(loadout, reveal.category, reveal.pieceId);
         await saveLoadout(next);

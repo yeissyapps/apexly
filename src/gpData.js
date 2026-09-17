@@ -142,13 +142,13 @@ export function lapTimesFromSectorMs(sectorMs) {
 // rounds: { [dayIndex]: { ms, pos, pts, fastestLap } } }.
 export function computeStandings(results, members) {
   const byUser = new Map();
-  const ensure = (userId, nickname, avatarThumbUrl) => {
+  const ensure = (userId, nickname, pilotAvatarId) => {
     if (!byUser.has(userId)) {
-      byUser.set(userId, { userId, nickname, avatarThumbUrl: avatarThumbUrl ?? null, points: 0, rounds: {} });
+      byUser.set(userId, { userId, nickname, pilotAvatarId: pilotAvatarId ?? null, points: 0, rounds: {} });
     }
     return byUser.get(userId);
   };
-  (members || []).forEach((m) => ensure(m.userId, m.nickname, m.avatarThumbUrl));
+  (members || []).forEach((m) => ensure(m.userId, m.nickname, m.pilotAvatarId));
 
   const byDay = new Map();
   (results || []).forEach((r) => {
@@ -160,7 +160,7 @@ export function computeStandings(results, members) {
     const sorted = [...rows].sort((a, b) => a.ms - b.ms);
     sorted.forEach((r, i) => {
       const pts = F1_POINTS[i] || 0;
-      const u = ensure(r.userId, r.nickname, r.avatarThumbUrl);
+      const u = ensure(r.userId, r.nickname, r.pilotAvatarId);
       u.points += pts;
       u.rounds[dayIndex] = { ms: r.ms, pos: i + 1, pts, fastestLap: false };
     });

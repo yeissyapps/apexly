@@ -170,11 +170,10 @@ function Tab({ label, active, dashed, onPress, color }) {
 
 // Fila de lista horizontal: puesto — avatar — nombre — tiempo.
 //
-// El avatar es la miniatura 2D renderizada del piloto 3D (avatar_thumb_url,
-// ver PilotViewer.js/PilotColorTest.js — Fase 2 de avatares). Mientras el
-// jugador no tenga una guardada (todavía no hay pantalla real para
-// generarla, solo la de prueba DEV), cae al Identicon de siempre en vez de
-// dejar un hueco vacío.
+// El avatar es el PNG ya empaquetado del muñeco elegido en pilot_avatar_id
+// (ver AvatarThumb.js/AvatarPicker.js — Fase 4 de avatares). Mientras el
+// jugador no haya elegido ninguno, cae a la base en vez de dejar un hueco
+// vacío.
 //
 // El MARCO va sobre el estilo de "tú" (fondo magenta), no en su lugar: el
 // magenta sigue diciendo "esta fila eres tú" y el marco añade el acabado. Y
@@ -198,7 +197,7 @@ export function RankRow({ r, wins, timeLabel, sub, onPress }) {
     >
       <View style={styles.rowLeft}>
         <Text style={[styles.rowRank, r.isMe && styles.rowRankMe]}>{String(r.rank).padStart(2, '0')}</Text>
-        <AvatarThumb uri={r.avatarThumbUrl} seed={r.userId} size={44} />
+        <AvatarThumb pilotAvatarId={r.pilotAvatarId} size={44} />
         <View style={styles.rowNameCol}>
           <View style={styles.rowNameLine}>
             <Text style={[styles.rowName, r.isMe && styles.rowNameMe]} numberOfLines={1}>
@@ -253,7 +252,7 @@ function Podium({ rows, winCounts = {}, onOpenPlayer }) {
               {wins > 0 && <Text style={[styles.rowWins, { color: RD.gold1st }]}>×{wins}</Text>}
             </View>
             <Text style={styles.podiumTime}>{fmtTime(r.bestMs)}</Text>
-            <AvatarThumb uri={r.avatarThumbUrl} seed={r.userId} size={big ? 84 : 66} />
+            <AvatarThumb pilotAvatarId={r.pilotAvatarId} size={big ? 84 : 66} />
             <View
               style={[
                 styles.podiumBlock,

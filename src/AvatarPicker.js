@@ -91,7 +91,7 @@ export default function AvatarPicker({ onBack, onOpenTienda }) {
     setSaving(true);
     setError(null);
     try {
-      await savePilotAvatar(a.key, a.thumb);
+      await savePilotAvatar(a.key);
       setEquipped(a.key);
       setPreview(null);
     } catch (e) {

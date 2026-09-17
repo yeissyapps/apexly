@@ -694,7 +694,7 @@ export function GrandPrixStandings({ group, gp, onBack, onOpenPlayer }) {
                     {...(onOpenPlayer ? { onPress: () => onOpenPlayer(r) } : null)}
                   >
                     <Text style={[s.standingPos, i === 0 && s.standingPosLead]}>{i + 1}</Text>
-                    <AvatarThumb uri={r.avatarThumbUrl} seed={r.userId} size={52} />
+                    <AvatarThumb pilotAvatarId={r.pilotAvatarId} size={52} />
                     <View style={s.standingInfo}>
                       <View style={s.standingNameRow}>
                         <Text style={s.standingName} numberOfLines={1}>{r.nickname}</Text>

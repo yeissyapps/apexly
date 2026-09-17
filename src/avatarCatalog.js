@@ -6,7 +6,9 @@
 //  mismo tipo de "dos números que se separan" que TOTAL_PIECES ya evitó una
 //  vez (ver Profile.js). Se centraliza aquí para que quien pinte lo que sea
 //  (miniatura 2D, visor 3D en vivo) elija SIEMPRE el mismo diseño para el
-//  mismo jugador vía variantIndexForSeed(seed, AVATARS.length).
+//  mismo jugador: el que tenga guardado en pilot_avatar_id, o AVATARS[0]
+//  (la base) si todavía no ha elegido ninguno — JC, 2026-09-17: "todo el
+//  mundo debe tener el azul" hasta que elija o gane otro en un sobre.
 // ============================================================================
 
 import { TOTAL_PIECES } from './car';

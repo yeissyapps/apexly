@@ -22,7 +22,6 @@ import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react
 import DangerStripe from './DangerStripe';
 import StatTrend from './StatTrend';
 import AvatarViewer from './AvatarViewer';
-import { variantIndexForSeed } from './PilotViewer';
 import { AVATARS, TOTAL_COLLECTIBLES } from './avatarCatalog';
 import { RD, RD_FONT } from './theme';
 import { fmtTime } from './format';
@@ -191,16 +190,17 @@ export default function Profile({
   // más ha jugado.
   const crashRate = stats && stats.laps > 0 ? (stats.crashes / stats.laps).toFixed(1) : null;
 
-  // `profileId`: el de la persona que se está viendo (otro jugador o, sin
-  // viewUserId, tú mismo). Si ya eligió un avatar de verdad (selector real,
-  // JC 2026-09-16, ver AvatarPicker.js) se usa ESE; si no (nunca lo tocó,
-  // o el dato aún no ha llegado), se cae al mismo hash determinista que
-  // pinta AvatarThumb.js en las listas — mismo criterio en los dos sitios,
-  // así el jugador ve siempre el mismo muñeco hasta que elige el suyo.
-  const profileId = viewUserId || myId;
+  // Si ya eligió un avatar de verdad (selector real, JC 2026-09-16, ver
+  // AvatarPicker.js) se usa ESE; si no (nunca lo tocó, o el dato aún no ha
+  // llegado), cae a la base — JC, 2026-09-17: "ahora hay jugadores con
+  // diferentes avatares, todo el mundo debe tener el azul". Antes cada
+  // jugador caía a un diseño distinto por hash de su id (variantIndexForSeed),
+  // lo que hacía parecer que cualquiera podía "tener" un raro/épico sin
+  // haberlo ganado en un sobre — justo lo contrario de la economía real que
+  // se acaba de montar. Mismo criterio en AvatarThumb.js (listas/ranking).
   const avatar = pilotAvatarId
     ? (AVATARS.find((a) => a.key === pilotAvatarId) || AVATARS[0])
-    : (profileId ? AVATARS[variantIndexForSeed(profileId, AVATARS.length)] : AVATARS[0]);
+    : AVATARS[0];
 
   return (
     <View style={s.screen}>
