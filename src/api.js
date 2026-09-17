@@ -7,6 +7,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
+import { Asset } from 'expo-asset';
 import { toByteArray } from 'base64-js';
 import { supabase } from './supabase';
 import { todayKey, dayOffset } from './daily';
@@ -549,6 +550,41 @@ export async function uploadPilotThumbnail(localUri, fileName = 'thumb.png', upd
   if (error) throw error;
 
   return url;
+}
+
+// ---- Selección real de avatar (Fase 4, inventario de verdad) --------------
+// Avatar equipado ahora mismo (userId opcional: sin él, el tuyo). null si
+// nunca eligió ninguno (perfiles de antes de este sistema) — el cliente cae
+// entonces al hash determinista de siempre (ver Profile.js).
+export async function getPilotAvatarId(userId) {
+  const user = await ensureSession();
+  const { data } = await supabase
+    .from('users')
+    .select('pilot_avatar_id')
+    .eq('id', userId || user.id)
+    .maybeSingle();
+  return data?.pilot_avatar_id || null;
+}
+
+// Guarda el avatar elegido — RPC server-side (pilot_avatar_inventory.sql):
+// valida que sea gratis o esté en tu inventory antes de escribirlo, mismo
+// candado que save_loadout() para las piezas del coche.
+//
+// `thumbModule` (opcional): el require() de la miniatura YA renderizada de
+// ese avatar (avatarCatalog.js). Como estos muñecos no se tiñen por
+// jugador —a diferencia del coche—, la plantilla vale tal cual como tu
+// avatar_thumb_url: se sube una copia a tu carpeta y así rankings/GP siguen
+// pintando tu avatar real sin tocar ni una consulta más.
+export async function savePilotAvatar(avatarId, thumbModule) {
+  await ensureSession();
+  const { error } = await supabase.rpc('save_pilot_avatar', { p_avatar_id: avatarId });
+  if (error) throw error;
+
+  if (thumbModule) {
+    const asset = Asset.fromModule(thumbModule);
+    await asset.downloadAsync();
+    await uploadPilotThumbnail(asset.localUri || asset.uri, 'thumb.png', true);
+  }
 }
 
 // Tus mejores tiempos por día (para el gráfico de evolución del Perfil).

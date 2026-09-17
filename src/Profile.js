@@ -23,16 +23,15 @@ import DangerStripe from './DangerStripe';
 import StatTrend from './StatTrend';
 import AvatarViewer from './AvatarViewer';
 import { variantIndexForSeed } from './PilotViewer';
-import { AVATARS } from './avatarCatalog';
+import { AVATARS, TOTAL_COLLECTIBLES } from './avatarCatalog';
 import { RD, RD_FONT } from './theme';
 import { fmtTime } from './format';
 import { dailyTimeEstimate } from './generator';
 import {
   getCareerProgress, getInventory, getGlobalBoard, getMyId, getPlayerRankToday,
-  getPlayerStats, getMyDailyHistory, getMyPurpleSectors, getLifetimeCoins,
+  getPlayerStats, getMyDailyHistory, getMyPurpleSectors, getLifetimeCoins, getPilotAvatarId,
 } from './api';
 import { LEVEL_COUNT } from './career';
-import { TOTAL_PIECES } from './car';
 
 // Media pantalla de verdad, no un porcentaje del contenido del ScrollView
 // (ahí "50%" no significa nada sin un padre de altura fija) — se mide
@@ -40,9 +39,12 @@ import { TOTAL_PIECES } from './car';
 // arriba su avatar".
 const AVATAR_HEIGHT = Dimensions.get('window').height * 0.5;
 
-// TOTAL_PIECES ahora vive en car.js (una sola fuente, calculada del catálogo)
-// — antes se calculaba aquí y estaba escrito a mano en Tienda.js, así que al
-// añadir una categoría los dos números se separaban.
+// TOTAL_PIECES vive en car.js (una sola fuente, calculada del catálogo del
+// coche) — antes se calculaba aquí y estaba escrito a mano en Tienda.js, así
+// que al añadir una categoría los dos números se separaban. TOTAL_COLLECTIBLES
+// (avatarCatalog.js) le suma las piezas de avatar bloqueables: piecesOwned
+// de abajo cuenta TODO el inventory sin filtrar por categoría, así que el
+// total tiene que incluirlas también o "completo" llegaría antes de tiempo.
 
 // Caché de los objetivos por día. El objetivo de un día pasado es
 // determinista y no cambia NUNCA, así que se calcula una vez y se guarda:
@@ -109,8 +111,8 @@ function StatCard({ value, label, hint, tone }) {
 }
 
 export default function Profile({
-  nickname, myStreak, wallet, onBack, onOpenGarage, onOpenTienda, onOpenCareer, onOpenPilotTest,
-  onOpenAvatarTest,
+  nickname, myStreak, wallet, onBack, onOpenGarage, onOpenTienda, onOpenCareer, onOpenAvatarPicker,
+  onOpenPilotTest, onOpenAvatarTest,
   viewUserId, viewNickname, viewStreak,
 }) {
   const [career, setCareer] = useState(null);
@@ -122,6 +124,7 @@ export default function Profile({
   const [trend, setTrend] = useState(null);
   const [myId, setMyId] = useState(null);
   const [tab, setTab] = useState('piloto');
+  const [pilotAvatarId, setPilotAvatarId] = useState(null); // null = todavía sin elegir uno (o cargando) -> hash de siempre
 
   // Perfil público de otro jugador (JC, 2026-09-15) — viewUserId llega al
   // tocar un nombre/avatar en cualquier ranking (ver App.js:
@@ -156,6 +159,11 @@ export default function Profile({
 
     getPlayerStats(viewUserId).then((v) => alive && setStats(v)).catch(() => alive && setStats(null));
     getMyPurpleSectors(undefined, viewUserId).then((v) => alive && setPurple(v)).catch(() => {});
+    // El avatar REAL que eligió (Fase 4, inventario de verdad, JC
+    // 2026-09-16) — null mientras carga o si nunca eligió ninguno, y en
+    // ese caso se sigue cayendo al hash determinista de siempre (ver
+    // `avatar` más abajo), no a un "sin avatar".
+    getPilotAvatarId(viewUserId).then((id) => alive && setPilotAvatarId(id)).catch(() => {});
     // Las monedas son privadas (JC: público el avatar y las stats, no el
     // saldo) — ni se piden para el perfil de otro jugador.
     if (!viewUserId) {
@@ -183,17 +191,16 @@ export default function Profile({
   // más ha jugado.
   const crashRate = stats && stats.laps > 0 ? (stats.crashes / stats.laps).toFixed(1) : null;
 
-  // Mismo diseño que vería en su miniatura de lista (AvatarThumb.js) — se
-  // deriva del mismo hash por userId sobre el mismo catálogo (avatarCatalog
-  // .js) en los dos sitios, así el jugador ve siempre el mismo muñeco en su
-  // avatar en vivo y en cualquier ranking. `profileId`: el de la persona
-  // que se está viendo (otro jugador o, sin viewUserId, tú mismo). JC,
-  // 2026-09-16: el visor en vivo usaba todavía el PilotViewer viejo (piezas
-  // recoloreadas) en vez del sistema de muñecos enteros ya en producción en
-  // las listas — "cambia el avatar que aparece ahora en el perfil, ese ya
-  // no lo vamos a usar".
+  // `profileId`: el de la persona que se está viendo (otro jugador o, sin
+  // viewUserId, tú mismo). Si ya eligió un avatar de verdad (selector real,
+  // JC 2026-09-16, ver AvatarPicker.js) se usa ESE; si no (nunca lo tocó,
+  // o el dato aún no ha llegado), se cae al mismo hash determinista que
+  // pinta AvatarThumb.js en las listas — mismo criterio en los dos sitios,
+  // así el jugador ve siempre el mismo muñeco hasta que elige el suyo.
   const profileId = viewUserId || myId;
-  const avatar = profileId ? AVATARS[variantIndexForSeed(profileId, AVATARS.length)] : AVATARS[0];
+  const avatar = pilotAvatarId
+    ? (AVATARS.find((a) => a.key === pilotAvatarId) || AVATARS[0])
+    : (profileId ? AVATARS[variantIndexForSeed(profileId, AVATARS.length)] : AVATARS[0]);
 
   return (
     <View style={s.screen}>
@@ -252,6 +259,13 @@ export default function Profile({
                 </Pressable>
                 <Pressable style={[s.actionBtn, s.actionBtnCarrera]} onPress={onOpenCareer}>
                   <Text style={[s.actionBtnText, s.actionBtnTextCarrera]}>CARRERA</Text>
+                </Pressable>
+                {/* Selector real de avatar (JC, 2026-09-16) — youMagenta
+                    porque ya es el color de "épica" en el resto de la app
+                    (RARITY_COLOR), y este botón lleva justo a la pantalla
+                    de rarezas. */}
+                <Pressable style={[s.actionBtn, s.actionBtnAvatar]} onPress={onOpenAvatarPicker}>
+                  <Text style={[s.actionBtnText, s.actionBtnTextAvatar]}>AVATAR</Text>
                 </Pressable>
               </View>
             )}
@@ -350,7 +364,7 @@ export default function Profile({
                 label="NIVELES"
               />
               <StatCard
-                value={piecesOwned != null ? `${piecesOwned}/${TOTAL_PIECES}` : '—'}
+                value={piecesOwned != null ? `${piecesOwned}/${TOTAL_COLLECTIBLES}` : '—'}
                 label="PIEZAS"
               />
               {/* Las monedas se quedan fuera del perfil público (JC,
@@ -451,6 +465,8 @@ const s = StyleSheet.create({
   actionBtnTextTienda: { color: RD.gold1st },
   actionBtnCarrera: { borderColor: RD.successGreen },
   actionBtnTextCarrera: { color: RD.successGreen },
+  actionBtnAvatar: { borderColor: RD.youMagenta },
+  actionBtnTextAvatar: { color: RD.youMagenta },
 
   devBtn: {
     borderWidth: 1, borderColor: '#665', borderStyle: 'dashed', borderRadius: 2,

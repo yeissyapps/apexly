@@ -9,6 +9,8 @@
 //  mismo jugador vía variantIndexForSeed(seed, AVATARS.length).
 // ============================================================================
 
+import { TOTAL_PIECES } from './car';
+
 export const AVATARS = [
   { key: 'base', label: 'BASE', rarity: 'base',
     glb: require('../assets/pilot/procesado/avatar_base.glb'),
@@ -53,3 +55,37 @@ export const AVATARS = [
     glb: require('../assets/pilot/procesado/avatar_legendario.glb'),
     thumb: require('../assets/pilot/avatars/avatar-legendario.png') },
 ];
+
+// Solo la base es gratis de por vida (JC, 2026-09-16: "cuando lancemos la
+// 2.4.4 todos deben tener el base y todos los demás bloqueados") — las 6
+// comunes pasaron a ganarse en un sobre, igual que rara/épica/legendaria.
+// Espejo EXACTO de v_free en supabase/pilot_avatar_inventory.sql:
+// save_pilot_avatar() — si cambia uno, cambia el otro.
+export function isFreeAvatar(key) {
+  return key === 'base';
+}
+
+// TOTAL_PIECES (car.js) nunca contó los avatares — es la cuenta del coche,
+// y Garage.js necesita que se quede así para su propia fracción. Pero
+// Tienda.js (botón de comprar / "colección completa") y Profile.js SÍ leen
+// TODO el inventory sin filtrar por categoría — con las 13 piezas de avatar
+// ahora bloqueables, esos dos sitios necesitan el TOTAL real o "colección
+// completa" se dispararía en cuanto alguien tuviera el coche entero, sin
+// haber sacado ni un avatar de un sobre.
+export const TOTAL_COLLECTIBLES =
+  TOTAL_PIECES + AVATARS.filter((a) => !isFreeAvatar(a.key)).length;
+
+// Nombre para el jugador — a.label es el de AvatarTest.js (pantalla DEV,
+// todo mayúsculas y con notas internas como "textura provisional" que no
+// pintan nada fuera de ahí), así que se deriva uno propio a partir de la
+// key. Centralizado aquí porque lo usan tanto AvatarPicker.js como el
+// revelado de sobres en Tienda.js — dos copias del mismo mapeo es la forma
+// en que esto se desincroniza sin que nadie se dé cuenta.
+const TIER_WORD = { comun: 'Común', raro: 'Raro', epico: 'Épico' };
+export function avatarDisplayLabel(a) {
+  if (!a) return '';
+  if (a.key === 'base') return 'Base';
+  if (a.key === 'legendario') return 'Legendario';
+  const [tier, num] = a.key.split('_');
+  return `${TIER_WORD[tier] || tier} ${num}`;
+}

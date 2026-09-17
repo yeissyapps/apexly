@@ -40,6 +40,7 @@ import MiniTrackMap from './src/MiniTrackMap';
 import Garage from './src/Garage';
 import Tienda from './src/Tienda';
 import Profile from './src/Profile';
+import AvatarPicker from './src/AvatarPicker';
 import CareerMode from './src/CareerMode';
 import { levelSpec, gapMsFor, weatherForLevel, CAREER_AD_BATCH } from './src/career';
 import { GroupHome, GrandPrixStandings, RoundStart } from './src/GrandPrix';
@@ -795,8 +796,20 @@ export default function App() {
         onOpenGarage={() => { logGarageOpen(); setScreen('garage'); }}
         onOpenTienda={() => setScreen('tienda')}
         onOpenCareer={() => setScreen('career')}
+        onOpenAvatarPicker={() => setScreen('avatar-picker')}
         onOpenPilotTest={__DEV__ ? () => setScreen('pilot-test') : undefined}
         onOpenAvatarTest={__DEV__ ? () => setScreen('avatar-test') : undefined}
+      />
+    );
+  }
+
+  // Selector real de avatar (JC, 2026-09-16) — vuelve a Perfil, no a Inicio,
+  // para que se vea al momento el muñeco recién equipado en el visor.
+  if (screen === 'avatar-picker') {
+    return (
+      <AvatarPicker
+        onBack={() => setScreen('perfil')}
+        onOpenTienda={() => setScreen('tienda')}
       />
     );
   }
@@ -1078,7 +1091,11 @@ const TOUR_STEPS = [
   {
     title: 'La racha',
     demo: <StreakPath current={3} />,
-    body: 'Corre al menos una vuelta cada día y la racha sube. Cada día paga más monedas — 5, 10, 15, 20 — y el séptimo cae un sobre con piezas para el coche.\n\nSi te saltas un día, vuelve a empezar de cero.',
+    // JC, 2026-09-17: "poner lo del icono de las monedas" — el texto
+    // repetía en palabras ("monedas — 5, 10, 15, 20") lo que el demo de
+    // arriba ya enseña con el icono real desde que se rediseñó el banner
+    // (App.js, StreakPath). Apunta al icono en vez de recitar los números.
+    body: 'Corre al menos una vuelta cada día y la racha sube. El icono de cada casilla es lo que ganas ese día — cada vez más — y el séptimo cae un sobre con piezas para el coche.\n\nSi te saltas un día, vuelve a empezar de cero.',
   },
   {
     target: 'tab-amigos',

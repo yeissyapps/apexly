@@ -188,9 +188,10 @@ function loadTextureFromFile(gl, renderer, localUri) {
   return texture;
 }
 
-const AvatarViewer = forwardRef(function AvatarViewer({ source, cacheKey, onReady }, ref) {
+const AvatarViewer = forwardRef(function AvatarViewer({ source, cacheKey, onReady, autoRotate = false }, ref) {
   const groupRef = useRef(null);
   const dragRef = useRef(0);
+  const draggingRef = useRef(false);
   const glRef = useRef(null);
   const rendererRef = useRef(null);
   // El bucle de render de onContextCreate es autónomo (su propio
@@ -226,6 +227,7 @@ const AvatarViewer = forwardRef(function AvatarViewer({ source, cacheKey, onRead
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 2,
+      onPanResponderGrant: () => { draggingRef.current = true; },
       onPanResponderMove: (_, g) => {
         if (groupRef.current) {
           groupRef.current.rotation.y = dragRef.current + g.dx * 0.01;
@@ -233,7 +235,9 @@ const AvatarViewer = forwardRef(function AvatarViewer({ source, cacheKey, onRead
       },
       onPanResponderRelease: (_, g) => {
         dragRef.current += g.dx * 0.01;
+        draggingRef.current = false;
       },
+      onPanResponderTerminate: () => { draggingRef.current = false; },
     })
   ).current;
 
@@ -308,6 +312,14 @@ const AvatarViewer = forwardRef(function AvatarViewer({ source, cacheKey, onRead
       // y detiene el bucle en vez de reintentar cada fotograma.
       const render = () => {
         if (!aliveRef.current) return;
+        // Solo para el revelado de sobre (JC, 2026-09-16: "algo más épico
+        // que una pieza") — el visor se presenta girando solo en vez de
+        // esperar a que alguien lo arrastre. Un dedo en pantalla sigue
+        // ganando: se pausa mientras se arrastra y retoma desde ahí.
+        if (autoRotate && groupRef.current && !draggingRef.current) {
+          dragRef.current += 0.006;
+          groupRef.current.rotation.y = dragRef.current;
+        }
         try {
           renderer.render(scene, camera);
           gl.endFrameEXP();
