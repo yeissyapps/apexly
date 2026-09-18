@@ -16,26 +16,26 @@ const KEY = 'whatsnew:lastSeenVersion';
 // La versión que se cuenta aquí — sube esto a mano cuando haya algo que
 // contar de cara al jugador. Un parche sin cambios visibles no necesita
 // tocar esto (y así no le sale el pop-up a nadie por él).
-export const WHATS_NEW_VERSION = '2.4.3';
+export const WHATS_NEW_VERSION = '2.4.4';
 
-export const WHATS_NEW_TITLE = 'Os hemos escuchado';
+export const WHATS_NEW_TITLE = 'Tu piloto, tu duelo';
 
 export const WHATS_NEW_ITEMS = [
   {
-    title: 'Recuperamos la conducción de la versión anterior',
-    body: 'Hemos escuchado vuestro feedback y hemos vuelto a implementar la misma conducción que en la versión anterior.',
+    title: 'Pilotos coleccionables',
+    body: 'Se acabó montar piezas sueltas: ahora eliges un piloto entero, con su propia rareza. Del básico gratis a la leyenda, hay 14 por coleccionar.',
   },
   {
-    title: 'Un Grand Prix renovado',
-    body: 'Circuitos cerrados y 3 vueltas seguidas. Compite con tus amigos por la vuelta rápida, por los sectores y por ser el más rápido.',
+    title: 'También caen en el sobre',
+    body: 'Los avatares (menos el básico) ahora salen al abrir sobres, igual que las piezas de tu coche.',
   },
   {
-    title: 'Ranking mejorado',
-    body: 'Ahora puedes ver el ranking completo, tanto el de hoy como el nuevo ranking del mes, donde puedes competir por más y mejores recompensas.',
+    title: 'Visita a otros jugadores',
+    body: 'Toca el nombre de cualquiera en el ranking y entra en su perfil: su piloto, su coche, sus stats.',
   },
   {
-    title: 'Carrera se muda',
-    body: 'El modo Carrera ahora vive en tu Perfil, junto al Garaje y la Tienda.',
+    title: 'Duelos 1vs1',
+    body: 'Reta a otro jugador desde su perfil y apuesta monedas. Corréis los dos a ciegas y al final se revela quién ha sido más rápido.',
   },
 ];
 

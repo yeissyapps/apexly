@@ -31,7 +31,7 @@ import { dailyCircuit, tieredCircuit } from './src/generator';
 import { dailyWeather, NEUTRAL } from './src/weather';
 
 import { fmtTime, fmtSecs, fmtCountdown } from './src/format';
-import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS } from './src/theme';
+import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS, RARITY_COLOR } from './src/theme';
 import DangerStripe from './src/DangerStripe';
 import CoinIcon from './src/CoinIcon';
 import Identicon from './src/Identicon';
@@ -42,6 +42,7 @@ import Garage from './src/Garage';
 import Tienda from './src/Tienda';
 import Profile from './src/Profile';
 import AvatarPicker from './src/AvatarPicker';
+import AvatarThumb from './src/AvatarThumb';
 import DuelDecision from './src/DuelDecision';
 import DuelReveal from './src/DuelReveal';
 import CareerMode from './src/CareerMode';
@@ -1339,6 +1340,9 @@ function WhatsNewModal({ onClose }) {
       <View style={rd.recapBackdrop}>
         <View style={rd.whatsNewCard}>
           <Text style={rd.recapTitle}>NOVEDADES · v{WHATS_NEW_VERSION}</Text>
+          <View style={rd.whatsNewHero}>
+            <AvatarThumb pilotAvatarId="legendario" size={110} />
+          </View>
           <Text style={rd.whatsNewTitle}>{WHATS_NEW_TITLE}</Text>
           <View style={rd.whatsNewList}>
             {WHATS_NEW_ITEMS.map((item) => (
@@ -1866,6 +1870,12 @@ const rd = StyleSheet.create({
   whatsNewCard: {
     width: '100%', maxWidth: 340, backgroundColor: RD.bg, borderWidth: 1, borderColor: RD.gold1st,
     borderRadius: 2, padding: 22, gap: 4,
+  },
+  whatsNewHero: {
+    alignSelf: 'center', width: 130, height: 130, borderRadius: 4,
+    borderWidth: 1, borderColor: RARITY_COLOR.legendaria,
+    backgroundColor: 'rgba(240,196,81,0.08)',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 10,
   },
   whatsNewTitle: {
     color: RD.textPrimary, fontSize: 20, fontFamily: RD_FONT.displayBlack, marginBottom: 12,
