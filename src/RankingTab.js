@@ -14,7 +14,11 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { getMonthlyRanking, getRankingPage, getWorldWinCounts, pointsForDailyRank, searchRanking } from './api';
+import { getMonthlyRanking, getPresenceMap, getRankingPage, getWorldWinCounts, pointsForDailyRank, searchRanking } from './api';
+
+// Mismo umbral que Profile.js: 3 minutos de margen sobre el latido de ~60s
+// de App.js para que la insignia no parpadee entre dos latidos.
+const ONLINE_WINDOW_MS = 3 * 60 * 1000;
 import { RD, RD_FONT } from './theme';
 import { RankRow } from './MiniRanking';
 
@@ -236,6 +240,7 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
   const [rows, setRows] = useState(null); // null = cargando
   const [error, setError] = useState(false);
   const [winCounts, setWinCounts] = useState({});
+  const [presence, setPresence] = useState(new Map()); // userId -> Date del último latido
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -246,8 +251,14 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
       .then((res) => {
         if (!alive) return;
         setRows(res.rows);
-        getWorldWinCounts(res.rows.map((r) => r.userId))
+        const ids = res.rows.map((r) => r.userId);
+        getWorldWinCounts(ids)
           .then((wc) => { if (alive) setWinCounts(wc); })
+          .catch(() => {});
+        // Presencia real (JC, 2026-09-17) — "yo había pensado en el ranking
+        // mensual, que es donde más gente aparece": aquí, no en el diario.
+        getPresenceMap(ids)
+          .then((m) => { if (alive) setPresence(m); })
           .catch(() => {});
       })
       .catch(() => { if (alive) setError(true); });
@@ -309,10 +320,14 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
             formatLabel={(v) => `PREMIO: ${v} MONEDAS`}
             wins={winCounts}
             onOpenPlayer={onOpenPlayer}
-            extraRowProps={(r) => ({
-              timeLabel: `${r.points} pts`,
-              sub: `${r.daysPlayed} ${r.daysPlayed === 1 ? 'día jugado' : 'días jugados'}`,
-            })}
+            extraRowProps={(r) => {
+              const seen = presence.get(r.userId);
+              return {
+                timeLabel: `${r.points} pts`,
+                sub: `${r.daysPlayed} ${r.daysPlayed === 1 ? 'día jugado' : 'días jugados'}`,
+                online: !!seen && Date.now() - seen.getTime() < ONLINE_WINDOW_MS,
+              };
+            }}
           />
         </View>
       )}

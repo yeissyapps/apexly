@@ -8,7 +8,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Dimensions, Linking, Modal, Pressable, ScrollView,
+  ActivityIndicator, Animated, AppState, Dimensions, Linking, Modal, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
+import * as Notifications from 'expo-notifications';
 import { useFonts } from 'expo-font';
 import {
   BarlowCondensed_600SemiBold, BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold,
@@ -26,7 +27,7 @@ import {
 
 import Game from './src/Game';
 import { todayKey, dayOffset } from './src/daily';
-import { dailyCircuit } from './src/generator';
+import { dailyCircuit, tieredCircuit } from './src/generator';
 import { dailyWeather, NEUTRAL } from './src/weather';
 
 import { fmtTime, fmtSecs, fmtCountdown } from './src/format';
@@ -41,6 +42,8 @@ import Garage from './src/Garage';
 import Tienda from './src/Tienda';
 import Profile from './src/Profile';
 import AvatarPicker from './src/AvatarPicker';
+import DuelDecision from './src/DuelDecision';
+import DuelReveal from './src/DuelReveal';
 import CareerMode from './src/CareerMode';
 import { levelSpec, gapMsFor, weatherForLevel, CAREER_AD_BATCH } from './src/career';
 import { GroupHome, GrandPrixStandings, RoundStart } from './src/GrandPrix';
@@ -60,6 +63,7 @@ import {
   submitGpResult, notifyGpOvertake, recordLap, submitDailyRun, getLeaderRun, getMyGpRoundSectors,
   getActiveGrandPrix, getGpResults, getMyId, getMyReferralCode,
   getGpSectorBests, submitGpSectorSplits,
+  submitDuelRun, getDuel, touchPresence,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -151,6 +155,17 @@ export default function App() {
     setScreen('perfil');
   }
   const [challenge, setChallenge] = useState(null); // { ms } reto recibido por deep link, si es de hoy
+  // Duelo 1vs1 en curso (JC, 2026-09-17) — el id basta para todo: las
+  // pantallas de duelo (DuelDecision/DuelReveal, y duel-race más abajo)
+  // piden sus propios datos con getDuel/getDuelReveal, mismo criterio que
+  // viewedPlayer/openPlayerProfile de arriba.
+  const [duelId, setDuelId] = useState(null);
+  function openDuel(id) {
+    if (!id) return;
+    setDuelId(id);
+    setScreen('duel-decision');
+  }
+  const [myId, setMyId] = useState(null); // tu propio id — hace falta para saber si ganaste un duelo (DuelReveal)
   const [tab, setTab] = useState('diario'); // pestaña activa de Inicio: diario | ranking | amigos
   // Recorrido guiado de la primera apertura. null = aún no sabemos si toca
   // (lo dice AsyncStorage); false = no toca o ya terminó; true = corriendo.
@@ -171,6 +186,8 @@ export default function App() {
   const [gpRoundIndex, setGpRoundIndex] = useState(null); // ronda en juego dentro del GP
   const [gpAtt, setGpAtt] = useState({ used: 0, bonus: 0 }); // intentos de ESTA ronda del GP — cupo propio, igual que Carrera
   const [gpResult, setGpResult] = useState(null); // { dayIndex, ms, isPractice, isBest, error } del último intento
+  const [duelAtt, setDuelAtt] = useState({ used: 0, bonus: 0 }); // intentos del duelo en curso — cupo propio, 1 gratis (no FREE_ATTEMPTS)
+  const [duelWaitError, setDuelWaitError] = useState(false); // el envío de la vuelta del duelo falló — ver handleDuelFinish
   const [unlocking, setUnlocking] = useState(false);     // viendo el anuncio (para pintar)
   const unlockingRef = useRef(false);                    // ...y para el guardia real (ver watchAd)
   const [adMsg, setAdMsg] = useState('');                // aviso si el anuncio no sale
@@ -181,6 +198,10 @@ export default function App() {
   const left = calcLeft(att);
   const total = FREE_ATTEMPTS + (att?.bonus || 0);
   const careerLeft = calcLeft(careerAtt);
+  // 1 intento gratis (no los 3 de FREE_ATTEMPTS) + anuncio para 1 más — JC,
+  // 2026-09-17: "más dopamínico" que el cupo normal, calcado a mano en vez
+  // de reutilizar calcLeft() porque esa asume FREE_ATTEMPTS=3 de attempts.js.
+  const duelLeft = 1 + (duelAtt?.bonus || 0) - (duelAtt?.used || 0);
   const [gpMode, setGpMode] = useState(null);   // 'practica' | 'directo' de la ronda en curso
   const gpLeft = gpLeftFor(gpMode, gpAtt);
   const daily = useMemo(() => dailyCircuit(todayKey()), []);
@@ -191,6 +212,13 @@ export default function App() {
   // se reiniciaba a mitad de carrera -> el primer toque gastaba el intento y
   // la vuelta se cortaba antes de arrancar de verdad.
   const careerSpec = useMemo(() => (careerLevel != null ? levelSpec(careerLevel) : null), [careerLevel]);
+  // Mismo generador que el circuito diario, sembrado con el id del duelo en
+  // vez de la fecha — los dos clientes reconstruyen el circuito idéntico sin
+  // que el servidor lo guarde en ningún sitio (ver generator.js). Memoizado
+  // por el mismo motivo que careerSpec: recalcularlo en cada render
+  // reiniciaría la física a mitad de carrera.
+  const duelSpec = useMemo(() => (duelId ? tieredCircuit(duelId, 0.5) : null), [duelId]);
+  const duelWeather = useMemo(() => (duelId ? dailyWeather('duel:' + duelId) : NEUTRAL), [duelId]);
   const careerWeather = useMemo(() => (careerLevel != null ? weatherForLevel(careerLevel) : NEUTRAL), [careerLevel]);
   // Mismo motivo que careerSpec: memoizado por [gp, ronda], no recalculado en
   // cada render — si no, el mismo bug del intento que se corta a mitad.
@@ -239,6 +267,13 @@ export default function App() {
     if (gpActive == null || gpRoundIndex == null) return;
     loadAttempts('gp-' + gpActive.id + '-' + gpRoundIndex).then(setGpAtt).catch(() => {});
   }, [gpActive?.id, gpRoundIndex]);
+
+  // Intentos del duelo en curso: cupo propio por duelo, mismo mecanismo que
+  // Carrera/GP pero con base de 1 en vez de FREE_ATTEMPTS (ver duelLeft).
+  useEffect(() => {
+    if (!duelId) return;
+    loadAttempts('duel-' + duelId).then(setDuelAtt).catch(() => {});
+  }, [duelId]);
 
   // Ilimitado: valor guardado primero (rápido, sin red), luego se reconcilia
   // con la tienda (por si se compró desde otro dispositivo/reinstalación).
@@ -308,6 +343,12 @@ export default function App() {
     consumeAttempt('career-' + careerLevel).then(setCareerAtt).catch(() => {});
   }
 
+  function startDuelAttempt() {
+    logRaceStart();
+    if (unlimited) return;
+    consumeAttempt('duel-' + duelId).then(setDuelAtt).catch(() => {});
+  }
+
   // Ver anuncio → concede un lote de intentos en el cupo indicado por `day`
   // (fecha de hoy para el diario, 'career-N' para un nivel) y lo aplica con
   // `setter`. Un único flujo de anuncio para los dos modos; `amount` por
@@ -364,6 +405,7 @@ export default function App() {
   }
   const watchAdForMore = () => watchAd(todayKey(), setAtt);
   const watchAdForCareerMore = () => watchAd('career-' + careerLevel, setCareerAtt, CAREER_AD_BATCH);
+  const watchAdForDuelMore = () => watchAd('duel-' + duelId, setDuelAtt, 1);
 
   // Intentar jugar: ilimitado o con intentos → a jugar; si no, ofrecer el anuncio/IAP.
   function tryPlay() {
@@ -402,6 +444,31 @@ export default function App() {
     // fallado el tiempo NO se pide — pedir valoración justo después de perder
     // es la forma más rápida de llevarte una estrella.
     noteRaceFinished(passed);
+  }
+
+  // Sube tu vuelta del duelo. Nadie ve el fantasma del otro mientras corre
+  // (ver duels.sql), así que aquí no hay nada que "revelar" todavía — si el
+  // rival ya había terminado, el propio submit_duel_run liquida el duelo en
+  // el momento y esta llamada ya trae el resultado, sin una segunda ida y
+  // vuelta al servidor.
+  async function handleDuelFinish(ms, trace) {
+    const id = duelId;
+    recordLap(ms, []); // cuenta para los contadores del Perfil, igual que el resto de modos
+    setDuelWaitError(false);
+    setScreen('duel-wait');
+    try {
+      const { duelStatus, opponentDone } = await submitDuelRun(id, ms, trace);
+      if (opponentDone && duelStatus === 'finished') setScreen('duel-reveal');
+      // si el rival aún no ha corrido, duel-wait se queda montada y sondea
+      // ella sola (ver DuelWaitScreen) hasta que lo haga.
+    } catch (_) {
+      // Antes esto mandaba a 'home' en silencio — con dinero de por medio y
+      // sin saber si el envío llegó a completarse en el servidor antes de
+      // que la respuesta se perdiera, desaparecer sin decir nada es peor
+      // que dejar al jugador reintentar (mismo criterio que handleFinish
+      // con el circuito diario: error visible, nunca un pantallazo mudo).
+      setDuelWaitError(true);
+    }
   }
 
   // Abrir la pantalla de un grupo concreto (desde Amigos): si ya tiene GP
@@ -610,6 +677,40 @@ export default function App() {
     if (PUSH_ENABLED && nickname && tourOn === false) registerPushToken().catch(() => {});
   }, [nickname, tourOn]);
 
+  // Presencia real (JC, 2026-09-17: "presencia real", para la insignia EN
+  // LÍNEA de los duelos) — sin tiempo real en este proyecto, así que "en
+  // línea" es sondeo: laten cada 60s mientras la app está en primer plano.
+  // Un latido inmediato al abrir + uno al volver de segundo plano, para que
+  // la insignia no tarde un minuto entero en ponerse en verde justo después
+  // de abrir la app.
+  useEffect(() => {
+    if (!nickname) return undefined;
+    touchPresence();
+    const id = setInterval(() => {
+      if (AppState.currentState === 'active') touchPresence();
+    }, 60000);
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') touchPresence();
+    });
+    return () => { clearInterval(id); sub.remove(); };
+  }, [nickname]);
+
+  // Al tocar una notificación de duelo (reto nuevo o reto aceptado) se abre
+  // directo la pantalla que toca — 'challenge' todavía necesita decidir
+  // (Aceptar/Rechazar), 'accepted' ya no: el aviso ES "ya puedes correr", así
+  // que va derecho a la carrera. Ver notify-duel-challenge/index.ts para el
+  // payload (`data: {duelId, kind}`).
+  useEffect(() => {
+    if (!PUSH_ENABLED) return undefined;
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const d = response.notification.request.content.data || {};
+      if (!d.duelId) return;
+      setDuelId(d.duelId);
+      setScreen(d.kind === 'accepted' ? 'duel-race' : 'duel-decision');
+    });
+    return () => sub.remove();
+  }, []);
+
   // Init: version gate + sesión anónima + ¿tenemos nickname?
   useEffect(() => {
     let alive = true;
@@ -624,16 +725,43 @@ export default function App() {
         }
         await ensureSession();
         ensureDailyTrack(daily.label).catch(() => {});
+        getMyId().then((id) => { if (alive) setMyId(id); }).catch(() => {});
         const nick = await getLocalNickname();
         if (!alive) return;
-        if (nick) { setNickname(nick); setScreen('home'); }
-        else setScreen('onboarding');
+        if (nick) {
+          setNickname(nick);
+          const openedByDuel = await openDuelFromColdStart();
+          if (!openedByDuel && alive) setScreen('home');
+        } else setScreen('onboarding');
       } catch (e) {
         if (alive) setScreen('error');
       }
     })();
     return () => { alive = false; };
   }, [retry]);
+
+  // Arranque en frío desde una notificación de duelo (JC, 2026-09-17: "sí,
+  // arréglalo ahora") — Notifications.addNotificationResponseReceivedListener
+  // (más abajo) solo capta un toque mientras la app YA está viva; el toque
+  // que la ABRIÓ del todo hay que pedirlo aparte, una sola vez al arrancar.
+  // Se limpia con clearLastNotificationResponseAsync() nada más leerla: si
+  // no, la MISMA respuesta se volvería a consumir en la siguiente apertura
+  // (p.ej. tras matar la app sin tocar nada nuevo), reabriendo un duelo
+  // viejo sin que el jugador haya tocado nada.
+  async function openDuelFromColdStart() {
+    if (!PUSH_ENABLED) return false;
+    try {
+      const response = await Notifications.getLastNotificationResponseAsync();
+      const d = response?.notification?.request?.content?.data || {};
+      if (!d.duelId) return false;
+      Notifications.clearLastNotificationResponseAsync().catch(() => {});
+      setDuelId(d.duelId);
+      setScreen(d.kind === 'accepted' ? 'duel-race' : 'duel-decision');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   async function onNicknameDone(nick) {
     try {
@@ -799,6 +927,7 @@ export default function App() {
         onOpenAvatarPicker={() => setScreen('avatar-picker')}
         onOpenPilotTest={__DEV__ ? () => setScreen('pilot-test') : undefined}
         onOpenAvatarTest={__DEV__ ? () => setScreen('avatar-test') : undefined}
+        onOpenDuel={openDuel}
       />
     );
   }
@@ -810,6 +939,63 @@ export default function App() {
       <AvatarPicker
         onBack={() => setScreen('perfil')}
         onOpenTienda={() => setScreen('tienda')}
+      />
+    );
+  }
+
+  // Duelos 1vs1 (JC, 2026-09-17) — cuatro pasos: decidir, correr a ciegas,
+  // esperar si hace falta, revelar. Ver el plan completo en duels.sql.
+  if (screen === 'duel-decision') {
+    return (
+      <DuelDecision
+        duelId={duelId}
+        onBack={() => setScreen('home')}
+        onAccepted={() => setScreen('duel-race')}
+        onDeclined={() => setScreen('home')}
+      />
+    );
+  }
+
+  if (screen === 'duel-race' && duelSpec) {
+    return (
+      <Game
+        track={duelSpec.track}
+        ghost={null}
+        leaderRun={null}
+        weather={duelWeather}
+        sectorBests={null}
+        loadout={loadout}
+        attemptsLeft={unlimited ? Infinity : duelLeft}
+        onAttemptStart={startDuelAttempt}
+        onNeedMore={() => { setNomoreReturn('duel-race'); setScreen('nomore'); }}
+        onFinish={handleDuelFinish}
+        onExit={() => setScreen('home')}
+      />
+    );
+  }
+
+  if (screen === 'duel-wait') {
+    return (
+      <DuelWaitScreen
+        duelId={duelId}
+        submitError={duelWaitError}
+        onReady={() => setScreen('duel-reveal')}
+        onBack={() => setScreen('home')}
+        onRetry={() => { setDuelWaitError(false); setScreen('duel-race'); }}
+      />
+    );
+  }
+
+  if (screen === 'duel-reveal') {
+    return (
+      <DuelReveal
+        duelId={duelId}
+        myId={myId}
+        onBack={() => setScreen('home')}
+        // "Revancha" lleva al perfil del mismo rival, con el botón RETAR ya
+        // a mano — no lanza un duelo nuevo sola (eso sigue pidiendo
+        // confirmar la apuesta, a propósito, ver Profile.js).
+        onRematch={(rival) => openPlayerProfile({ userId: rival.userId, nickname: rival.nickname })}
       />
     );
   }
@@ -910,16 +1096,17 @@ export default function App() {
   if (screen === 'nomore') {
     const isCareer = nomoreReturn === 'career-playing';
     const isGp = nomoreReturn === 'gp-playing';
+    const isDuel = nomoreReturn === 'duel-race';
     return (
       <NoMoreAttempts
-        title={isGp ? 'SIN INTENTOS EN ESTA RONDA' : isCareer ? 'SIN INTENTOS EN ESTE NIVEL' : 'SIN INTENTOS POR HOY'}
-        adBatch={isGp ? GP_AD_BATCH : isCareer ? CAREER_AD_BATCH : AD_BATCH}
+        title={isGp ? 'SIN INTENTOS EN ESTA RONDA' : isCareer ? 'SIN INTENTOS EN ESTE NIVEL' : isDuel ? 'SIN INTENTOS EN ESTE DUELO' : 'SIN INTENTOS POR HOY'}
+        adBatch={isGp ? GP_AD_BATCH : isCareer ? CAREER_AD_BATCH : isDuel ? 1 : AD_BATCH}
         unlocking={unlocking}
         adMsg={adMsg}
         unlimitedPrice={unlimitedPrice}
         buying={buying}
         onWatchAd={async () => {
-          const ok = isGp ? await watchAdForGpMore() : isCareer ? await watchAdForCareerMore() : await watchAdForMore();
+          const ok = isGp ? await watchAdForGpMore() : isCareer ? await watchAdForCareerMore() : isDuel ? await watchAdForDuelMore() : await watchAdForMore();
           if (ok) setScreen(nomoreReturn);
         }}
         onBuyUnlimited={async () => { const ok = await handleBuyUnlimited(); if (ok) setScreen('home'); }}
@@ -1167,6 +1354,59 @@ function WhatsNewModal({ onClose }) {
         </View>
       </View>
     </Modal>
+  );
+}
+
+// Duelos 1vs1 (JC, 2026-09-17): "esperando a tu rival" — tu vuelta ya está
+// subida, falta la suya. Sondeo simple cada 7s (la ventana entera del duelo
+// es de solo 15 minutos, no hace falta nada más sofisticado que esto — ver
+// el contexto completo en duels.sql). En cuanto getDuel devuelve 'finished',
+// se avisa al padre para saltar al reveal.
+function DuelWaitScreen({ duelId, submitError, onReady, onBack, onRetry }) {
+  // El sondeo sigue corriendo AUNQUE el envío haya fallado en el cliente:
+  // si en realidad sí llegó al servidor y solo se perdió la respuesta, esto
+  // se autocorrige solo en cuanto el rival también termine — sin esto, un
+  // fallo de red que en verdad no lo fue dejaría al jugador esperando un
+  // reveal que ya estaba listo.
+  useEffect(() => {
+    let alive = true;
+    const id = setInterval(() => {
+      getDuel(duelId).then((d) => {
+        if (alive && d?.status === 'finished') onReady();
+      }).catch(() => {});
+    }, 7000);
+    return () => { alive = false; clearInterval(id); };
+  }, [duelId]);
+
+  return (
+    <View style={[rd.screen, { alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 24 }]}>
+      {submitError ? (
+        <>
+          <Text style={{ color: RD.danger, fontSize: 18, fontFamily: RD_FONT.displayBlack, textTransform: 'uppercase', textAlign: 'center' }}>
+            No se pudo enviar tu vuelta
+          </Text>
+          <Text style={{ color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' }}>
+            Puede que sí se haya guardado y solo se perdiera la confirmación — seguimos esperando por si acaso. Si tienes tiempo, también puedes volver a correr.
+          </Text>
+          <Pressable style={{ backgroundColor: RD.brand, borderRadius: 2, paddingVertical: 13, paddingHorizontal: 22, marginTop: 6 }} onPress={onRetry}>
+            <Text style={{ color: RD.bg, fontSize: 14, fontFamily: RD_FONT.displayBlack, letterSpacing: 0.6 }}>VOLVER A CORRER</Text>
+          </Pressable>
+        </>
+      ) : (
+        <>
+          <ActivityIndicator color={RD.brand} />
+          <Text style={{ color: RD.textPrimary, fontSize: 18, fontFamily: RD_FONT.displayBlack, textTransform: 'uppercase', textAlign: 'center' }}>
+            Esperando a tu rival
+          </Text>
+          <Text style={{ color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' }}>
+            Tu vuelta ya está guardada. En cuanto corra, se revela el resultado.
+          </Text>
+        </>
+      )}
+      <Pressable onPress={onBack} hitSlop={12}>
+        <Text style={{ color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, marginTop: 10 }}>‹ VOLVER A INICIO</Text>
+      </Pressable>
+    </View>
   );
 }
 

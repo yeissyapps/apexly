@@ -17,11 +17,12 @@
 import { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import DangerStripe from './DangerStripe';
 import StatTrend from './StatTrend';
 import AvatarViewer from './AvatarViewer';
+import CoinIcon from './CoinIcon';
 import { AVATARS, TOTAL_COLLECTIBLES } from './avatarCatalog';
 import { RD, RD_FONT } from './theme';
 import { fmtTime } from './format';
@@ -29,8 +30,14 @@ import { dailyTimeEstimate } from './generator';
 import {
   getCareerProgress, getInventory, getGlobalBoard, getMyId, getPlayerRankToday,
   getPlayerStats, getMyDailyHistory, getMyPurpleSectors, getLifetimeCoins, getPilotAvatarId,
+  createDuel, getMyPendingDuels, getPresenceMap,
 } from './api';
 import { LEVEL_COUNT } from './career';
+
+// "En línea" es una aproximación por sondeo (touchPresence cada ~60s desde
+// App.js, sin tiempo real) — 3 minutos de margen para no parpadear a
+// "desconectado" entre dos latidos si uno se retrasa un poco.
+const ONLINE_WINDOW_MS = 3 * 60 * 1000;
 
 // Media pantalla de verdad, no un porcentaje del contenido del ScrollView
 // (ahí "50%" no significa nada sin un padre de altura fija) — se mide
@@ -111,7 +118,7 @@ function StatCard({ value, label, hint, tone }) {
 
 export default function Profile({
   nickname, myStreak, wallet, onBack, onOpenGarage, onOpenTienda, onOpenCareer, onOpenAvatarPicker,
-  onOpenPilotTest, onOpenAvatarTest,
+  onOpenPilotTest, onOpenAvatarTest, onOpenDuel,
   viewUserId, viewNickname, viewStreak,
 }) {
   const [career, setCareer] = useState(null);
@@ -124,6 +131,11 @@ export default function Profile({
   const [myId, setMyId] = useState(null);
   const [tab, setTab] = useState('piloto');
   const [pilotAvatarId, setPilotAvatarId] = useState(null); // null = todavía sin elegir uno (o cargando) -> hash de siempre
+  const [online, setOnline] = useState(false);      // presencia real del jugador que se está viendo
+  const [pendingDuels, setPendingDuels] = useState([]); // retos que ME han hecho y siguen sin responder (perfil propio)
+  const [wagerInput, setWagerInput] = useState('50');
+  const [challengeBusy, setChallengeBusy] = useState(false);
+  const [challengeMsg, setChallengeMsg] = useState(null); // { type: 'ok'|'err', text }
 
   // Perfil público de otro jugador (JC, 2026-09-15) — viewUserId llega al
   // tocar un nombre/avatar en cualquier ranking (ver App.js:
@@ -184,6 +196,43 @@ export default function Profile({
     return () => { alive = false; };
   }, [viewUserId]);
 
+  // Duelos 1vs1 (JC, 2026-09-17): en tu propio perfil, si alguien te ha
+  // retado y no has respondido, aparece aviso para ir a decidir. En el
+  // perfil de otro jugador, en cambio, se comprueba su presencia real para
+  // la insignia EN LÍNEA junto al botón RETAR.
+  useEffect(() => {
+    let alive = true;
+    if (!viewUserId) {
+      getMyPendingDuels().then((d) => alive && setPendingDuels(d)).catch(() => {});
+    } else {
+      getPresenceMap([viewUserId]).then((m) => {
+        if (!alive) return;
+        const seen = m.get(viewUserId);
+        setOnline(!!seen && Date.now() - seen.getTime() < ONLINE_WINDOW_MS);
+      }).catch(() => {});
+    }
+    return () => { alive = false; };
+  }, [viewUserId]);
+
+  async function handleChallenge() {
+    const wager = parseInt(wagerInput, 10);
+    if (!wager || wager <= 0 || challengeBusy) return;
+    setChallengeBusy(true);
+    setChallengeMsg(null);
+    try {
+      await createDuel(viewUserId, wager);
+      setChallengeMsg({ type: 'ok', text: `Reto enviado a ${displayNickname} por ${wager} monedas.` });
+    } catch (e) {
+      const code = String(e?.message || e);
+      const text = code.includes('DUEL_ALREADY_PENDING') ? 'Ya tenéis un duelo pendiente sin resolver.'
+        : code.includes('INVALID_WAGER') ? 'Pon una apuesta válida.'
+        : 'No se pudo enviar el reto. Inténtalo otra vez.';
+      setChallengeMsg({ type: 'err', text });
+    } finally {
+      setChallengeBusy(false);
+    }
+  }
+
   const daysRaced = trend ? trend.length : null;
   // Choques por vuelta es más honesto que el total: 400 choques en 500
   // vueltas es un dato distinto a 400 en 50, y el total solo premia a quien
@@ -213,7 +262,15 @@ export default function Profile({
 
         <View style={s.identity}>
           <View style={s.identityText}>
-            <Text style={s.nickname} numberOfLines={1}>{displayNickname}</Text>
+            <View style={s.nicknameRow}>
+              <Text style={s.nickname} numberOfLines={1}>{displayNickname}</Text>
+              {!isOwnProfile && online && (
+                <View style={s.onlinePill}>
+                  <View style={s.onlineDot} />
+                  <Text style={s.onlinePillText}>EN LÍNEA</Text>
+                </View>
+              )}
+            </View>
             <Text style={s.identitySub}>
               {daysRaced != null ? `${daysRaced} ${daysRaced === 1 ? 'día corrido' : 'días corridos'}` : '···'}
               {stats?.bestMs ? ` · mejor ${fmtTime(stats.bestMs)}` : ''}
@@ -243,6 +300,20 @@ export default function Profile({
                 2026-09-09: tenía poca acogida como pestaña propia y no es
                 de lo principal del juego — vive junto a Garaje/Tienda, no
                 en la barra de abajo. */}
+            {/* Duelos 1vs1 (JC, 2026-09-17): en tu propio perfil, un aviso
+                si alguien te ha retado y sigues sin responder — el mismo
+                tipo de aviso que ya usa wallet.pendingPacks en la cabecera,
+                aquí a tamaño de banner porque no hay otro sitio donde
+                encontrarlo si no llega la notificación push. */}
+            {isOwnProfile && pendingDuels.map((d) => (
+              <Pressable key={d.id} style={s.duelBanner} onPress={() => onOpenDuel(d.id)}>
+                <Text style={s.duelBannerText}>
+                  {d.challengerName} te reta por {d.wager} monedas
+                </Text>
+                <Text style={s.duelBannerLink}>VER ›</Text>
+              </Pressable>
+            ))}
+
             {isOwnProfile && (
               <View style={s.actionsRow}>
                 {/* Colores distintos por botón (JC, 2026-09-16) — antes los
@@ -266,6 +337,37 @@ export default function Profile({
                     de rarezas. */}
                 <Pressable style={[s.actionBtn, s.actionBtnAvatar]} onPress={onOpenAvatarPicker}>
                   <Text style={[s.actionBtnText, s.actionBtnTextAvatar]}>AVATAR</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* RETAR (JC, 2026-09-17: duelos 1vs1) — perfil de OTRO jugador
+                solamente, mismo hueco donde se ocultan Garaje/Tienda/Carrera
+                por ser "tu cuenta". La apuesta se cobra a los dos al
+                ACEPTAR, no al enviar el reto — aquí no se mueve nada
+                todavía, solo se manda. */}
+            {!isOwnProfile && (
+              <View style={s.duelCard}>
+                <Text style={s.duelCardTitle}>RETAR A UN DUELO</Text>
+                <View style={s.duelWagerRow}>
+                  <CoinIcon size={16} />
+                  <TextInput
+                    style={s.duelWagerInput}
+                    value={wagerInput}
+                    onChangeText={(t) => setWagerInput(t.replace(/[^0-9]/g, ''))}
+                    keyboardType="number-pad"
+                    maxLength={5}
+                  />
+                </View>
+                {!!challengeMsg && (
+                  <Text style={challengeMsg.type === 'ok' ? s.duelMsgOk : s.duelMsgErr}>{challengeMsg.text}</Text>
+                )}
+                <Pressable
+                  style={[s.retarBtn, challengeBusy && s.retarBtnDisabled]}
+                  onPress={handleChallenge}
+                  disabled={challengeBusy}
+                >
+                  <Text style={s.retarBtnText}>{challengeBusy ? 'ENVIANDO…' : 'RETAR'}</Text>
                 </Pressable>
               </View>
             )}
@@ -398,11 +500,19 @@ const s = StyleSheet.create({
 
   identity: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 2 },
   identityText: { flex: 1, minWidth: 0, gap: 3 },
+  nicknameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   nickname: {
     color: RD.textPrimary, fontSize: 30, fontFamily: RD_FONT.displayBlack,
     textTransform: 'uppercase',
   },
   identitySub: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono },
+  onlinePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    borderWidth: 1, borderColor: RD.successGreen, borderRadius: 2,
+    paddingHorizontal: 7, paddingVertical: 3,
+  },
+  onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: RD.successGreen },
+  onlinePillText: { color: RD.successGreen, fontSize: 9, fontFamily: RD_FONT.monoBold, letterSpacing: 0.8 },
 
   tabsRow: { flexDirection: 'row', gap: 6 },
   tab: {
@@ -473,6 +583,34 @@ const s = StyleSheet.create({
     paddingVertical: 10, alignItems: 'center', marginTop: -4,
   },
   devBtnText: { color: '#aa8', fontSize: 11, fontFamily: RD_FONT.mono },
+
+  duelBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: RD.brand, borderRadius: 2,
+    paddingVertical: 12, paddingHorizontal: 14, marginBottom: 2,
+  },
+  duelBannerText: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.monoBold, flex: 1, marginRight: 8 },
+  duelBannerLink: { color: RD.brand, fontSize: 12, fontFamily: RD_FONT.monoBold },
+
+  duelCard: {
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    padding: 14, gap: 10,
+  },
+  duelCardTitle: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.monoBold, letterSpacing: 1 },
+  duelWagerRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2,
+    backgroundColor: RD.gold1stShade, paddingVertical: 10, paddingHorizontal: 12,
+  },
+  duelWagerInput: {
+    flex: 1, color: RD.gold1st, fontSize: 18, fontFamily: RD_FONT.monoBold,
+    padding: 0,
+  },
+  duelMsgOk: { color: RD.successGreen, fontSize: 11, fontFamily: RD_FONT.mono },
+  duelMsgErr: { color: RD.danger, fontSize: 11, fontFamily: RD_FONT.mono },
+  retarBtn: { backgroundColor: RD.brand, borderRadius: 2, paddingVertical: 13, alignItems: 'center' },
+  retarBtnDisabled: { opacity: 0.5 },
+  retarBtnText: { color: RD.bg, fontSize: 14, fontFamily: RD_FONT.displayBlack, letterSpacing: 0.6 },
 
   // El escenario del piloto: JC, 2026-09-15, "reducir márgenes... se ve
   // apagado" — el margen negativo recorta el hueco que dejaba el `gap` del

@@ -1088,7 +1088,7 @@ const TRACK_PALETTES = [
 // de toda la vida, mismo patrón que hashStr() en weather.js pero sin
 // depender de una fecha: dos jugadores en el mismo circuito (mismo día)
 // sacan la misma paleta sin coordinarse, porque el trazado ya es idéntico.
-function trackPalette(track) {
+export function trackPalette(track) {
   const c = track.center;
   let h = 2166136261 >>> 0;
   for (let i = 0; i < c.length; i += 7) {
@@ -1315,7 +1315,7 @@ function checkeredQuads(finish) {
 // memo + useMemo: la geometría de la pista es fija durante toda la vuelta, pero
 // el componente se re-renderizaba en CADA frame (al moverse el coche) y volvía
 // a construir todas las cadenas de puntos. Ahora se calcula una sola vez.
-const TrackLayer = memo(function TrackLayer({ track, showDebug, wet, palette }) {
+export const TrackLayer = memo(function TrackLayer({ track, showDebug, wet, palette }) {
   // La lluvia sigue siendo un aviso fijo por encima de la paleta del día —
   // "hoy moja" tiene que leerse igual sea cual sea el tono de fondo.
   const asphalt = wet ? '#181f29' : palette.asphalt;
@@ -1423,7 +1423,7 @@ function toView(s, flash, ghost, leader) {
 
 // Pose del fantasma (tu mejor vuelta) en el instante `e` (ms). Avanza un puntero
 // monótono e interpola entre muestras. trace = [[t,x,y,h], ...].
-function ghostPoseAt(trace, e, idxRef) {
+export function ghostPoseAt(trace, e, idxRef) {
   if (!trace || trace.length === 0) return null;
   let i = idxRef.current;
   if (i > trace.length - 1) i = trace.length - 1;

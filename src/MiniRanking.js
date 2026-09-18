@@ -187,7 +187,7 @@ function Tab({ label, active, dashed, onPress, color }) {
 // 2026-09-15) — Pressable en vez de View. Se llama igual para tu propia
 // fila: Profile.js compara el id contra el tuyo y decide solo si es "tu
 // perfil" o el de otro, no hace falta filtrar aquí por r.isMe.
-export function RankRow({ r, wins, timeLabel, sub, onPress }) {
+export function RankRow({ r, wins, timeLabel, sub, onPress, online }) {
   const f = frameById(r.frame);
   const Wrap = onPress ? Pressable : View;
   return (
@@ -200,6 +200,10 @@ export function RankRow({ r, wins, timeLabel, sub, onPress }) {
         <AvatarThumb pilotAvatarId={r.pilotAvatarId} size={44} />
         <View style={styles.rowNameCol}>
           <View style={styles.rowNameLine}>
+            {/* Presencia real (JC, 2026-09-17), sobre todo para el ranking
+                mensual — "¿a quién puedo retar ahora mismo?" de un vistazo,
+                sin entrar en cada perfil. */}
+            {!r.isMe && online && <View style={styles.onlineDot} />}
             <Text style={[styles.rowName, r.isMe && styles.rowNameMe]} numberOfLines={1}>
               {r.isMe ? `${r.nickname} (tú)` : r.nickname}
             </Text>
@@ -307,6 +311,7 @@ const styles = StyleSheet.create({
   rowRankMe: { color: RD.youMagenta },
   rowNameCol: { minWidth: 0, flexShrink: 1 },
   rowNameLine: { flexDirection: 'row', alignItems: 'center' },
+  onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: RD.successGreen, marginRight: 5 },
   rowName: { color: RD.textPrimary, fontSize: 13, fontWeight: '700', flexShrink: 1 },
   rowGlyph: { fontSize: 13, marginLeft: 5 },
   rowWins: { fontSize: 10, fontFamily: RD_FONT.monoBold, marginLeft: 3 },

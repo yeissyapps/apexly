@@ -1145,3 +1145,219 @@ export async function getLeaderboard(scope = 'global', day = todayKey()) {
     };
   });
 }
+
+// ---- Duelos 1vs1 -------------------------------------------------------------
+// Reto directo con apuesta entre dos jugadores (duels.sql). Nadie ve la
+// traza del rival mientras corre — solo al terminar los DOS se puede pedir
+// el reveal (getDuelReveal). Ver el plan completo:
+// ver supabase/duels.sql para las reglas de servidor (cobro solo al
+// aceptar, empate devuelve la apuesta, plazos de 10min/15min).
+
+// Mismo mapeo de columnas car_* -> loadout que getMyLoadout/getLeaderRun
+// (arriba) — no se tocan esas dos para no arriesgar código ya en
+// producción, pero el reveal necesita construir DOS loadouts a la vez, así
+// que aquí sí vale la pena no triplicar la lista de columnas a mano.
+function loadoutFromRow(who) {
+  if (!who) return { ...CAR_DEFAULTS };
+  return {
+    chassis: who.car_chassis || CAR_DEFAULTS.chassis,
+    frame: who.car_frame || CAR_DEFAULTS.frame,
+    bodyColor: who.car_body_color || CAR_DEFAULTS.bodyColor,
+    wingShape: who.car_wing_shape || CAR_DEFAULTS.wingShape,
+    wingColor: who.car_wing_color || CAR_DEFAULTS.wingColor,
+    livery: who.car_livery,
+    liveryPattern: who.car_livery_pattern || CAR_DEFAULTS.liveryPattern,
+    lightsColor: who.car_lights_color || CAR_DEFAULTS.lightsColor,
+  };
+}
+
+// Lanza el reto — sin mover monedas todavía (se cobra al aceptar). Avisa al
+// rival por push (fire-and-forget: si la notificación falla, el reto ya
+// quedó creado igualmente, se verá al abrir la app).
+export async function createDuel(opponentId, wager) {
+  await ensureSession();
+  const { data, error } = await supabase.rpc('create_duel', {
+    p_opponent_id: opponentId,
+    p_wager: Math.round(wager),
+  });
+  if (error) throw error;
+  try {
+    await supabase.functions.invoke('notify-duel-challenge', { body: { duelId: data, kind: 'challenge' } });
+  } catch (_) {
+    // sin conexión / función no desplegada -> se ignora, mismo criterio que notifyOvertakes
+  }
+  return data;
+}
+
+// Acepta el reto — aquí es donde de verdad se cobra la apuesta a los dos
+// (ver accept_duel en duels.sql). Devuelve el plazo para correr.
+export async function acceptDuel(duelId) {
+  await ensureSession();
+  const { error } = await supabase.rpc('accept_duel', { p_duel_id: duelId });
+  if (error) throw error;
+  try {
+    await supabase.functions.invoke('notify-duel-challenge', { body: { duelId, kind: 'accepted' } });
+  } catch (_) {}
+}
+
+export async function declineDuel(duelId) {
+  await ensureSession();
+  const { error } = await supabase.rpc('decline_duel', { p_duel_id: duelId });
+  if (error) throw error;
+}
+
+// Sube tu vuelta del duelo — mismo shape de traza que submitDailyRun. Si el
+// rival ya había corrido, el servidor liquida el duelo en el momento y esta
+// misma llamada devuelve ya el resultado (evita una segunda ida y vuelta).
+export async function submitDuelRun(duelId, ms, trace) {
+  await ensureSession();
+  const { data, error } = await supabase.rpc('submit_duel_run', {
+    p_duel_id: duelId,
+    p_ms: Math.round(ms),
+    p_trace: trace,
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    duelStatus: row?.duel_status ?? 'accepted',
+    winnerId: row?.winner_id ?? null,
+    opponentDone: !!row?.opponent_done,
+  };
+}
+
+// Un duelo concreto con los datos de las dos partes ya listos para pintar
+// (decisión de aceptar/rechazar, o pantalla de espera). `myId` se usa para
+// que el cliente no tenga que volver a mirar quién es quién.
+export async function getDuel(duelId) {
+  const user = await ensureSession();
+  const { data: duel, error } = await supabase
+    .from('duels')
+    .select('id, challenger_id, opponent_id, wager, status, accept_deadline, accepted_at, race_deadline, winner_id')
+    .eq('id', duelId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!duel) return null;
+
+  const { data: people } = await supabase
+    .from('users')
+    .select('id, nickname, pilot_avatar_id')
+    .in('id', [duel.challenger_id, duel.opponent_id]);
+  const byId = new Map((people || []).map((p) => [p.id, p]));
+  const challenger = byId.get(duel.challenger_id);
+  const opponent = byId.get(duel.opponent_id);
+
+  return {
+    id: duel.id,
+    myId: user.id,
+    challengerId: duel.challenger_id,
+    opponentId: duel.opponent_id,
+    wager: duel.wager,
+    status: duel.status,
+    acceptDeadline: duel.accept_deadline,
+    acceptedAt: duel.accepted_at,
+    raceDeadline: duel.race_deadline,
+    winnerId: duel.winner_id,
+    challengerName: challenger?.nickname || '—',
+    challengerAvatarId: challenger?.pilot_avatar_id || null,
+    opponentName: opponent?.nickname || '—',
+    opponentAvatarId: opponent?.pilot_avatar_id || null,
+  };
+}
+
+// Retos que me han hecho y siguen pendientes de mi respuesta — para la
+// insignia en el perfil propio (mismo criterio visual que
+// wallet.pendingPacks: un punto, no un número).
+export async function getMyPendingDuels() {
+  const user = await ensureSession();
+  const { data } = await supabase
+    .from('duels')
+    .select('id, challenger_id, wager, created_at')
+    .eq('opponent_id', user.id)
+    .eq('status', 'pending')
+    .gt('accept_deadline', new Date().toISOString())
+    .order('created_at', { ascending: false });
+  const rows = data || [];
+  if (rows.length === 0) return [];
+
+  // Dos consultas en vez de un embed de PostgREST: duels tiene DOS foreign
+  // keys a users (challenger_id/opponent_id), y el embed sin desambiguar
+  // (`users(nickname)`) es justo el caso que PostgREST no puede resolver
+  // solo — más simple traer los nombres aparte y cruzar en cliente, mismo
+  // patrón que getDuel/getDuelReveal.
+  const { data: people } = await supabase
+    .from('users')
+    .select('id, nickname')
+    .in('id', rows.map((d) => d.challenger_id));
+  const byId = new Map((people || []).map((p) => [p.id, p]));
+
+  return rows.map((d) => ({
+    id: d.id,
+    challengerId: d.challenger_id,
+    challengerName: byId.get(d.challenger_id)?.nickname || '—',
+    wager: d.wager,
+  }));
+}
+
+// Las dos trazas ya terminadas + loadout/nombre de cada uno, para el reveal
+// lado a lado. null si el duelo aún no está 'finished' (nada que enseñar
+// todavía) o si falta alguna traza.
+export async function getDuelReveal(duelId) {
+  const { data: duel } = await supabase
+    .from('duels')
+    .select('id, challenger_id, opponent_id, wager, status, winner_id')
+    .eq('id', duelId)
+    .maybeSingle();
+  if (!duel || duel.status !== 'finished') return null;
+
+  const { data: runs } = await supabase
+    .from('duel_runs')
+    .select('user_id, ms, trace')
+    .eq('duel_id', duelId);
+  const byUser = new Map((runs || []).map((r) => [r.user_id, r]));
+  const challengerRun = byUser.get(duel.challenger_id);
+  const opponentRun = byUser.get(duel.opponent_id);
+  if (!challengerRun || !opponentRun) return null;
+
+  const { data: people } = await supabase
+    .from('users')
+    .select('id, nickname, car_chassis, car_frame, car_body_color, car_wing_shape, car_wing_color, car_livery, car_livery_pattern, car_lights_color')
+    .in('id', [duel.challenger_id, duel.opponent_id]);
+  const byId = new Map((people || []).map((p) => [p.id, p]));
+
+  const sideFor = (userId, run) => ({
+    userId,
+    nickname: byId.get(userId)?.nickname || '—',
+    ms: run.ms,
+    trace: run.trace,
+    loadout: loadoutFromRow(byId.get(userId)),
+  });
+
+  return {
+    wager: duel.wager,
+    winnerId: duel.winner_id,
+    challenger: sideFor(duel.challenger_id, challengerRun),
+    opponent: sideFor(duel.opponent_id, opponentRun),
+  };
+}
+
+// ---- Presencia ("en línea") --------------------------------------------------
+// Late al servidor cada ~60s mientras la app está en primer plano (ver el
+// AppState listener en App.js). Fire-and-forget de verdad: nunca debe
+// bloquear ni avisar de error, es puro adorno de UI.
+export async function touchPresence() {
+  try {
+    await ensureSession();
+    await supabase.rpc('touch_presence');
+  } catch (_) {}
+}
+
+// "En línea" es una aproximación por sondeo (no hay tiempo real en este
+// proyecto): el cliente decide el umbral, esta función solo trae los
+// last_seen crudos. Devuelve un Map(userId -> Date) para lookup O(1) fila a
+// fila en las listas de ranking.
+export async function getPresenceMap(userIds) {
+  const ids = [...new Set(userIds)].filter(Boolean);
+  if (ids.length === 0) return new Map();
+  const { data } = await supabase.from('presence').select('user_id, last_seen').in('user_id', ids);
+  return new Map((data || []).map((p) => [p.user_id, new Date(p.last_seen)]));
+}
