@@ -8,7 +8,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Dimensions, Linking, Modal, Pressable, ScrollView,
+  ActivityIndicator, Animated, AppState, Dimensions, Linking, Modal, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
+import * as Notifications from 'expo-notifications';
 import { useFonts } from 'expo-font';
 import {
   BarlowCondensed_600SemiBold, BarlowCondensed_700Bold, BarlowCondensed_800ExtraBold,
@@ -26,12 +27,13 @@ import {
 
 import Game from './src/Game';
 import { todayKey, dayOffset } from './src/daily';
-import { dailyCircuit } from './src/generator';
+import { dailyCircuit, tieredCircuit } from './src/generator';
 import { dailyWeather, NEUTRAL } from './src/weather';
 
 import { fmtTime, fmtSecs, fmtCountdown } from './src/format';
-import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS } from './src/theme';
+import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS, RARITY_COLOR } from './src/theme';
 import DangerStripe from './src/DangerStripe';
+import CoinIcon from './src/CoinIcon';
 import Identicon from './src/Identicon';
 import MiniRanking from './src/MiniRanking';
 import RankingTab from './src/RankingTab';
@@ -39,6 +41,10 @@ import MiniTrackMap from './src/MiniTrackMap';
 import Garage from './src/Garage';
 import Tienda from './src/Tienda';
 import Profile from './src/Profile';
+import AvatarPicker from './src/AvatarPicker';
+import AvatarThumb from './src/AvatarThumb';
+import DuelDecision from './src/DuelDecision';
+import DuelReveal from './src/DuelReveal';
 import CareerMode from './src/CareerMode';
 import { levelSpec, gapMsFor, weatherForLevel, CAREER_AD_BATCH } from './src/career';
 import { GroupHome, GrandPrixStandings, RoundStart } from './src/GrandPrix';
@@ -58,6 +64,7 @@ import {
   submitGpResult, notifyGpOvertake, recordLap, submitDailyRun, getLeaderRun, getMyGpRoundSectors,
   getActiveGrandPrix, getGpResults, getMyId, getMyReferralCode,
   getGpSectorBests, submitGpSectorSplits,
+  submitDuelRun, getDuel, touchPresence,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -139,8 +146,27 @@ export default function App() {
   const [myStreak, setMyStreak] = useState(null);
   const [wallet, setWallet] = useState({ balance: 0, pendingPacks: 0 }); // monedas + sobres pendientes
   const [recap, setRecap] = useState(null); // { streak, ranking } premios de ayer, o null si no toca mostrar
-  const [homeStanding, setHomeStanding] = useState(null); // { rank, total, above } resumen de rivalidad para Diario
+  // Perfil público de OTRO jugador (JC, 2026-09-15) — null = viendo el tuyo
+  // propio (el de siempre). Se rellena al tocar un nombre/avatar en
+  // cualquier ranking (MiniRanking, RankingTab, GrandPrixStandings).
+  const [viewedPlayer, setViewedPlayer] = useState(null);
+  function openPlayerProfile(p) {
+    if (!p || !p.userId) return;
+    setViewedPlayer(p);
+    setScreen('perfil');
+  }
   const [challenge, setChallenge] = useState(null); // { ms } reto recibido por deep link, si es de hoy
+  // Duelo 1vs1 en curso (JC, 2026-09-17) — el id basta para todo: las
+  // pantallas de duelo (DuelDecision/DuelReveal, y duel-race más abajo)
+  // piden sus propios datos con getDuel/getDuelReveal, mismo criterio que
+  // viewedPlayer/openPlayerProfile de arriba.
+  const [duelId, setDuelId] = useState(null);
+  function openDuel(id) {
+    if (!id) return;
+    setDuelId(id);
+    setScreen('duel-decision');
+  }
+  const [myId, setMyId] = useState(null); // tu propio id — hace falta para saber si ganaste un duelo (DuelReveal)
   const [tab, setTab] = useState('diario'); // pestaña activa de Inicio: diario | ranking | amigos
   // Recorrido guiado de la primera apertura. null = aún no sabemos si toca
   // (lo dice AsyncStorage); false = no toca o ya terminó; true = corriendo.
@@ -161,6 +187,8 @@ export default function App() {
   const [gpRoundIndex, setGpRoundIndex] = useState(null); // ronda en juego dentro del GP
   const [gpAtt, setGpAtt] = useState({ used: 0, bonus: 0 }); // intentos de ESTA ronda del GP — cupo propio, igual que Carrera
   const [gpResult, setGpResult] = useState(null); // { dayIndex, ms, isPractice, isBest, error } del último intento
+  const [duelAtt, setDuelAtt] = useState({ used: 0, bonus: 0 }); // intentos del duelo en curso — cupo propio, 1 gratis (no FREE_ATTEMPTS)
+  const [duelWaitError, setDuelWaitError] = useState(false); // el envío de la vuelta del duelo falló — ver handleDuelFinish
   const [unlocking, setUnlocking] = useState(false);     // viendo el anuncio (para pintar)
   const unlockingRef = useRef(false);                    // ...y para el guardia real (ver watchAd)
   const [adMsg, setAdMsg] = useState('');                // aviso si el anuncio no sale
@@ -171,6 +199,10 @@ export default function App() {
   const left = calcLeft(att);
   const total = FREE_ATTEMPTS + (att?.bonus || 0);
   const careerLeft = calcLeft(careerAtt);
+  // 1 intento gratis (no los 3 de FREE_ATTEMPTS) + anuncio para 1 más — JC,
+  // 2026-09-17: "más dopamínico" que el cupo normal, calcado a mano en vez
+  // de reutilizar calcLeft() porque esa asume FREE_ATTEMPTS=3 de attempts.js.
+  const duelLeft = 1 + (duelAtt?.bonus || 0) - (duelAtt?.used || 0);
   const [gpMode, setGpMode] = useState(null);   // 'practica' | 'directo' de la ronda en curso
   const gpLeft = gpLeftFor(gpMode, gpAtt);
   const daily = useMemo(() => dailyCircuit(todayKey()), []);
@@ -181,6 +213,13 @@ export default function App() {
   // se reiniciaba a mitad de carrera -> el primer toque gastaba el intento y
   // la vuelta se cortaba antes de arrancar de verdad.
   const careerSpec = useMemo(() => (careerLevel != null ? levelSpec(careerLevel) : null), [careerLevel]);
+  // Mismo generador que el circuito diario, sembrado con el id del duelo en
+  // vez de la fecha — los dos clientes reconstruyen el circuito idéntico sin
+  // que el servidor lo guarde en ningún sitio (ver generator.js). Memoizado
+  // por el mismo motivo que careerSpec: recalcularlo en cada render
+  // reiniciaría la física a mitad de carrera.
+  const duelSpec = useMemo(() => (duelId ? tieredCircuit(duelId, 0.5) : null), [duelId]);
+  const duelWeather = useMemo(() => (duelId ? dailyWeather('duel:' + duelId) : NEUTRAL), [duelId]);
   const careerWeather = useMemo(() => (careerLevel != null ? weatherForLevel(careerLevel) : NEUTRAL), [careerLevel]);
   // Mismo motivo que careerSpec: memoizado por [gp, ronda], no recalculado en
   // cada render — si no, el mismo bug del intento que se corta a mitad.
@@ -229,6 +268,13 @@ export default function App() {
     if (gpActive == null || gpRoundIndex == null) return;
     loadAttempts('gp-' + gpActive.id + '-' + gpRoundIndex).then(setGpAtt).catch(() => {});
   }, [gpActive?.id, gpRoundIndex]);
+
+  // Intentos del duelo en curso: cupo propio por duelo, mismo mecanismo que
+  // Carrera/GP pero con base de 1 en vez de FREE_ATTEMPTS (ver duelLeft).
+  useEffect(() => {
+    if (!duelId) return;
+    loadAttempts('duel-' + duelId).then(setDuelAtt).catch(() => {});
+  }, [duelId]);
 
   // Ilimitado: valor guardado primero (rápido, sin red), luego se reconcilia
   // con la tienda (por si se compró desde otro dispositivo/reinstalación).
@@ -298,6 +344,12 @@ export default function App() {
     consumeAttempt('career-' + careerLevel).then(setCareerAtt).catch(() => {});
   }
 
+  function startDuelAttempt() {
+    logRaceStart();
+    if (unlimited) return;
+    consumeAttempt('duel-' + duelId).then(setDuelAtt).catch(() => {});
+  }
+
   // Ver anuncio → concede un lote de intentos en el cupo indicado por `day`
   // (fecha de hoy para el diario, 'career-N' para un nivel) y lo aplica con
   // `setter`. Un único flujo de anuncio para los dos modos; `amount` por
@@ -354,6 +406,7 @@ export default function App() {
   }
   const watchAdForMore = () => watchAd(todayKey(), setAtt);
   const watchAdForCareerMore = () => watchAd('career-' + careerLevel, setCareerAtt, CAREER_AD_BATCH);
+  const watchAdForDuelMore = () => watchAd('duel-' + duelId, setDuelAtt, 1);
 
   // Intentar jugar: ilimitado o con intentos → a jugar; si no, ofrecer el anuncio/IAP.
   function tryPlay() {
@@ -392,6 +445,31 @@ export default function App() {
     // fallado el tiempo NO se pide — pedir valoración justo después de perder
     // es la forma más rápida de llevarte una estrella.
     noteRaceFinished(passed);
+  }
+
+  // Sube tu vuelta del duelo. Nadie ve el fantasma del otro mientras corre
+  // (ver duels.sql), así que aquí no hay nada que "revelar" todavía — si el
+  // rival ya había terminado, el propio submit_duel_run liquida el duelo en
+  // el momento y esta llamada ya trae el resultado, sin una segunda ida y
+  // vuelta al servidor.
+  async function handleDuelFinish(ms, trace) {
+    const id = duelId;
+    recordLap(ms, []); // cuenta para los contadores del Perfil, igual que el resto de modos
+    setDuelWaitError(false);
+    setScreen('duel-wait');
+    try {
+      const { duelStatus, opponentDone } = await submitDuelRun(id, ms, trace);
+      if (opponentDone && duelStatus === 'finished') setScreen('duel-reveal');
+      // si el rival aún no ha corrido, duel-wait se queda montada y sondea
+      // ella sola (ver DuelWaitScreen) hasta que lo haga.
+    } catch (_) {
+      // Antes esto mandaba a 'home' en silencio — con dinero de por medio y
+      // sin saber si el envío llegó a completarse en el servidor antes de
+      // que la respuesta se perdiera, desaparecer sin decir nada es peor
+      // que dejar al jugador reintentar (mismo criterio que handleFinish
+      // con el circuito diario: error visible, nunca un pantallazo mudo).
+      setDuelWaitError(true);
+    }
   }
 
   // Abrir la pantalla de un grupo concreto (desde Amigos): si ya tiene GP
@@ -502,28 +580,6 @@ export default function App() {
     getWallet().then(setWallet).catch(() => {});
   }, [nickname, refreshKey]);
 
-  // Rivalidad de hoy (para el resumen de Diario — el ranking completo vive
-  // en la pestaña Amigos, esto es solo el titular). Null si aún no has
-  // jugado hoy (no hay puesto que mostrar). Misma llamada que ya usa
-  // Results para su propio "standing", por eso la forma coincide.
-  useEffect(() => {
-    if (!nickname) return;
-    let alive = true;
-    getGlobalBoard()
-      .then((b) => {
-        if (!alive) return;
-        if (!b.me) { setHomeStanding(null); return; }
-        const rival = b.aboveRows?.[0];
-        setHomeStanding({
-          rank: b.me.rank,
-          total: b.total,
-          above: rival ? { nickname: rival.nickname, gapMs: b.me.bestMs - rival.bestMs } : null,
-        });
-      })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [nickname, refreshKey]);
-
   // Pop-up de "premios de ayer": una vez por día local, la primera vez que
   // hay nickname (primera entrada del día). Si no hubo nada que cobrar
   // (racha rota, sin premio de ranking), no se muestra nada.
@@ -622,6 +678,40 @@ export default function App() {
     if (PUSH_ENABLED && nickname && tourOn === false) registerPushToken().catch(() => {});
   }, [nickname, tourOn]);
 
+  // Presencia real (JC, 2026-09-17: "presencia real", para la insignia EN
+  // LÍNEA de los duelos) — sin tiempo real en este proyecto, así que "en
+  // línea" es sondeo: laten cada 60s mientras la app está en primer plano.
+  // Un latido inmediato al abrir + uno al volver de segundo plano, para que
+  // la insignia no tarde un minuto entero en ponerse en verde justo después
+  // de abrir la app.
+  useEffect(() => {
+    if (!nickname) return undefined;
+    touchPresence();
+    const id = setInterval(() => {
+      if (AppState.currentState === 'active') touchPresence();
+    }, 60000);
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') touchPresence();
+    });
+    return () => { clearInterval(id); sub.remove(); };
+  }, [nickname]);
+
+  // Al tocar una notificación de duelo (reto nuevo o reto aceptado) se abre
+  // directo la pantalla que toca — 'challenge' todavía necesita decidir
+  // (Aceptar/Rechazar), 'accepted' ya no: el aviso ES "ya puedes correr", así
+  // que va derecho a la carrera. Ver notify-duel-challenge/index.ts para el
+  // payload (`data: {duelId, kind}`).
+  useEffect(() => {
+    if (!PUSH_ENABLED) return undefined;
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const d = response.notification.request.content.data || {};
+      if (!d.duelId) return;
+      setDuelId(d.duelId);
+      setScreen(d.kind === 'accepted' ? 'duel-race' : 'duel-decision');
+    });
+    return () => sub.remove();
+  }, []);
+
   // Init: version gate + sesión anónima + ¿tenemos nickname?
   useEffect(() => {
     let alive = true;
@@ -636,16 +726,43 @@ export default function App() {
         }
         await ensureSession();
         ensureDailyTrack(daily.label).catch(() => {});
+        getMyId().then((id) => { if (alive) setMyId(id); }).catch(() => {});
         const nick = await getLocalNickname();
         if (!alive) return;
-        if (nick) { setNickname(nick); setScreen('home'); }
-        else setScreen('onboarding');
+        if (nick) {
+          setNickname(nick);
+          const openedByDuel = await openDuelFromColdStart();
+          if (!openedByDuel && alive) setScreen('home');
+        } else setScreen('onboarding');
       } catch (e) {
         if (alive) setScreen('error');
       }
     })();
     return () => { alive = false; };
   }, [retry]);
+
+  // Arranque en frío desde una notificación de duelo (JC, 2026-09-17: "sí,
+  // arréglalo ahora") — Notifications.addNotificationResponseReceivedListener
+  // (más abajo) solo capta un toque mientras la app YA está viva; el toque
+  // que la ABRIÓ del todo hay que pedirlo aparte, una sola vez al arrancar.
+  // Se limpia con clearLastNotificationResponseAsync() nada más leerla: si
+  // no, la MISMA respuesta se volvería a consumir en la siguiente apertura
+  // (p.ej. tras matar la app sin tocar nada nuevo), reabriendo un duelo
+  // viejo sin que el jugador haya tocado nada.
+  async function openDuelFromColdStart() {
+    if (!PUSH_ENABLED) return false;
+    try {
+      const response = await Notifications.getLastNotificationResponseAsync();
+      const d = response?.notification?.request?.content?.data || {};
+      if (!d.duelId) return false;
+      Notifications.clearLastNotificationResponseAsync().catch(() => {});
+      setDuelId(d.duelId);
+      setScreen(d.kind === 'accepted' ? 'duel-race' : 'duel-decision');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   async function onNicknameDone(nick) {
     try {
@@ -772,6 +889,7 @@ export default function App() {
         group={gpGroup}
         gp={gpActive}
         onBack={() => setScreen('group-home')}
+        onOpenPlayer={openPlayerProfile}
       />
     );
   }
@@ -800,12 +918,104 @@ export default function App() {
         nickname={nickname}
         myStreak={myStreak}
         wallet={wallet}
-        onBack={() => setScreen('home')}
+        viewUserId={viewedPlayer?.userId}
+        viewNickname={viewedPlayer?.nickname}
+        viewStreak={viewedPlayer?.streak}
+        onBack={() => { setViewedPlayer(null); setScreen('home'); }}
         onOpenGarage={() => { logGarageOpen(); setScreen('garage'); }}
         onOpenTienda={() => setScreen('tienda')}
         onOpenCareer={() => setScreen('career')}
+        onOpenAvatarPicker={() => setScreen('avatar-picker')}
+        onOpenPilotTest={__DEV__ ? () => setScreen('pilot-test') : undefined}
+        onOpenAvatarTest={__DEV__ ? () => setScreen('avatar-test') : undefined}
+        onOpenDuel={openDuel}
       />
     );
+  }
+
+  // Selector real de avatar (JC, 2026-09-16) — vuelve a Perfil, no a Inicio,
+  // para que se vea al momento el muñeco recién equipado en el visor.
+  if (screen === 'avatar-picker') {
+    return (
+      <AvatarPicker
+        onBack={() => setScreen('perfil')}
+        onOpenTienda={() => setScreen('tienda')}
+      />
+    );
+  }
+
+  // Duelos 1vs1 (JC, 2026-09-17) — cuatro pasos: decidir, correr a ciegas,
+  // esperar si hace falta, revelar. Ver el plan completo en duels.sql.
+  if (screen === 'duel-decision') {
+    return (
+      <DuelDecision
+        duelId={duelId}
+        onBack={() => setScreen('home')}
+        onAccepted={() => setScreen('duel-race')}
+        onDeclined={() => setScreen('home')}
+      />
+    );
+  }
+
+  if (screen === 'duel-race' && duelSpec) {
+    return (
+      <Game
+        track={duelSpec.track}
+        ghost={null}
+        leaderRun={null}
+        weather={duelWeather}
+        sectorBests={null}
+        loadout={loadout}
+        attemptsLeft={unlimited ? Infinity : duelLeft}
+        onAttemptStart={startDuelAttempt}
+        onNeedMore={() => { setNomoreReturn('duel-race'); setScreen('nomore'); }}
+        onFinish={handleDuelFinish}
+        onExit={() => setScreen('home')}
+      />
+    );
+  }
+
+  if (screen === 'duel-wait') {
+    return (
+      <DuelWaitScreen
+        duelId={duelId}
+        submitError={duelWaitError}
+        onReady={() => setScreen('duel-reveal')}
+        onBack={() => setScreen('home')}
+        onRetry={() => { setDuelWaitError(false); setScreen('duel-race'); }}
+      />
+    );
+  }
+
+  if (screen === 'duel-reveal') {
+    return (
+      <DuelReveal
+        duelId={duelId}
+        myId={myId}
+        onBack={() => setScreen('home')}
+        // "Revancha" lleva al perfil del mismo rival, con el botón RETAR ya
+        // a mano — no lanza un duelo nuevo sola (eso sigue pidiendo
+        // confirmar la apuesta, a propósito, ver Profile.js).
+        onRematch={(rival) => openPlayerProfile({ userId: rival.userId, nickname: rival.nickname })}
+      />
+    );
+  }
+
+  // Pantalla de prueba SOLO dev (ver Profile.js) — Fase 1 de avatares,
+  // visor 3D + selector de color de humo, antes de construir el
+  // configurador real (con inventario/rareza/guardado) de la Fase 4.
+  if (screen === 'pilot-test') {
+    const PilotColorTest = require('./src/PilotColorTest').default;
+    return <PilotColorTest onBack={() => setScreen('perfil')} />;
+  }
+
+  // Pantalla de prueba SOLO dev — Fase 4, "muñecos enteros" desbloqueables
+  // por rareza (JC, 2026-09-15). Visor con textura real, sin tinte por
+  // piezas — sustituye conceptualmente a pilot-test para el contenido
+  // nuevo, pero convive con él hasta que se decida la migración completa.
+  if (screen === 'avatar-test') {
+    const AvatarTest = require('./src/AvatarTest').default;
+    return <AvatarTest onBack={() => setScreen('perfil')} />;
   }
 
   if (screen === 'career') {
@@ -887,16 +1097,17 @@ export default function App() {
   if (screen === 'nomore') {
     const isCareer = nomoreReturn === 'career-playing';
     const isGp = nomoreReturn === 'gp-playing';
+    const isDuel = nomoreReturn === 'duel-race';
     return (
       <NoMoreAttempts
-        title={isGp ? 'SIN INTENTOS EN ESTA RONDA' : isCareer ? 'SIN INTENTOS EN ESTE NIVEL' : 'SIN INTENTOS POR HOY'}
-        adBatch={isGp ? GP_AD_BATCH : isCareer ? CAREER_AD_BATCH : AD_BATCH}
+        title={isGp ? 'SIN INTENTOS EN ESTA RONDA' : isCareer ? 'SIN INTENTOS EN ESTE NIVEL' : isDuel ? 'SIN INTENTOS EN ESTE DUELO' : 'SIN INTENTOS POR HOY'}
+        adBatch={isGp ? GP_AD_BATCH : isCareer ? CAREER_AD_BATCH : isDuel ? 1 : AD_BATCH}
         unlocking={unlocking}
         adMsg={adMsg}
         unlimitedPrice={unlimitedPrice}
         buying={buying}
         onWatchAd={async () => {
-          const ok = isGp ? await watchAdForGpMore() : isCareer ? await watchAdForCareerMore() : await watchAdForMore();
+          const ok = isGp ? await watchAdForGpMore() : isCareer ? await watchAdForCareerMore() : isDuel ? await watchAdForDuelMore() : await watchAdForMore();
           if (ok) setScreen(nomoreReturn);
         }}
         onBuyUnlimited={async () => { const ok = await handleBuyUnlimited(); if (ok) setScreen('home'); }}
@@ -919,6 +1130,7 @@ export default function App() {
         refreshKey={refreshKey}
         onRetry={tryPlay}
         onHome={() => setScreen('home')}
+        onOpenPlayer={openPlayerProfile}
       />
     );
   }
@@ -943,7 +1155,6 @@ export default function App() {
           refreshKey={refreshKey}
           myStreak={myStreak}
           wallet={wallet}
-          homeStanding={homeStanding}
           recap={recap}
           onCloseRecap={() => setRecap(null)}
           challenge={challenge}
@@ -956,9 +1167,10 @@ export default function App() {
           unlimited={unlimited}
           tryPlay={tryPlay}
           privacyOptional={privacyOptional}
+          onOpenPlayer={openPlayerProfile}
         />
       )}
-      {tab === 'ranking' && <RankingTab refreshKey={refreshKey} />}
+      {tab === 'ranking' && <RankingTab refreshKey={refreshKey} onOpenPlayer={openPlayerProfile} />}
       {tab === 'amigos' && <AmigosTab refreshKey={refreshKey} onOpenGroup={openGroupHome} />}
     </AppShell>
   );
@@ -973,6 +1185,13 @@ const STREAK_AMOUNTS = [5, 5, 10, 10, 15, 15, 20];
 function StreakPath({ current }) {
   if (!current || current < 1) return null;
   const pos = ((current - 1) % 7) + 1;
+  // Día ABSOLUTO de la racha para el día 1 de esta semana (p.ej. racha 15,
+  // semana 3 -> empieza en el 15). JC, 2026-09-16: "si ponemos el día de la
+  // racha dentro del número, podemos quitar el rectángulo amarillo" — antes
+  // el punto de hoy solo decía "1" (posición en el ciclo semanal) y hacía
+  // falta el chip "RACHA 15" aparte para saber el número real; ahora el
+  // propio punto ya lo dice, así que el chip sobra (quitado en DiarioTab).
+  const weekStartDay = current - pos + 1;
   return (
     <View style={rd.streakPath}>
       <View style={rd.streakDotsRow}>
@@ -984,7 +1203,7 @@ function StreakPath({ current }) {
             <Fragment key={day}>
               <View style={rd.streakDotCol}>
                 <View style={[rd.streakDot, done && rd.streakDotDone, isToday && rd.streakDotToday]}>
-                  <Text style={[rd.streakDotText, done && rd.streakDotTextDone]}>{day}</Text>
+                  <Text style={[rd.streakDotText, done && rd.streakDotTextDone]}>{weekStartDay + i}</Text>
                 </View>
               </View>
               {day < 7 && <View style={[rd.streakConnector, day < pos && rd.streakConnectorDone]} />}
@@ -992,6 +1211,12 @@ function StreakPath({ current }) {
           );
         })}
       </View>
+      {/* JC, 2026-09-16: quitar la leyenda de texto ("monedas por día...")
+          y decirlo con el mismo CoinIcon del chip de cabecera en cada
+          día — coherencia de un solo símbolo para "esto es dinero" en vez
+          de repetir la palabra. El día 7 sigue en texto ("SOBRE"): no es
+          una cantidad de moneda, es un objeto distinto (piezas), así que
+          un icono de moneda ahí mentiría. */}
       <View style={rd.streakLabelsRow}>
         {STREAK_AMOUNTS.map((amount, i) => {
           const day = i + 1;
@@ -1000,12 +1225,21 @@ function StreakPath({ current }) {
           return (
             <Fragment key={day}>
               <View style={[rd.streakLabelCol, isLast && rd.streakLabelColLast]}>
-                <Text
-                  style={[rd.streakAmount, isLast && rd.streakGiftText, done && (isLast ? rd.streakGiftDone : rd.streakAmountDone)]}
-                  numberOfLines={1}
-                >
-                  {isLast ? 'SOBRE' : amount}
-                </Text>
+                {isLast ? (
+                  <Text
+                    style={[rd.streakAmount, rd.streakGiftText, done && rd.streakGiftDone]}
+                    numberOfLines={1}
+                  >
+                    SOBRE
+                  </Text>
+                ) : (
+                  <View style={rd.streakAmountRow}>
+                    <CoinIcon size={8} />
+                    <Text style={[rd.streakAmount, done && rd.streakAmountDone]} numberOfLines={1}>
+                      {amount}
+                    </Text>
+                  </View>
+                )}
               </View>
               {day < 7 && <View style={rd.streakConnectorSpacer} />}
             </Fragment>
@@ -1045,7 +1279,11 @@ const TOUR_STEPS = [
   {
     title: 'La racha',
     demo: <StreakPath current={3} />,
-    body: 'Corre al menos una vuelta cada día y la racha sube. Cada día paga más monedas — 5, 10, 15, 20 — y el séptimo cae un sobre con piezas para el coche.\n\nSi te saltas un día, vuelve a empezar de cero.',
+    // JC, 2026-09-17: "poner lo del icono de las monedas" — el texto
+    // repetía en palabras ("monedas — 5, 10, 15, 20") lo que el demo de
+    // arriba ya enseña con el icono real desde que se rediseñó el banner
+    // (App.js, StreakPath). Apunta al icono en vez de recitar los números.
+    body: 'Corre al menos una vuelta cada día y la racha sube. El icono de cada casilla es lo que ganas ese día — cada vez más — y el séptimo cae un sobre con piezas para el coche.\n\nSi te saltas un día, vuelve a empezar de cero.',
   },
   {
     target: 'tab-amigos',
@@ -1102,6 +1340,9 @@ function WhatsNewModal({ onClose }) {
       <View style={rd.recapBackdrop}>
         <View style={rd.whatsNewCard}>
           <Text style={rd.recapTitle}>NOVEDADES · v{WHATS_NEW_VERSION}</Text>
+          <View style={rd.whatsNewHero}>
+            <AvatarThumb pilotAvatarId="legendario" size={110} />
+          </View>
           <Text style={rd.whatsNewTitle}>{WHATS_NEW_TITLE}</Text>
           <View style={rd.whatsNewList}>
             {WHATS_NEW_ITEMS.map((item) => (
@@ -1120,6 +1361,59 @@ function WhatsNewModal({ onClose }) {
   );
 }
 
+// Duelos 1vs1 (JC, 2026-09-17): "esperando a tu rival" — tu vuelta ya está
+// subida, falta la suya. Sondeo simple cada 7s (la ventana entera del duelo
+// es de solo 15 minutos, no hace falta nada más sofisticado que esto — ver
+// el contexto completo en duels.sql). En cuanto getDuel devuelve 'finished',
+// se avisa al padre para saltar al reveal.
+function DuelWaitScreen({ duelId, submitError, onReady, onBack, onRetry }) {
+  // El sondeo sigue corriendo AUNQUE el envío haya fallado en el cliente:
+  // si en realidad sí llegó al servidor y solo se perdió la respuesta, esto
+  // se autocorrige solo en cuanto el rival también termine — sin esto, un
+  // fallo de red que en verdad no lo fue dejaría al jugador esperando un
+  // reveal que ya estaba listo.
+  useEffect(() => {
+    let alive = true;
+    const id = setInterval(() => {
+      getDuel(duelId).then((d) => {
+        if (alive && d?.status === 'finished') onReady();
+      }).catch(() => {});
+    }, 7000);
+    return () => { alive = false; clearInterval(id); };
+  }, [duelId]);
+
+  return (
+    <View style={[rd.screen, { alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 24 }]}>
+      {submitError ? (
+        <>
+          <Text style={{ color: RD.danger, fontSize: 18, fontFamily: RD_FONT.displayBlack, textTransform: 'uppercase', textAlign: 'center' }}>
+            No se pudo enviar tu vuelta
+          </Text>
+          <Text style={{ color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' }}>
+            Puede que sí se haya guardado y solo se perdiera la confirmación — seguimos esperando por si acaso. Si tienes tiempo, también puedes volver a correr.
+          </Text>
+          <Pressable style={{ backgroundColor: RD.brand, borderRadius: 2, paddingVertical: 13, paddingHorizontal: 22, marginTop: 6 }} onPress={onRetry}>
+            <Text style={{ color: RD.bg, fontSize: 14, fontFamily: RD_FONT.displayBlack, letterSpacing: 0.6 }}>VOLVER A CORRER</Text>
+          </Pressable>
+        </>
+      ) : (
+        <>
+          <ActivityIndicator color={RD.brand} />
+          <Text style={{ color: RD.textPrimary, fontSize: 18, fontFamily: RD_FONT.displayBlack, textTransform: 'uppercase', textAlign: 'center' }}>
+            Esperando a tu rival
+          </Text>
+          <Text style={{ color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' }}>
+            Tu vuelta ya está guardada. En cuanto corra, se revela el resultado.
+          </Text>
+        </>
+      )}
+      <Pressable onPress={onBack} hitSlop={12}>
+        <Text style={{ color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, marginTop: 10 }}>‹ VOLVER A INICIO</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------------------
 //  Inicio — dirección "Parrilla" (rediseño, ver Rediseño visual Apexly/).
 // ---------------------------------------------------------------------------
@@ -1127,8 +1421,8 @@ function WhatsNewModal({ onClose }) {
 // monedas y el acceso a Garaje/Tienda viven en la cabecera fija (AppShell)
 // y en Perfil, ya no aquí, para no duplicar info entre sitios.
 function DiarioTab({
-  refreshKey, myStreak, wallet, homeStanding, recap, onCloseRecap, challenge, onCloseChallenge, daily, weather, midnightLabel,
-  left, total, unlimited, tryPlay, privacyOptional,
+  refreshKey, myStreak, wallet, recap, onCloseRecap, challenge, onCloseChallenge, daily, weather, midnightLabel,
+  left, total, unlimited, tryPlay, privacyOptional, onOpenPlayer,
 }) {
   return (
     <>
@@ -1140,34 +1434,28 @@ function DiarioTab({
         </Pressable>
       )}
 
-      {/* Titular de rivalidad — el ranking completo vive en la pestaña
-          Amigos, esto es solo el gancho: dónde vas y a quién persigues,
-          sin tener que salir de Diario para verlo. */}
-      {homeStanding && (
-        <View style={[rd.panel, rd.rivalryPanel]}>
-          <Text style={rd.labelMono}>TU PUESTO DE HOY</Text>
-          <Text style={rd.rivalryHeadline}>
-            {homeStanding.rank === 1 ? (
-              <>Vas <Text style={rd.rivalryStrong}>1.º</Text> de {homeStanding.total} — nadie te ha alcanzado hoy</>
-            ) : homeStanding.above ? (
-              <>
-                Vas <Text style={rd.rivalryStrong}>{homeStanding.rank}.º</Text> · a{' '}
-                <Text style={rd.rivalryStrong}>{fmtSecs(homeStanding.above.gapMs)}s</Text> de {homeStanding.above.nickname}
-              </>
-            ) : (
-              <>Vas <Text style={rd.rivalryStrong}>{homeStanding.rank}.º</Text> de {homeStanding.total}</>
-            )}
-          </Text>
-        </View>
-      )}
+      {/* El titular "TU PUESTO DE HOY" que iba aquí se quitó (JC,
+          2026-09-16: "ya tenemos dos rankings para eso") — el RANKING
+          GLOBAL DE HOY de más abajo en esta misma pestaña y la pestaña
+          Ranking ya cubren esa info, y no merecía la pena duplicarla ni
+          mantener la consulta getGlobalBoard() aparte solo para esto. */}
 
       {myStreak?.current >= 1 && (
         <View style={rd.panel}>
           <View style={rd.panelHeadRow}>
-            <Text style={rd.labelMono}>TU RACHA</Text>
-            <View style={rd.streakChip}>
-              <Text style={rd.streakChipText}>RACHA {myStreak.current}</Text>
-            </View>
+            {/* JC, 2026-09-16: "si es la racha 15, debe ser el primer día
+                de la 3ª semana" — los 7 puntos de abajo SIEMPRE marcan la
+                posición 1-7 dentro del ciclo semanal (así funciona el pago,
+                ver grant_daily_reward en economy.sql), así que una racha de
+                15 se ve IGUAL que una de 1 o de 8: día 1 destacado, nada
+                distingue en qué semana real estás. La etiqueta lo dice en
+                texto en vez de inventar una fila de puntos por semana. */}
+            {/* El chip dorado "RACHA N" que iba aquí sobraba (JC,
+                2026-09-16) en cuanto el punto de "hoy" de StreakPath pasó a
+                mostrar el día absoluto de la racha en vez de la posición
+                1-7 del ciclo — el número ya está debajo, no hace falta
+                repetirlo. */}
+            <Text style={rd.labelMono}>TU RACHA · SEMANA {Math.ceil(myStreak.current / 7)}</Text>
           </View>
           <StreakPath current={myStreak?.current} />
         </View>
@@ -1202,7 +1490,7 @@ function DiarioTab({
           Amigos (que ahora es solo grupos/Grand Prix). */}
       <View style={rd.rankingBlock} ref={tourRef('ranking')} collapsable={false}>
         <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING GLOBAL DE HOY</Text>
-        <MiniRanking refreshKey={refreshKey} showTabs={false} />
+        <MiniRanking refreshKey={refreshKey} showTabs={false} onOpenPlayer={onOpenPlayer} />
       </View>
 
       {privacyOptional && (
@@ -1397,9 +1685,9 @@ const TABS = [
 // no se entendiera el icono, sino que no tenía identidad y desaparecía al
 // lado del chip dorado de monedas.)
 
-// (Aquí vivía CoinIcon, dos círculos concéntricos. Se quitó porque no se leía
-// como "moneda" — podía ser un objetivo, un ajuste o un disco. La palabra
-// MONEDAS ocupa parecido y no deja lugar a dudas.)
+// CoinIcon (círculo dorado con "$") ahora vive en src/CoinIcon.js — Tienda
+// lo necesitaba también (JC, 2026-09-16: "lo mismo para tienda") y no tenía
+// sentido duplicar el SVG por pantalla.
 
 // Cabecera fija + barra de pestañas — envuelve las 3 pestañas de arriba.
 // Perfil (stats + Garaje + Tienda) vive fuera, es pantalla completa aparte.
@@ -1430,10 +1718,8 @@ function AppShell({ tab, setTab, nickname, wallet, onOpenProfile, tour, children
           <Text style={rd.profileBtnChevron}>›</Text>
           {wallet?.pendingPacks > 0 && <View style={rd.profileBadge} />}
         </Pressable>
-        {/* Rotulado a palabra: el icono de moneda solo no se entendía, y el
-            número suelto podía ser cualquier cosa (puntos, nivel, posición). */}
         <View style={rd.coinChip}>
-          <Text style={rd.coinChipLabel}>MONEDAS</Text>
+          <CoinIcon size={20} />
           <Text style={rd.coinChipText}>{wallet?.balance ?? 0}</Text>
         </View>
       </View>
@@ -1485,15 +1771,11 @@ const rd = StyleSheet.create({
   onboardTagline: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 3 },
 
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
-  coinChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 7,
-    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 9, paddingVertical: 5,
-    backgroundColor: RD.gold1stShade,
-  },
-  coinChipLabel: {
-    color: RD.gold1st, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 0.8, opacity: 0.85,
-  },
-  coinChipText: { color: RD.gold1st, fontSize: 13, fontFamily: RD_FONT.monoBold },
+  // JC, 2026-09-16: "quita el rectángulo amarillo" — el icono + número ya
+  // se leen como moneda por sí solos, no hace falta además enmarcarlos en
+  // un chip con borde y fondo.
+  coinChip: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  coinChipText: { color: RD.gold1st, fontSize: 17, fontFamily: RD_FONT.monoBold },
 
   // Cabecera fija + barra de pestañas (AppShell) — envuelve Diario/Amigos/Carrera.
   shell: { flex: 1, backgroundColor: RD.bg },
@@ -1525,10 +1807,6 @@ const rd = StyleSheet.create({
   tabBarBtnText: { color: RD.textDisabled, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
   tabBarBtnTextActive: { color: RD.textPrimary },
   tabBarIndicator: { width: 18, height: 2, backgroundColor: RD.brand },
-  streakChip: {
-    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2, paddingHorizontal: 7, paddingVertical: 4,
-  },
-  streakChipText: { color: RD.gold1st, fontSize: 11, fontFamily: RD_FONT.monoBold },
 
   challengeBanner: {
     borderWidth: 1, borderColor: RD.brand, borderRadius: 2,
@@ -1557,6 +1835,7 @@ const rd = StyleSheet.create({
   streakLabelCol: { width: 22, alignItems: 'center' },
   streakLabelColLast: { width: 22, alignItems: 'center', position: 'relative' },
   streakConnectorSpacer: { flex: 1, marginHorizontal: 2 },
+  streakAmountRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   streakAmount: { color: RD.textDisabled, fontSize: 9, fontFamily: RD_FONT.mono },
   streakAmountDone: { color: RD.textSecondary },
   streakGiftText: {
@@ -1592,6 +1871,12 @@ const rd = StyleSheet.create({
     width: '100%', maxWidth: 340, backgroundColor: RD.bg, borderWidth: 1, borderColor: RD.gold1st,
     borderRadius: 2, padding: 22, gap: 4,
   },
+  whatsNewHero: {
+    alignSelf: 'center', width: 130, height: 130, borderRadius: 4,
+    borderWidth: 1, borderColor: RARITY_COLOR.legendaria,
+    backgroundColor: 'rgba(240,196,81,0.08)',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 10,
+  },
   whatsNewTitle: {
     color: RD.textPrimary, fontSize: 20, fontFamily: RD_FONT.displayBlack, marginBottom: 12,
   },
@@ -1601,9 +1886,6 @@ const rd = StyleSheet.create({
   whatsNewItemBody: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, lineHeight: 17 },
 
   panel: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 8 },
-  rivalryPanel: { borderColor: RD.trackBlue },
-  rivalryHeadline: { color: RD.textPrimary, fontSize: 15, fontFamily: RD_FONT.mono, lineHeight: 21 },
-  rivalryStrong: { color: RD.trackBlue, fontFamily: RD_FONT.monoBold },
   panelHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   labelMono: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1.4 },
   attBadge: { backgroundColor: RD.cream, paddingHorizontal: 6, paddingVertical: 3 },
@@ -1927,7 +2209,7 @@ function RevealValue({ shown, style, children }) {
 // ---------------------------------------------------------------------------
 //  Resultado: tiempo + stats + tarjeta para compartir. Micro-recompensa si récord.
 // ---------------------------------------------------------------------------
-function Results({ result, label, track, weather, nickname, attemptsLeft = Infinity, total = 0, unlimited = false, refreshKey, onRetry, onHome }) {
+function Results({ result, label, track, weather, nickname, attemptsLeft = Infinity, total = 0, unlimited = false, refreshKey, onRetry, onHome, onOpenPlayer }) {
   const wx = weather || { icon: '', label: '' };
   const outOfAttempts = attemptsLeft <= 0;
   const cardRef = useRef(null);
@@ -2299,7 +2581,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
       </View>
 
       <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING DE HOY</Text>
-      <MiniRanking refreshKey={refreshKey} showTabs={false} />
+      <MiniRanking refreshKey={refreshKey} showTabs={false} onOpenPlayer={onOpenPlayer} />
 
       {/* Tarjeta para compartir: renderizada fuera de pantalla y capturada a PNG.
           Usa vibeColor y no timeColor, para que el acento no dependa de en qué

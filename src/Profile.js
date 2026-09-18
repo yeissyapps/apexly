@@ -17,24 +17,40 @@
 import { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import DangerStripe from './DangerStripe';
-import Identicon from './Identicon';
 import StatTrend from './StatTrend';
+import AvatarViewer from './AvatarViewer';
+import CoinIcon from './CoinIcon';
+import { AVATARS, TOTAL_COLLECTIBLES } from './avatarCatalog';
 import { RD, RD_FONT } from './theme';
 import { fmtTime } from './format';
 import { dailyTimeEstimate } from './generator';
 import {
-  getCareerProgress, getInventory, getGlobalBoard,
-  getPlayerStats, getMyDailyHistory, getMyPurpleSectors, getLifetimeCoins,
+  getCareerProgress, getInventory, getGlobalBoard, getMyId, getPlayerRankToday,
+  getPlayerStats, getMyDailyHistory, getMyPurpleSectors, getLifetimeCoins, getPilotAvatarId,
+  createDuel, getMyPendingDuels, getPresenceMap,
 } from './api';
 import { LEVEL_COUNT } from './career';
-import { TOTAL_PIECES } from './car';
 
-// TOTAL_PIECES ahora vive en car.js (una sola fuente, calculada del catálogo)
-// — antes se calculaba aquí y estaba escrito a mano en Tienda.js, así que al
-// añadir una categoría los dos números se separaban.
+// "En línea" es una aproximación por sondeo (touchPresence cada ~60s desde
+// App.js, sin tiempo real) — 3 minutos de margen para no parpadear a
+// "desconectado" entre dos latidos si uno se retrasa un poco.
+const ONLINE_WINDOW_MS = 3 * 60 * 1000;
+
+// Media pantalla de verdad, no un porcentaje del contenido del ScrollView
+// (ahí "50%" no significa nada sin un padre de altura fija) — se mide
+// directo contra la ventana. JC, 2026-09-15: "vea en media pantalla de
+// arriba su avatar".
+const AVATAR_HEIGHT = Dimensions.get('window').height * 0.5;
+
+// TOTAL_PIECES vive en car.js (una sola fuente, calculada del catálogo del
+// coche) — antes se calculaba aquí y estaba escrito a mano en Tienda.js, así
+// que al añadir una categoría los dos números se separaban. TOTAL_COLLECTIBLES
+// (avatarCatalog.js) le suma las piezas de avatar bloqueables: piecesOwned
+// de abajo cuenta TODO el inventory sin filtrar por categoría, así que el
+// total tiene que incluirlas también o "completo" llegaría antes de tiempo.
 
 // Caché de los objetivos por día. El objetivo de un día pasado es
 // determinista y no cambia NUNCA, así que se calcula una vez y se guarda:
@@ -79,6 +95,17 @@ function fmtDuration(ms) {
   return `${sec}s`;
 }
 
+// Perfil dejó de caber en un solo scroll al sumar avatar 3D + stats +
+// tendencia + acciones (JC, 2026-09-16: "muchísima info en el perfil").
+// PILOTO agrupa lo visual/accionable (Garaje/Tienda/Carrera, avatar); STATS
+// agrupa lo de leer (RACHA/HOY, tendencia, contadores). El avatar se queda
+// a media pantalla tal cual se pidió — se reparte el contenido en dos
+// pestañas en vez de encogerlo.
+const PROFILE_TABS = [
+  { id: 'piloto', label: 'PILOTO' },
+  { id: 'stats', label: 'STATS' },
+];
+
 function StatCard({ value, label, hint, tone }) {
   return (
     <View style={s.statCard}>
@@ -89,7 +116,11 @@ function StatCard({ value, label, hint, tone }) {
   );
 }
 
-export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGarage, onOpenTienda, onOpenCareer }) {
+export default function Profile({
+  nickname, myStreak, wallet, onBack, onOpenGarage, onOpenTienda, onOpenCareer, onOpenAvatarPicker,
+  onOpenPilotTest, onOpenAvatarTest, onOpenDuel,
+  viewUserId, viewNickname, viewStreak,
+}) {
   const [career, setCareer] = useState(null);
   const [piecesOwned, setPiecesOwned] = useState(null);
   const [todayRank, setTodayRank] = useState(undefined); // undefined = cargando, null = no jugó hoy
@@ -97,27 +128,63 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
   const [purple, setPurple] = useState(null);
   const [lifetimeCoins, setLifetimeCoins] = useState(null);
   const [trend, setTrend] = useState(null);
+  const [myId, setMyId] = useState(null);
+  const [tab, setTab] = useState('piloto');
+  const [pilotAvatarId, setPilotAvatarId] = useState(null); // null = todavía sin elegir uno (o cargando) -> hash de siempre
+  const [online, setOnline] = useState(false);      // presencia real del jugador que se está viendo
+  const [pendingDuels, setPendingDuels] = useState([]); // retos que ME han hecho y siguen sin responder (perfil propio)
+  const [wagerInput, setWagerInput] = useState('50');
+  const [challengeBusy, setChallengeBusy] = useState(false);
+  const [challengeMsg, setChallengeMsg] = useState(null); // { type: 'ok'|'err', text }
+
+  // Perfil público de otro jugador (JC, 2026-09-15) — viewUserId llega al
+  // tocar un nombre/avatar en cualquier ranking (ver App.js:
+  // openPlayerProfile). Se compara contra tu propio id (no solo "¿llegó
+  // viewUserId?") porque tocar TU PROPIA fila en un ranking también pasa
+  // por aquí, y debe verse como "mi perfil" de toda la vida, con sus
+  // botones y sus monedas — no como el de un desconocido.
+  const isOwnProfile = !viewUserId || viewUserId === myId;
+  const displayNickname = isOwnProfile ? nickname : (viewNickname || '···');
 
   useEffect(() => {
     let alive = true;
-    getCareerProgress().then((n) => alive && setCareer(n)).catch(() => alive && setCareer(0));
-    getInventory()
+    getMyId().then((id) => alive && setMyId(id)).catch(() => {});
+    getCareerProgress(viewUserId).then((n) => alive && setCareer(n)).catch(() => alive && setCareer(0));
+    getInventory(viewUserId)
       .then((items) => {
         if (!alive) return;
         setPiecesOwned(new Set(items.map((p) => `${p.category}:${p.pieceId}`)).size);
       })
       .catch(() => alive && setPiecesOwned(0));
-    getGlobalBoard()
-      .then((b) => alive && setTodayRank(b.me ? b.me.rank : null))
-      .catch(() => alive && setTodayRank(null));
-    getPlayerStats().then((v) => alive && setStats(v)).catch(() => alive && setStats(null));
-    getMyPurpleSectors().then((v) => alive && setPurple(v)).catch(() => {});
-    getLifetimeCoins().then((v) => alive && setLifetimeCoins(v)).catch(() => {});
+
+    // El puesto de hoy: la tuya usa getGlobalBoard (ventana completa, ya la
+    // pedía Inicio); la de otro jugador solo necesita SU número, no toda
+    // la ventana de vecinos — getPlayerRankToday es más barata para eso.
+    if (viewUserId) {
+      getPlayerRankToday(viewUserId).then((r) => alive && setTodayRank(r)).catch(() => alive && setTodayRank(null));
+    } else {
+      getGlobalBoard()
+        .then((b) => alive && setTodayRank(b.me ? b.me.rank : null))
+        .catch(() => alive && setTodayRank(null));
+    }
+
+    getPlayerStats(viewUserId).then((v) => alive && setStats(v)).catch(() => alive && setStats(null));
+    getMyPurpleSectors(undefined, viewUserId).then((v) => alive && setPurple(v)).catch(() => {});
+    // El avatar REAL que eligió (Fase 4, inventario de verdad, JC
+    // 2026-09-16) — null mientras carga o si nunca eligió ninguno, y en
+    // ese caso se sigue cayendo al hash determinista de siempre (ver
+    // `avatar` más abajo), no a un "sin avatar".
+    getPilotAvatarId(viewUserId).then((id) => alive && setPilotAvatarId(id)).catch(() => {});
+    // Las monedas son privadas (JC: público el avatar y las stats, no el
+    // saldo) — ni se piden para el perfil de otro jugador.
+    if (!viewUserId) {
+      getLifetimeCoins().then((v) => alive && setLifetimeCoins(v)).catch(() => {});
+    }
 
     // El gráfico va aparte y DESPUÉS: necesita calcular el objetivo de cada
     // día, que es caro la primera vez. Se resuelve fuera del primer pintado
     // para que el resto del perfil aparezca ya.
-    getMyDailyHistory(30)
+    getMyDailyHistory(30, viewUserId)
       .then(async (rows) => {
         if (!alive || rows.length === 0) { if (alive) setTrend([]); return; }
         const targets = await loadTargets(rows.map((r) => r.day));
@@ -127,13 +194,62 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
       .catch(() => alive && setTrend([]));
 
     return () => { alive = false; };
-  }, []);
+  }, [viewUserId]);
+
+  // Duelos 1vs1 (JC, 2026-09-17): en tu propio perfil, si alguien te ha
+  // retado y no has respondido, aparece aviso para ir a decidir. En el
+  // perfil de otro jugador, en cambio, se comprueba su presencia real para
+  // la insignia EN LÍNEA junto al botón RETAR.
+  useEffect(() => {
+    let alive = true;
+    if (!viewUserId) {
+      getMyPendingDuels().then((d) => alive && setPendingDuels(d)).catch(() => {});
+    } else {
+      getPresenceMap([viewUserId]).then((m) => {
+        if (!alive) return;
+        const seen = m.get(viewUserId);
+        setOnline(!!seen && Date.now() - seen.getTime() < ONLINE_WINDOW_MS);
+      }).catch(() => {});
+    }
+    return () => { alive = false; };
+  }, [viewUserId]);
+
+  async function handleChallenge() {
+    const wager = parseInt(wagerInput, 10);
+    if (!wager || wager <= 0 || challengeBusy) return;
+    setChallengeBusy(true);
+    setChallengeMsg(null);
+    try {
+      await createDuel(viewUserId, wager);
+      setChallengeMsg({ type: 'ok', text: `Reto enviado a ${displayNickname} por ${wager} monedas.` });
+    } catch (e) {
+      const code = String(e?.message || e);
+      const text = code.includes('DUEL_ALREADY_PENDING') ? 'Ya tenéis un duelo pendiente sin resolver.'
+        : code.includes('INVALID_WAGER') ? 'Pon una apuesta válida.'
+        : 'No se pudo enviar el reto. Inténtalo otra vez.';
+      setChallengeMsg({ type: 'err', text });
+    } finally {
+      setChallengeBusy(false);
+    }
+  }
 
   const daysRaced = trend ? trend.length : null;
   // Choques por vuelta es más honesto que el total: 400 choques en 500
   // vueltas es un dato distinto a 400 en 50, y el total solo premia a quien
   // más ha jugado.
   const crashRate = stats && stats.laps > 0 ? (stats.crashes / stats.laps).toFixed(1) : null;
+
+  // Si ya eligió un avatar de verdad (selector real, JC 2026-09-16, ver
+  // AvatarPicker.js) se usa ESE; si no (nunca lo tocó, o el dato aún no ha
+  // llegado), cae a la base — JC, 2026-09-17: "ahora hay jugadores con
+  // diferentes avatares, todo el mundo debe tener el azul". Antes cada
+  // jugador caía a un diseño distinto por hash de su id (variantIndexForSeed),
+  // lo que hacía parecer que cualquiera podía "tener" un raro/épico sin
+  // haberlo ganado en un sobre — justo lo contrario de la economía real que
+  // se acaba de montar. Mismo criterio en AvatarThumb.js (listas/ranking).
+  const avatar = pilotAvatarId
+    ? (AVATARS.find((a) => a.key === pilotAvatarId) || AVATARS[0])
+    : AVATARS[0];
 
   return (
     <View style={s.screen}>
@@ -145,9 +261,16 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
         </Pressable>
 
         <View style={s.identity}>
-          <Identicon seed={nickname} size={56} />
           <View style={s.identityText}>
-            <Text style={s.nickname} numberOfLines={1}>{nickname}</Text>
+            <View style={s.nicknameRow}>
+              <Text style={s.nickname} numberOfLines={1}>{displayNickname}</Text>
+              {!isOwnProfile && online && (
+                <View style={s.onlinePill}>
+                  <View style={s.onlineDot} />
+                  <Text style={s.onlinePillText}>EN LÍNEA</Text>
+                </View>
+              )}
+            </View>
             <Text style={s.identitySub}>
               {daysRaced != null ? `${daysRaced} ${daysRaced === 1 ? 'día corrido' : 'días corridos'}` : '···'}
               {stats?.bestMs ? ` · mejor ${fmtTime(stats.bestMs)}` : ''}
@@ -155,91 +278,215 @@ export default function Profile({ nickname, myStreak, wallet, onBack, onOpenGara
           </View>
         </View>
 
-        {/* Garaje, Tienda y Carrera van ARRIBA: son lo accionable de esta
-            pantalla, y enterrarlos bajo el bloque de stats obligaba a hacer
-            scroll para llegar a lo único que se puede pulsar. Las stats son
-            de leer, y leer puede esperar a después de actuar.
-            Carrera se sumó aquí el 2026-09-09: tenía poca acogida como
-            pestaña propia y no es de lo principal del juego — vive junto a
-            Garaje/Tienda, no en la barra de abajo. */}
-        <View style={s.actionsRow}>
-          <Pressable style={s.actionBtn} onPress={onOpenGarage}>
-            <Text style={s.actionBtnText}>GARAJE</Text>
-          </Pressable>
-          <Pressable style={s.actionBtn} onPress={onOpenTienda}>
-            <Text style={s.actionBtnText}>TIENDA</Text>
-          </Pressable>
-          <Pressable style={s.actionBtn} onPress={onOpenCareer}>
-            <Text style={s.actionBtnText}>CARRERA</Text>
-          </Pressable>
+        {/* Dos pestañas (JC, 2026-09-16: "muchísima info en el perfil") en
+            vez de un único scroll largo — ver PROFILE_TABS arriba. */}
+        <View style={s.tabsRow}>
+          {PROFILE_TABS.map((t) => (
+            <Pressable
+              key={t.id}
+              style={[s.tab, tab === t.id && s.tabActive]}
+              onPress={() => setTab(t.id)}
+            >
+              <Text style={[s.tabText, tab === t.id && s.tabTextActive]}>{t.label}</Text>
+            </Pressable>
+          ))}
         </View>
 
-        {/* Fila de titulares: lo que de verdad presume el jugador. Va en una
-            fila propia y más grande que el resto — si todo pesa igual, nada
-            destaca (que era el problema de la versión anterior). */}
-        <View style={s.heroRow}>
-          <View style={s.heroCard}>
-            <Text style={s.heroValue}>{myStreak?.current ?? 0}</Text>
-            <Text style={s.heroLabel}>RACHA</Text>
-            <Text style={s.heroHint}>máx. {myStreak?.longest ?? 0}</Text>
-          </View>
-          <View style={s.heroCard}>
-            {/* El dorado SOLO si de verdad vas primero. Antes lo llevaban
-                todos los números de la pantalla, así que no distinguía nada;
-                apareciendo solo aquí, vuelve a significar "podio". */}
-            <Text style={[s.heroValue, todayRank === 1 && s.heroValueGold]}>
-              {todayRank ? `#${todayRank}` : todayRank === null ? '—' : '···'}
-            </Text>
-            <Text style={s.heroLabel}>HOY</Text>
-            <Text style={s.heroHint}>
-              {purple ? `${purple.mine}/3 morados` : ' '}
-            </Text>
-          </View>
-        </View>
+        {tab === 'piloto' && (
+          <>
+            {/* Garaje, Tienda y Carrera actúan sobre TU cuenta — solo tienen
+                sentido en tu propio perfil, no en el de otro jugador (JC,
+                2026-09-15: perfiles públicos). Carrera se sumó aquí el
+                2026-09-09: tenía poca acogida como pestaña propia y no es
+                de lo principal del juego — vive junto a Garaje/Tienda, no
+                en la barra de abajo. */}
+            {/* Duelos 1vs1 (JC, 2026-09-17): en tu propio perfil, un aviso
+                si alguien te ha retado y sigues sin responder — el mismo
+                tipo de aviso que ya usa wallet.pendingPacks en la cabecera,
+                aquí a tamaño de banner porque no hay otro sitio donde
+                encontrarlo si no llega la notificación push. */}
+            {isOwnProfile && pendingDuels.map((d) => (
+              <Pressable key={d.id} style={s.duelBanner} onPress={() => onOpenDuel(d.id)}>
+                <Text style={s.duelBannerText}>
+                  {d.challengerName} te reta por {d.wager} monedas
+                </Text>
+                <Text style={s.duelBannerLink}>VER ›</Text>
+              </Pressable>
+            ))}
 
-        <StatTrend points={trend || []} />
+            {isOwnProfile && (
+              <View style={s.actionsRow}>
+                {/* Colores distintos por botón (JC, 2026-09-16) — antes los
+                    3 llevaban el mismo trackBlue y se leían como una sola
+                    pieza de 3 partes en vez de 3 destinos distintos. Cada
+                    color reutiliza un token que YA significa algo en el
+                    resto de la app (ver theme.js): trackBlue es "coche",
+                    gold1st es "moneda/récord", successGreen es "progreso". */}
+                <Pressable style={[s.actionBtn, s.actionBtnGaraje]} onPress={onOpenGarage}>
+                  <Text style={[s.actionBtnText, s.actionBtnTextGaraje]}>GARAJE</Text>
+                </Pressable>
+                <Pressable style={[s.actionBtn, s.actionBtnTienda]} onPress={onOpenTienda}>
+                  <Text style={[s.actionBtnText, s.actionBtnTextTienda]}>TIENDA</Text>
+                </Pressable>
+                <Pressable style={[s.actionBtn, s.actionBtnCarrera]} onPress={onOpenCareer}>
+                  <Text style={[s.actionBtnText, s.actionBtnTextCarrera]}>CARRERA</Text>
+                </Pressable>
+                {/* Selector real de avatar (JC, 2026-09-16) — youMagenta
+                    porque ya es el color de "épica" en el resto de la app
+                    (RARITY_COLOR), y este botón lleva justo a la pantalla
+                    de rarezas. */}
+                <Pressable style={[s.actionBtn, s.actionBtnAvatar]} onPress={onOpenAvatarPicker}>
+                  <Text style={[s.actionBtnText, s.actionBtnTextAvatar]}>AVATAR</Text>
+                </Pressable>
+              </View>
+            )}
 
-        <Text style={s.sectionLabel}>EN PISTA</Text>
-        <View style={s.statsRow}>
-          <StatCard
-            value={stats ? stats.laps : '—'}
-            label="VUELTAS"
-            tone={stats ? null : 'dim'}
-          />
-          <StatCard
-            value={stats ? fmtDuration(stats.raceMs) : '—'}
-            label="AL VOLANTE"
-            tone={stats ? null : 'dim'}
-          />
-          <StatCard
-            value={stats ? stats.crashes : '—'}
-            label="CHOQUES"
-            hint={crashRate ? `${crashRate}/vuelta` : null}
-            tone={stats ? null : 'dim'}
-          />
-        </View>
+            {/* RETAR (JC, 2026-09-17: duelos 1vs1) — perfil de OTRO jugador
+                solamente, mismo hueco donde se ocultan Garaje/Tienda/Carrera
+                por ser "tu cuenta". La apuesta se cobra a los dos al
+                ACEPTAR, no al enviar el reto — aquí no se mueve nada
+                todavía, solo se manda. */}
+            {!isOwnProfile && (
+              <View style={s.duelCard}>
+                <Text style={s.duelCardTitle}>RETAR A UN DUELO</Text>
+                <View style={s.duelWagerRow}>
+                  <CoinIcon size={16} />
+                  <TextInput
+                    style={s.duelWagerInput}
+                    value={wagerInput}
+                    onChangeText={(t) => setWagerInput(t.replace(/[^0-9]/g, ''))}
+                    keyboardType="number-pad"
+                    maxLength={5}
+                  />
+                </View>
+                {!!challengeMsg && (
+                  <Text style={challengeMsg.type === 'ok' ? s.duelMsgOk : s.duelMsgErr}>{challengeMsg.text}</Text>
+                )}
+                <Pressable
+                  style={[s.retarBtn, challengeBusy && s.retarBtnDisabled]}
+                  onPress={handleChallenge}
+                  disabled={challengeBusy}
+                >
+                  <Text style={s.retarBtnText}>{challengeBusy ? 'ENVIANDO…' : 'RETAR'}</Text>
+                </Pressable>
+              </View>
+            )}
 
-        <Text style={s.sectionLabel}>COLECCIÓN</Text>
-        <View style={s.statsRow}>
-          <StatCard
-            value={career != null ? `${career}/${LEVEL_COUNT}` : '—'}
-            label="NIVELES"
-          />
-          <StatCard
-            value={piecesOwned != null ? `${piecesOwned}/${TOTAL_PIECES}` : '—'}
-            label="PIEZAS"
-          />
-          <StatCard
-            value={lifetimeCoins != null ? lifetimeCoins : (wallet?.balance ?? 0)}
-            label={lifetimeCoins != null ? 'MONEDAS GANADAS' : 'MONEDAS'}
-            hint={lifetimeCoins != null ? `${wallet?.balance ?? 0} ahora` : null}
-          />
-        </View>
+            {/* Botón de prueba SOLO en dev — desaparece solo en cualquier
+                build de release, no hace falta acordarse de quitarlo. Sirve
+                para ver el PilotViewer (Fase 1 de avatares) mientras se
+                construye. */}
+            {isOwnProfile && __DEV__ && !!onOpenPilotTest && (
+              <Pressable style={s.devBtn} onPress={onOpenPilotTest}>
+                <Text style={s.devBtnText}>[DEV] PILOTO 3D</Text>
+              </Pressable>
+            )}
 
-        {stats === null && (
-          <Text style={s.statsMissing}>
-            Los contadores de pista se activan al correr supabase/stats.sql.
-          </Text>
+            {/* Fase 4 (JC, 2026-09-15): muñecos enteros desbloqueables por
+                rareza, con textura real en vez de tinte por piezas. */}
+            {isOwnProfile && __DEV__ && !!onOpenAvatarTest && (
+              <Pressable style={s.devBtn} onPress={onOpenAvatarTest}>
+                <Text style={s.devBtnText}>[DEV] AVATARES</Text>
+              </Pressable>
+            )}
+
+            {/* El avatar a media pantalla, tal como se pidió — ahora el
+                muñeco entero de verdad (Fase 4, avatarCatalog.js), no el
+                configurador viejo por piezas. */}
+            <View style={s.avatarStage}>
+              <AvatarViewer key={avatar.key} source={avatar.glb} cacheKey={avatar.key} />
+            </View>
+          </>
+        )}
+
+        {tab === 'stats' && (
+          <>
+            {/* Fila de titulares: antes vivía en PILOTO, pero competía con
+                el avatar por protagonismo — JC, 2026-09-16: "quitaría
+                racha y hoy de ahí". Aquí es lo primero que se lee, que es
+                donde encaja: STATS es la pantalla de leer números. */}
+            <View style={s.heroRow}>
+              <View style={s.heroCard}>
+                {/* viewStreak (JC, 2026-09-16: "no se ve la racha en los
+                    perfiles de la gente") llega como número plano desde las
+                    filas de ranking (`r.streak = users.current_streak`,
+                    ver api.js) — no como {current, longest}, que es la
+                    forma de myStreak (la tuya, cargada aparte en Inicio).
+                    Pedirle `.current` a un número da undefined siempre. */}
+                <Text style={s.heroValue}>{(isOwnProfile ? myStreak?.current : viewStreak) ?? 0}</Text>
+                <Text style={s.heroLabel}>RACHA</Text>
+                {/* La racha MÁXIMA solo la tienes tú misma cargada (viene
+                    por prop desde Inicio) — el ranking no manda
+                    longest_streak de otros jugadores, así que en un perfil
+                    ajeno se omite en vez de enseñar un "máx. 0" que sería
+                    mentira. */}
+                {isOwnProfile && <Text style={s.heroHint}>máx. {myStreak?.longest ?? 0}</Text>}
+              </View>
+              <View style={s.heroCard}>
+                {/* El dorado SOLO si de verdad vas primero. Antes lo
+                    llevaban todos los números de la pantalla, así que no
+                    distinguía nada; apareciendo solo aquí, vuelve a
+                    significar "podio". */}
+                <Text style={[s.heroValue, todayRank === 1 && s.heroValueGold]}>
+                  {todayRank ? `#${todayRank}` : todayRank === null ? '—' : '···'}
+                </Text>
+                <Text style={s.heroLabel}>HOY</Text>
+                <Text style={s.heroHint}>
+                  {purple ? `${purple.mine}/3 morados` : ' '}
+                </Text>
+              </View>
+            </View>
+
+            <StatTrend points={trend || []} own={isOwnProfile} />
+
+            <Text style={s.sectionLabel}>EN PISTA</Text>
+            <View style={s.statsRow}>
+              <StatCard
+                value={stats ? stats.laps : '—'}
+                label="VUELTAS"
+                tone={stats ? null : 'dim'}
+              />
+              <StatCard
+                value={stats ? fmtDuration(stats.raceMs) : '—'}
+                label="AL VOLANTE"
+                tone={stats ? null : 'dim'}
+              />
+              <StatCard
+                value={stats ? stats.crashes : '—'}
+                label="CHOQUES"
+                hint={crashRate ? `${crashRate}/vuelta` : null}
+                tone={stats ? null : 'dim'}
+              />
+            </View>
+
+            <Text style={s.sectionLabel}>COLECCIÓN</Text>
+            <View style={s.statsRow}>
+              <StatCard
+                value={career != null ? `${career}/${LEVEL_COUNT}` : '—'}
+                label="NIVELES"
+              />
+              <StatCard
+                value={piecesOwned != null ? `${piecesOwned}/${TOTAL_COLLECTIBLES}` : '—'}
+                label="PIEZAS"
+              />
+              {/* Las monedas se quedan fuera del perfil público (JC,
+                  2026-09-15: "público su avatar y sus stats" — el saldo no
+                  es una stat de pista/colección, es dinero). */}
+              {isOwnProfile && (
+                <StatCard
+                  value={lifetimeCoins != null ? lifetimeCoins : (wallet?.balance ?? 0)}
+                  label={lifetimeCoins != null ? 'MONEDAS GANADAS' : 'MONEDAS'}
+                  hint={lifetimeCoins != null ? `${wallet?.balance ?? 0} ahora` : null}
+                />
+              )}
+            </View>
+
+            {stats === null && (
+              <Text style={s.statsMissing}>
+                Los contadores de pista se activan al correr supabase/stats.sql.
+              </Text>
+            )}
+          </>
         )}
       </ScrollView>
     </View>
@@ -253,11 +500,28 @@ const s = StyleSheet.create({
 
   identity: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 2 },
   identityText: { flex: 1, minWidth: 0, gap: 3 },
+  nicknameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   nickname: {
     color: RD.textPrimary, fontSize: 30, fontFamily: RD_FONT.displayBlack,
     textTransform: 'uppercase',
   },
   identitySub: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono },
+  onlinePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    borderWidth: 1, borderColor: RD.successGreen, borderRadius: 2,
+    paddingHorizontal: 7, paddingVertical: 3,
+  },
+  onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: RD.successGreen },
+  onlinePillText: { color: RD.successGreen, fontSize: 9, fontFamily: RD_FONT.monoBold, letterSpacing: 0.8 },
+
+  tabsRow: { flexDirection: 'row', gap: 6 },
+  tab: {
+    flex: 1, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    paddingVertical: 9, alignItems: 'center', justifyContent: 'center',
+  },
+  tabActive: { borderColor: RD.brand },
+  tabText: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 1 },
+  tabTextActive: { color: RD.textPrimary },
 
   heroRow: { flexDirection: 'row', gap: 10 },
   heroCard: {
@@ -301,8 +565,64 @@ const s = StyleSheet.create({
 
   actionsRow: { flexDirection: 'row', gap: 10, marginBottom: 2 },
   actionBtn: {
-    flex: 1, borderWidth: 1, borderColor: RD.trackBlue, borderRadius: 2,
+    flex: 1, borderWidth: 1, borderRadius: 2,
     paddingVertical: 14, alignItems: 'center',
   },
-  actionBtnText: { color: RD.trackBlue, fontSize: 14, fontFamily: RD_FONT.monoBold },
+  actionBtnText: { fontSize: 14, fontFamily: RD_FONT.monoBold },
+  actionBtnGaraje: { borderColor: RD.trackBlue },
+  actionBtnTextGaraje: { color: RD.trackBlue },
+  actionBtnTienda: { borderColor: RD.gold1st },
+  actionBtnTextTienda: { color: RD.gold1st },
+  actionBtnCarrera: { borderColor: RD.successGreen },
+  actionBtnTextCarrera: { color: RD.successGreen },
+  actionBtnAvatar: { borderColor: RD.youMagenta },
+  actionBtnTextAvatar: { color: RD.youMagenta },
+
+  devBtn: {
+    borderWidth: 1, borderColor: '#665', borderStyle: 'dashed', borderRadius: 2,
+    paddingVertical: 10, alignItems: 'center', marginTop: -4,
+  },
+  devBtnText: { color: '#aa8', fontSize: 11, fontFamily: RD_FONT.mono },
+
+  duelBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: RD.brand, borderRadius: 2,
+    paddingVertical: 12, paddingHorizontal: 14, marginBottom: 2,
+  },
+  duelBannerText: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.monoBold, flex: 1, marginRight: 8 },
+  duelBannerLink: { color: RD.brand, fontSize: 12, fontFamily: RD_FONT.monoBold },
+
+  duelCard: {
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    padding: 14, gap: 10,
+  },
+  duelCardTitle: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.monoBold, letterSpacing: 1 },
+  duelWagerRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2,
+    backgroundColor: RD.gold1stShade, paddingVertical: 10, paddingHorizontal: 12,
+  },
+  duelWagerInput: {
+    flex: 1, color: RD.gold1st, fontSize: 18, fontFamily: RD_FONT.monoBold,
+    padding: 0,
+  },
+  duelMsgOk: { color: RD.successGreen, fontSize: 11, fontFamily: RD_FONT.mono },
+  duelMsgErr: { color: RD.danger, fontSize: 11, fontFamily: RD_FONT.mono },
+  retarBtn: { backgroundColor: RD.brand, borderRadius: 2, paddingVertical: 13, alignItems: 'center' },
+  retarBtnDisabled: { opacity: 0.5 },
+  retarBtnText: { color: RD.bg, fontSize: 14, fontFamily: RD_FONT.displayBlack, letterSpacing: 0.6 },
+
+  // El escenario del piloto: JC, 2026-09-15, "reducir márgenes... se ve
+  // apagado" — el margen negativo recorta el hueco que dejaba el `gap` del
+  // ScrollView por encima/debajo (antes 14+14 de vacío, ahora la mitad), y
+  // el fondo ligeramente más claro que el negro puro de la pantalla + las
+  // dos líneas finas lo enmarcan como un panel propio en vez de negro
+  // fundiéndose con negro.
+  avatarStage: {
+    height: AVATAR_HEIGHT,
+    marginHorizontal: -18,
+    marginVertical: -8,
+    backgroundColor: '#111113',
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: RD.panelBorder,
+  },
 });

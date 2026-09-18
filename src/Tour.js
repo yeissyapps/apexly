@@ -175,7 +175,28 @@ export default function Tour({ steps, onDone }) {
       )}
 
       <View style={[s.card, cardPos, { left: 18, width: winW - 36 }]}>
-        <Text style={s.stepCount}>{i + 1}/{steps.length}</Text>
+        {/* Saltar/Siguiente arriba, junto al contador — no al final de la
+            tarjeta. Con la tarjeta pegada al borde inferior de la ventana
+            (pasos con cuerpo largo, o dispositivos con la barra de
+            navegación quitándole alto a la ventana) el botón de abajo caía
+            fuera de la pantalla y el tour se quedaba sin forma de avanzar;
+            aquí arriba siempre está a la vista. */}
+        <View style={s.topRow}>
+          <Text style={s.stepCount}>{i + 1}/{steps.length}</Text>
+          <View style={s.actions}>
+            <Pressable onPress={finish} hitSlop={10}>
+              <Text style={s.skip}>{isLast ? ' ' : 'Saltar'}</Text>
+            </Pressable>
+            <Pressable
+              style={s.nextBtn}
+              onPress={() => (isLast ? finish() : setI((n) => n + 1))}
+              hitSlop={6}
+            >
+              <Text style={s.nextBtnText}>{isLast ? 'EMPEZAR' : 'SIGUIENTE'}</Text>
+            </Pressable>
+          </View>
+        </View>
+
         <Text style={s.title}>{step.title}</Text>
 
         {/* Demo del componente real, para los pasos cuyo elemento todavía no
@@ -183,19 +204,6 @@ export default function Tour({ steps, onDone }) {
         {step.demo && <View style={s.demo}>{step.demo}</View>}
 
         <Text style={s.body}>{step.body}</Text>
-
-        <View style={s.actions}>
-          <Pressable onPress={finish} hitSlop={10}>
-            <Text style={s.skip}>{isLast ? ' ' : 'Saltar'}</Text>
-          </Pressable>
-          <Pressable
-            style={s.nextBtn}
-            onPress={() => (isLast ? finish() : setI((n) => n + 1))}
-            hitSlop={6}
-          >
-            <Text style={s.nextBtnText}>{isLast ? 'EMPEZAR' : 'SIGUIENTE'}</Text>
-          </Pressable>
-        </View>
       </View>
     </View>
   );
@@ -223,6 +231,7 @@ const s = StyleSheet.create({
     padding: 16,
     gap: 10,
   },
+  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   stepCount: {
     color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1,
   },
@@ -235,10 +244,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: RD.gridLine, borderRadius: 2,
     paddingVertical: 14, paddingHorizontal: 10,
   },
-  actions: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginTop: 4,
-  },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   skip: { color: RD.textDisabled, fontSize: 12, fontFamily: RD_FONT.mono },
   nextBtn: {
     backgroundColor: RD.brand, borderRadius: 2,

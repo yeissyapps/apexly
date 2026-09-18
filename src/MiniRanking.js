@@ -18,8 +18,9 @@ import { getGlobalBoard, getLeaderboard, listMyGroups, getWorldWinCounts } from 
 import { fmtTime } from './format';
 import { RD, RD_FONT } from './theme';
 import { frameById, frameStyle, frameGlyphColor } from './frames';
+import AvatarThumb from './AvatarThumb';
 
-export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageGroups }) {
+export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageGroups, onOpenPlayer }) {
   const [groups, setGroups] = useState([]);
   const [scope, setScope] = useState('global');
   const isGlobal = scope === 'global';
@@ -100,16 +101,18 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
           {total} {total === 1 ? 'jugador ha corrido hoy' : 'jugadores han corrido hoy'}
         </Text>
         {podium.length >= 3 ? (
-          <Podium rows={podium} winCounts={winCounts} />
+          <Podium rows={podium} winCounts={winCounts} onOpenPlayer={onOpenPlayer} />
         ) : (
           <View style={styles.list}>
-            {podium.map((r, i) => <RankRow key={r.userId} r={{ ...r, rank: i + 1 }} wins={winCounts[r.userId]} />)}
+            {podium.map((r, i) => (
+              <RankRow key={r.userId} r={{ ...r, rank: i + 1 }} wins={winCounts[r.userId]} onPress={onOpenPlayer} />
+            ))}
           </View>
         )}
 
         {entorno.length > 0 ? (
           <View style={styles.list}>
-            {entorno.map((r) => <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} />)}
+            {entorno.map((r) => <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} onPress={onOpenPlayer} />)}
           </View>
         ) : !me ? (
           <View style={styles.placeholder}>
@@ -133,15 +136,15 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
     <>
       {tabs}
       {podium.length >= 3 ? (
-        <Podium rows={podium} winCounts={winCounts} />
+        <Podium rows={podium} winCounts={winCounts} onOpenPlayer={onOpenPlayer} />
       ) : (
         <View style={styles.list}>
-          {podium.map((r) => <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} />)}
+          {podium.map((r) => <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} onPress={onOpenPlayer} />)}
         </View>
       )}
       {rest.length > 0 && (
         <View style={styles.list}>
-          {rest.map((r) => <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} />)}
+          {rest.map((r) => <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} onPress={onOpenPlayer} />)}
         </View>
       )}
     </>
@@ -165,7 +168,12 @@ function Tab({ label, active, dashed, onPress, color }) {
   );
 }
 
-// Fila de lista horizontal: puesto — nombre — tiempo. Sin avatar.
+// Fila de lista horizontal: puesto — avatar — nombre — tiempo.
+//
+// El avatar es el PNG ya empaquetado del muñeco elegido en pilot_avatar_id
+// (ver AvatarThumb.js/AvatarPicker.js — Fase 4 de avatares). Mientras el
+// jugador no haya elegido ninguno, cae a la base en vez de dejar un hueco
+// vacío.
 //
 // El MARCO va sobre el estilo de "tú" (fondo magenta), no en su lugar: el
 // magenta sigue diciendo "esta fila eres tú" y el marco añade el acabado. Y
@@ -175,14 +183,27 @@ function Tab({ label, active, dashed, onPress, color }) {
 // antes (tiempo del día, sin segunda línea). El ranking del MES los usa para
 // mostrar la media en vez del mejor tiempo, con los días jugados debajo (ver
 // RankingTab.js): mismo look de fila, otro dato.
-export function RankRow({ r, wins, timeLabel, sub }) {
+// `onPress`, si se pasa, abre el perfil público de esa fila (JC,
+// 2026-09-15) — Pressable en vez de View. Se llama igual para tu propia
+// fila: Profile.js compara el id contra el tuyo y decide solo si es "tu
+// perfil" o el de otro, no hace falta filtrar aquí por r.isMe.
+export function RankRow({ r, wins, timeLabel, sub, onPress, online }) {
   const f = frameById(r.frame);
+  const Wrap = onPress ? Pressable : View;
   return (
-    <View style={[styles.row, r.isMe && styles.rowMe, frameStyle(f, RD)]}>
+    <Wrap
+      style={[styles.row, r.isMe && styles.rowMe, frameStyle(f, RD)]}
+      {...(onPress ? { onPress: () => onPress(r) } : null)}
+    >
       <View style={styles.rowLeft}>
         <Text style={[styles.rowRank, r.isMe && styles.rowRankMe]}>{String(r.rank).padStart(2, '0')}</Text>
+        <AvatarThumb pilotAvatarId={r.pilotAvatarId} size={44} />
         <View style={styles.rowNameCol}>
           <View style={styles.rowNameLine}>
+            {/* Presencia real (JC, 2026-09-17), sobre todo para el ranking
+                mensual — "¿a quién puedo retar ahora mismo?" de un vistazo,
+                sin entrar en cada perfil. */}
+            {!r.isMe && online && <View style={styles.onlineDot} />}
             <Text style={[styles.rowName, r.isMe && styles.rowNameMe]} numberOfLines={1}>
               {r.isMe ? `${r.nickname} (tú)` : r.nickname}
             </Text>
@@ -196,21 +217,25 @@ export function RankRow({ r, wins, timeLabel, sub }) {
         </View>
       </View>
       <Text style={styles.rowTime}>{timeLabel ?? fmtTime(r.bestMs)}</Text>
-    </View>
+    </Wrap>
   );
 }
 
-// Podio clásico: 1º al centro (más grande, oro), 2º a la izquierda (plata),
-// 3º a la derecha (bronce), ambos más pequeños — siempre visible sea cual sea
-// tu posición (no se sustituye por "tu entorno", va aparte y encima). El
-// puesto es el propio número, grande, en mono (como el resto de datos
-// numéricos de la app), con una sombra de contraste dura (sin difuminar) que
-// da un aire de placa grabada/metálica en vez del halo de neón anterior.
+// Podio DE VERDAD (JC, 2026-09-15): escalones de altura real (1º el más
+// alto, en el centro), con el avatar de pie ENCIMA de su escalón y el
+// nombre+tiempo flotando sobre su cabeza — no la lista de texto plana de
+// antes. El número va grabado dentro del propio escalón, no sobre el
+// jugador. `alignItems: 'flex-end'` en podiumRow es lo que hace que los 3
+// escalones asienten en la misma línea de suelo aunque tengan alturas
+// distintas — la diferencia de altura empuja hacia arriba todo lo demás
+// (avatar, nombre, tiempo) de esa columna, que es justo el efecto de podio.
 const PODIUM_COLOR = [RD.gold1st, RD.silver2nd, RD.bronze3rd];
 const PODIUM_SHADE = [RD.gold1stShade, RD.silver2ndShade, RD.bronze3rdShade];
+const PODIUM_BLOCK_HEIGHT = [76, 54, 40]; // 1º, 2º, 3º
 
-function Podium({ rows, winCounts = {} }) {
+function Podium({ rows, winCounts = {}, onOpenPlayer }) {
   const order = [rows[1], rows[0], rows[2]]; // 2º - 1º - 3º
+  const Wrap = onOpenPlayer ? Pressable : View;
   return (
     <View style={styles.podiumRow}>
       {order.map((r) => {
@@ -220,19 +245,27 @@ function Podium({ rows, winCounts = {} }) {
         const big = place === 1;
         const wins = winCounts[r.userId];
         return (
-          <View key={r.userId} style={styles.podiumCol}>
-            <Text
+          <Wrap
+            key={r.userId} style={styles.podiumCol}
+            {...(onOpenPlayer ? { onPress: () => onOpenPlayer(r) } : null)}
+          >
+            <View style={styles.podiumNameRow}>
+              <Text style={[styles.podiumName, big && styles.podiumNameBig]} numberOfLines={1}>
+                {r.isMe ? 'Tú' : r.nickname}
+              </Text>
+              {wins > 0 && <Text style={[styles.rowWins, { color: RD.gold1st }]}>×{wins}</Text>}
+            </View>
+            <Text style={styles.podiumTime}>{fmtTime(r.bestMs)}</Text>
+            <AvatarThumb pilotAvatarId={r.pilotAvatarId} size={big ? 84 : 66} />
+            <View
               style={[
-                big ? styles.podiumNumBig : styles.podiumNumSmall,
-                { color, textShadowColor: shade },
+                styles.podiumBlock,
+                { height: PODIUM_BLOCK_HEIGHT[place - 1], backgroundColor: color, borderTopColor: shade },
               ]}
             >
-              {place}
-            </Text>
-            <Text style={styles.rowName} numberOfLines={1}>{r.isMe ? 'Tú' : r.nickname}</Text>
-            <Text style={styles.rowTime}>{fmtTime(r.bestMs)}</Text>
-            {wins > 0 && <Text style={[styles.rowWins, { color: RD.gold1st }]}>×{wins} mundial{wins === 1 ? '' : 'es'}</Text>}
-          </View>
+              <Text style={[styles.podiumBlockNum, big && styles.podiumBlockNumBig]}>{place}</Text>
+            </View>
+          </Wrap>
         );
       })}
     </View>
@@ -249,21 +282,28 @@ const styles = StyleSheet.create({
   tabText: { color: RD.textDisabled, fontSize: 11, fontFamily: RD_FONT.mono },
   tabTextBold: { fontFamily: RD_FONT.monoBold },
 
-  podiumRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: 18, paddingVertical: 4 },
-  podiumCol: { alignItems: 'center', gap: 2, width: 80 },
-  podiumNumBig: {
-    fontSize: 48, lineHeight: 52, fontFamily: RD_FONT.monoBold,
-    textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 0,
+  podiumRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: 8, paddingVertical: 4 },
+  podiumCol: { alignItems: 'center', gap: 4, width: 100 },
+  podiumNameRow: { flexDirection: 'row', alignItems: 'center', gap: 3, maxWidth: '100%' },
+  podiumName: { color: RD.textPrimary, fontSize: 12, fontWeight: '700', flexShrink: 1 },
+  podiumNameBig: { fontSize: 14 },
+  podiumTime: { color: RD.cream, fontSize: 11, fontFamily: RD_FONT.mono },
+  // Escalón plano y sólido (JC, 2026-09-15: probamos degradado metálico +
+  // laurel, "queda muy cutre" — vuelta al bloque de color liso de antes).
+  podiumBlock: {
+    width: '100%',
+    borderTopLeftRadius: 4, borderTopRightRadius: 4,
+    borderTopWidth: 3,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: -6, // el avatar pisa un poco el escalón, no flota encima
   },
-  podiumNumSmall: {
-    fontSize: 34, lineHeight: 38, fontFamily: RD_FONT.monoBold,
-    textShadowOffset: { width: 1.5, height: 1.5 }, textShadowRadius: 0,
-  },
+  podiumBlockNum: { color: RD.bg, fontSize: 22, fontFamily: RD_FONT.monoBold },
+  podiumBlockNumBig: { fontSize: 30 },
 
   list: { flexDirection: 'column', gap: 1, backgroundColor: RD.gridLine },
   row: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: RD.bg, paddingVertical: 9, paddingHorizontal: 12, gap: 10,
+    backgroundColor: RD.bg, paddingVertical: 10, paddingHorizontal: 12, gap: 10,
   },
   rowMe: { backgroundColor: RD.youMagentaBg, borderWidth: 1, borderColor: RD.youMagenta },
   rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
@@ -271,6 +311,7 @@ const styles = StyleSheet.create({
   rowRankMe: { color: RD.youMagenta },
   rowNameCol: { minWidth: 0, flexShrink: 1 },
   rowNameLine: { flexDirection: 'row', alignItems: 'center' },
+  onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: RD.successGreen, marginRight: 5 },
   rowName: { color: RD.textPrimary, fontSize: 13, fontWeight: '700', flexShrink: 1 },
   rowGlyph: { fontSize: 13, marginLeft: 5 },
   rowWins: { fontSize: 10, fontFamily: RD_FONT.monoBold, marginLeft: 3 },

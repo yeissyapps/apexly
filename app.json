@@ -3,7 +3,7 @@
     "name": "Apexly",
     "slug": "circuito-diario",
     "scheme": "circuitodiario",
-    "version": "2.4.3",
+    "version": "2.4.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -26,7 +26,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.yeissyapps.circuitodiario",
-      "versionCode": 14,
+      "versionCode": 15,
       "googleServicesFile": "./google-services.json"
     },
     "web": {

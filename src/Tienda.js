@@ -11,17 +11,20 @@ import { Pressable, ScrollView, Share, StatusBar, StyleSheet, Text, TextInput, V
 import Svg, { Ellipse } from 'react-native-svg';
 
 import DangerStripe from './DangerStripe';
+import CoinIcon from './CoinIcon';
 import CarSprite from './CarSprite';
 import ShineBadge from './ShineBadge';
 import PackArt from './PackArt';
 import PackReveal from './PackReveal';
+import AvatarViewer from './AvatarViewer';
+import { AVATARS, avatarDisplayLabel, TOTAL_COLLECTIBLES } from './avatarCatalog';
 import { RD, RD_FONT, RARITY_COLOR, RARITY_LABEL } from './theme';
-import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS, TOTAL_PIECES } from './car';
+import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS } from './car';
 import { CHASSIS } from './chassis';
 import { FRAMES } from './frames';
 import { SHARE_LINK } from './links';
 import {
-  getWallet, getInventory, getMyLoadout, saveLoadout, openPack,
+  getWallet, getInventory, getMyLoadout, saveLoadout, openPack, savePilotAvatar,
   getMyReferralCode, hasRedeemedReferral, redeemReferralCode,
 } from './api';
 import { logReferralCodeShared, logReferralRedeemed } from './analytics';
@@ -37,12 +40,23 @@ const REFERRAL_BONUS = 50;
 // por casualidad (el id se parecía) o "Filo" a secas.
 function pieceLabel(category, pieceId) {
   const find = (list) => list.find((o) => o.id === pieceId)?.label;
+  if (category === 'avatar') return avatarDisplayLabel(AVATARS.find((a) => a.key === pieceId)) || pieceId;
   if (category === 'wing') return find(WING_SHAPES) ?? pieceId;
   if (category === 'livery') return find(LIVERY_PATTERNS) ?? pieceId;
   if (category === 'chassis') return find(CHASSIS) ?? pieceId;
   if (category === 'light') return find(LIGHT_COLORS) ?? pieceId;
   if (category === 'frame') return find(FRAMES) ?? pieceId;
   return pieceId.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+}
+
+// Un avatar siempre se revela con más espectáculo que una pieza de coche,
+// sea cual sea su rareza real (JC, 2026-09-16: "algo más épico que una
+// pieza") — se le presta la coreografía de 'épica' (rayos + sacudida
+// larga) como mínimo. Esto solo cambia la INTENSIDAD de la animación en
+// PackReveal: el badge y el color siguen mostrando la rareza real.
+function revealAnimTier(category, rarity) {
+  if (category !== 'avatar') return rarity;
+  return rarity === 'legendaria' ? 'legendaria' : 'epica';
 }
 
 // Cómo se ve el coche con la pieza recién ganada puesta. Un chasis o un faro
@@ -159,19 +173,23 @@ export default function Tienda({ onBack }) {
 
   async function handleEquip() {
     if (!reveal) return;
-    const next = previewLoadoutFor(loadout, reveal.category, reveal.pieceId);
     try {
-      await saveLoadout(next);
-      setLoadout(next);
+      if (reveal.category === 'avatar') {
+        await savePilotAvatar(reveal.pieceId);
+      } else {
+        const next = previewLoadoutFor(loadout, reveal.category, reveal.pieceId);
+        await saveLoadout(next);
+        setLoadout(next);
+      }
     } catch (_) {
       // si falla el equipar, la pieza ya es tuya igualmente — se puede
-      // equipar luego desde el Garaje.
+      // equipar luego desde el Garaje (o el selector de Avatar).
     }
     setReveal(null);
   }
 
   const previewLoadout = reveal ? previewLoadoutFor(loadout, reveal.category, reveal.pieceId) : loadout;
-  const complete = ownedCount >= TOTAL_PIECES;
+  const complete = ownedCount >= TOTAL_COLLECTIBLES;
 
   return (
     <View style={s.screen}>
@@ -182,12 +200,13 @@ export default function Tienda({ onBack }) {
           <Text style={s.backLink}>‹ INICIO</Text>
         </Pressable>
         {/* Título y monedas en la MISMA fila: el saldo ocupaba un panel
-            entero para un solo número, y encima lo llamaba "saldo" cuando en
-            Inicio se llama "monedas". Mismo nombre en toda la app. */}
+            entero para un solo número. Mismo icono que la cabecera de
+            Inicio (JC, 2026-09-16: "lo mismo para tienda") — sin recuadro,
+            solo el símbolo + el número. */}
         <View style={s.titleRow}>
           <Text style={s.pageTitle}>Tienda</Text>
           <View style={s.coinChip}>
-            <Text style={s.coinChipLabel}>MONEDAS</Text>
+            <CoinIcon size={20} />
             <Text style={s.coinChipValue}>{wallet.balance}</Text>
           </View>
         </View>
@@ -237,7 +256,7 @@ export default function Tienda({ onBack }) {
 
         {errorMsg && <Text style={s.errorText}>{errorMsg}</Text>}
 
-        <Text style={s.progressText}>Colección: {ownedCount}/{TOTAL_PIECES} piezas</Text>
+        <Text style={s.progressText}>Colección: {ownedCount}/{TOTAL_COLLECTIBLES} piezas</Text>
 
         {/* Invitar a un amigo. JC: "a la gente le gusta el concepto pero no
             aumentan los jugadores" — el enlace de compartir una vuelta no
@@ -293,16 +312,27 @@ export default function Tienda({ onBack }) {
       {reveal && (
         <View style={s.revealOverlay}>
           <PackReveal
-            rarity={reveal.rarity}
+            rarity={revealAnimTier(reveal.category, reveal.rarity)}
             rarityColor={RARITY_COLOR[reveal.rarity]}
             variant={revealSource}
             serial={ownedCount}
           >
             <View style={s.revealCard}>
-              <Svg width="100%" height={150} viewBox="0 0 200 140">
-                <Ellipse cx={100} cy={104} rx={44} ry={8} fill="#000000" opacity={0.35} />
-                <CarSprite x={100} y={68} deg={-20} scale={3.15} loadout={previewLoadout} />
-              </Svg>
+              {reveal.category === 'avatar' ? (
+                <View style={s.revealAvatarStage}>
+                  <AvatarViewer
+                    key={reveal.pieceId}
+                    source={AVATARS.find((a) => a.key === reveal.pieceId)?.glb}
+                    cacheKey={`reveal_${reveal.pieceId}`}
+                    autoRotate
+                  />
+                </View>
+              ) : (
+                <Svg width="100%" height={150} viewBox="0 0 200 140">
+                  <Ellipse cx={100} cy={104} rx={44} ry={8} fill="#000000" opacity={0.35} />
+                  <CarSprite x={100} y={68} deg={-20} scale={3.15} loadout={previewLoadout} />
+                </Svg>
+              )}
               {reveal.rarity === 'legendaria' ? (
                 <ShineBadge style={[s.rarityBadge, { backgroundColor: RARITY_COLOR[reveal.rarity] }]}>
                   <Text style={s.rarityBadgeText}>{RARITY_LABEL[reveal.rarity]}</Text>
@@ -337,13 +367,8 @@ const s = StyleSheet.create({
   },
   disclaimer: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, marginBottom: -4 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  coinChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 7,
-    borderWidth: 1, borderColor: RD.gold1st, borderRadius: 2,
-    paddingHorizontal: 9, paddingVertical: 5, backgroundColor: RD.gold1stShade,
-  },
-  coinChipLabel: { color: RD.gold1st, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 0.8, opacity: 0.85 },
-  coinChipValue: { color: RD.gold1st, fontSize: 13, fontFamily: RD_FONT.monoBold },
+  coinChip: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  coinChipValue: { color: RD.gold1st, fontSize: 17, fontFamily: RD_FONT.monoBold },
 
   hero: {
     borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
@@ -425,6 +450,10 @@ const s = StyleSheet.create({
   revealCard: {
     width: '100%', borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
     backgroundColor: RD.bg, padding: 18, alignItems: 'center', gap: 10,
+  },
+  revealAvatarStage: {
+    width: '100%', height: 190, borderRadius: 4, overflow: 'hidden',
+    backgroundColor: '#111113', borderWidth: 1, borderColor: RD.panelBorder,
   },
   rarityBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 2 },
   rarityBadgeText: { color: RD.bg, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
