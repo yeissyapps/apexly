@@ -6,7 +6,7 @@
 //  El juego (física/cámara/colisión/piezas) vive en src/Game.js sin tocar.
 // ============================================================================
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, Animated, AppState, Dimensions, Linking, Modal, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
@@ -44,6 +44,8 @@ import Profile from './src/Profile';
 import AvatarPicker from './src/AvatarPicker';
 import AvatarThumb from './src/AvatarThumb';
 import DuelDecision from './src/DuelDecision';
+import DuelIntro from './src/DuelIntro';
+import DuelsTab from './src/DuelsTab';
 import DuelReveal from './src/DuelReveal';
 import CareerMode from './src/CareerMode';
 import { levelSpec, gapMsFor, weatherForLevel, CAREER_AD_BATCH } from './src/career';
@@ -64,7 +66,7 @@ import {
   submitGpResult, notifyGpOvertake, recordLap, submitDailyRun, getLeaderRun, getMyGpRoundSectors,
   getActiveGrandPrix, getGpResults, getMyId, getMyReferralCode,
   getGpSectorBests, submitGpSectorSplits,
-  submitDuelRun, getDuel, touchPresence,
+  submitDuelRun, getDuel, touchPresence, getMyActiveDuels, getMyDuelHistory, cancelDuel,
 } from './src/api';
 import { registerPushToken } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
@@ -161,12 +163,50 @@ export default function App() {
   // piden sus propios datos con getDuel/getDuelReveal, mismo criterio que
   // viewedPlayer/openPlayerProfile de arriba.
   const [duelId, setDuelId] = useState(null);
-  function openDuel(id) {
+  // Abre un duelo en el paso que le toca: uno ya aceptado lleva a correr (o a
+  // esperar, si mi vuelta ya está subida); solo uno pendiente lleva a la
+  // pantalla de aceptar/rechazar. Antes siempre iba a esa última, y quien
+  // reabría un duelo en curso desde el perfil veía "ya no está disponible".
+  async function openDuel(id) {
     if (!id) return;
     setDuelId(id);
+    try {
+      const d = await getDuel(id);
+      // Un duelo aceptado que aún no he corrido pasa primero por la pantalla
+      // de enfrentamiento (DuelIntro) y de ahí a la carrera.
+      if (d?.status === 'accepted') { setScreen(d.myRunDone ? 'duel-wait' : 'duel-intro'); return; }
+      if (d?.status === 'finished') { setScreen('duel-reveal'); return; }
+    } catch (_) { /* sin red: cae a la pantalla de decisión, que ya sabe mostrar el error */ }
     setScreen('duel-decision');
   }
   const [myId, setMyId] = useState(null); // tu propio id — hace falta para saber si ganaste un duelo (DuelReveal)
+  // Mis duelos (pestaña 1 VS 1 y aviso de la barra): null hasta la primera
+  // carga; { active, past } después. Se refresca al entrar en Inicio, cada
+  // 30 s desde allí (cada 8 s mientras la pestaña está abierta, ver DuelsTab)
+  // y al llegar una notificación.
+  const [duels, setDuels] = useState(null);
+  const [duelCancelBusy, setDuelCancelBusy] = useState(null);
+  const duelsSigRef = useRef('');
+  const refreshDuels = useCallback(async () => {
+    try {
+      const [active, past] = await Promise.all([getMyActiveDuels(), getMyDuelHistory()]);
+      setDuels({ active, past });
+      // Cuando cambia algo (se acepta, se cierra, se paga) también cambia el
+      // saldo: se pide de nuevo. JC, 2026-09-19: el premio de un duelo se
+      // paga en el servidor cuando termina el OTRO jugador, DESPUÉS de que
+      // este cliente ya hubiera leído su saldo — sin esto no se veía nunca.
+      const sig = active.map((d) => d.id + d.status + d.myRunDone).join('|') + '#' + past.map((h) => h.id + h.outcome).join('|');
+      if (duelsSigRef.current && duelsSigRef.current !== sig) getWallet().then(setWallet).catch(() => {});
+      duelsSigRef.current = sig;
+    } catch (_) {}
+  }, []);
+  async function handleCancelDuel(id) {
+    if (duelCancelBusy) return;
+    setDuelCancelBusy(id);
+    try { await cancelDuel(id); } catch (_) { /* ya no estaba pendiente: se recarga igual */ }
+    await refreshDuels();
+    setDuelCancelBusy(null);
+  }
   const [tab, setTab] = useState('diario'); // pestaña activa de Inicio: diario | ranking | amigos
   // Recorrido guiado de la primera apertura. null = aún no sabemos si toca
   // (lo dice AsyncStorage); false = no toca o ya terminó; true = corriendo.
@@ -697,20 +737,33 @@ export default function App() {
   }, [nickname]);
 
   // Al tocar una notificación de duelo (reto nuevo o reto aceptado) se abre
-  // directo la pantalla que toca — 'challenge' todavía necesita decidir
-  // (Aceptar/Rechazar), 'accepted' ya no: el aviso ES "ya puedes correr", así
-  // que va derecho a la carrera. Ver notify-duel-challenge/index.ts para el
-  // payload (`data: {duelId, kind}`).
+  // el duelo en el paso que le toca (openDuel lo decide mirando su estado
+  // real: decidir, enfrentamiento, esperar o resultado). Ver
+  // notify-duel-challenge/index.ts para el payload (`data: {duelId, kind}`).
+  // Al RECIBIR una (app abierta) solo se refresca la lista de duelos.
   useEffect(() => {
     if (!PUSH_ENABLED) return undefined;
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+    const tapped = Notifications.addNotificationResponseReceivedListener((response) => {
       const d = response.notification.request.content.data || {};
-      if (!d.duelId) return;
-      setDuelId(d.duelId);
-      setScreen(d.kind === 'accepted' ? 'duel-race' : 'duel-decision');
+      if (d.duelId) openDuel(d.duelId);
     });
-    return () => sub.remove();
+    const received = Notifications.addNotificationReceivedListener((n) => {
+      if (n.request.content.data?.duelId) refreshDuels();
+    });
+    return () => { tapped.remove(); received.remove(); };
   }, []);
+
+  // En Inicio: carga los duelos al entrar y cada 30 s (aviso de la pestaña).
+  // Y recarga el saldo cada vez que se vuelve a Inicio: cualquier paso del
+  // duelo (aceptar, esperar, ver el resultado) cambia monedas en el servidor
+  // sin que este cliente se entere si no las vuelve a pedir.
+  useEffect(() => {
+    if (!nickname || screen !== 'home') return undefined;
+    refreshDuels();
+    getWallet().then(setWallet).catch(() => {});
+    const id = setInterval(refreshDuels, 30000);
+    return () => clearInterval(id);
+  }, [nickname, screen]);
 
   // Init: version gate + sesión anónima + ¿tenemos nickname?
   useEffect(() => {
@@ -756,8 +809,7 @@ export default function App() {
       const d = response?.notification?.request?.content?.data || {};
       if (!d.duelId) return false;
       Notifications.clearLastNotificationResponseAsync().catch(() => {});
-      setDuelId(d.duelId);
-      setScreen(d.kind === 'accepted' ? 'duel-race' : 'duel-decision');
+      await openDuel(d.duelId);
       return true;
     } catch (_) {
       return false;
@@ -951,8 +1003,18 @@ export default function App() {
       <DuelDecision
         duelId={duelId}
         onBack={() => setScreen('home')}
-        onAccepted={() => setScreen('duel-race')}
+        onAccepted={() => { getWallet().then(setWallet).catch(() => {}); setScreen('duel-intro'); }}
         onDeclined={() => setScreen('home')}
+      />
+    );
+  }
+
+  if (screen === 'duel-intro') {
+    return (
+      <DuelIntro
+        duelId={duelId}
+        onBack={() => setScreen('home')}
+        onStart={() => setScreen('duel-race')}
       />
     );
   }
@@ -1142,6 +1204,7 @@ export default function App() {
       setTab={setTab}
       nickname={nickname}
       wallet={wallet}
+      duelAlerts={duels ? duels.active.filter((d) => (d.status === 'pending' && d.role === 'incoming') || (d.status === 'accepted' && !d.myRunDone)).length : 0}
       onOpenProfile={() => setScreen('perfil')}
       tour={tourOn ? <Tour steps={TOUR_STEPS} onDone={() => setTourOn(false)} /> : null}
     >
@@ -1172,6 +1235,15 @@ export default function App() {
       )}
       {tab === 'ranking' && <RankingTab refreshKey={refreshKey} onOpenPlayer={openPlayerProfile} />}
       {tab === 'amigos' && <AmigosTab refreshKey={refreshKey} onOpenGroup={openGroupHome} />}
+      {tab === 'duelos' && (
+        <DuelsTab
+          duels={duels}
+          cancelBusy={duelCancelBusy}
+          onRefresh={refreshDuels}
+          onOpenDuel={openDuel}
+          onCancel={handleCancelDuel}
+        />
+      )}
     </AppShell>
   );
 }
@@ -1306,18 +1378,27 @@ function RecapModal({ rewards, onClose }) {
       <View style={rd.recapBackdrop}>
         <View style={rd.recapCard}>
           <Text style={rd.recapTitle}>PREMIOS DE AYER</Text>
-          <Text style={rd.recapTotal}>+{total}</Text>
+          <View style={rd.recapAmount}>
+            <Text style={rd.recapTotal}>+{total}</Text>
+            <CoinIcon size={32} />
+          </View>
           <View style={rd.recapRows}>
             {rewards.streak > 0 && (
               <View style={rd.recapRow}>
                 <Text style={rd.recapRowLabel}>Racha diaria</Text>
-                <Text style={rd.recapRowValue}>+{rewards.streak}</Text>
+                <View style={rd.recapAmount}>
+                  <Text style={rd.recapRowValue}>+{rewards.streak}</Text>
+                  <CoinIcon size={13} />
+                </View>
               </View>
             )}
             {rewards.ranking > 0 && (
               <View style={rd.recapRow}>
                 <Text style={rd.recapRowLabel}>Posición en el ranking</Text>
-                <Text style={rd.recapRowValue}>+{rewards.ranking}</Text>
+                <View style={rd.recapAmount}>
+                  <Text style={rd.recapRowValue}>+{rewards.ranking}</Text>
+                  <CoinIcon size={13} />
+                </View>
               </View>
             )}
           </View>
@@ -1678,6 +1759,7 @@ const TABS = [
   { id: 'diario', label: 'DIARIO' },
   { id: 'ranking', label: 'RANKING' },
   { id: 'amigos', label: 'GRAND PRIX' },
+  { id: 'duelos', label: '1 VS 1' },
 ];
 
 // (Aquí vivía ProfileIcon, un contorno genérico de cabeza+hombros. Se
@@ -1691,7 +1773,7 @@ const TABS = [
 
 // Cabecera fija + barra de pestañas — envuelve las 3 pestañas de arriba.
 // Perfil (stats + Garaje + Tienda) vive fuera, es pantalla completa aparte.
-function AppShell({ tab, setTab, nickname, wallet, onOpenProfile, tour, children }) {
+function AppShell({ tab, setTab, nickname, wallet, duelAlerts = 0, onOpenProfile, tour, children }) {
   return (
     <View style={rd.shell}>
       <StatusBar hidden />
@@ -1742,7 +1824,10 @@ function AppShell({ tab, setTab, nickname, wallet, onOpenProfile, tour, children
             ref={tourRef(`tab-${t.id}`)}
             collapsable={false}
           >
-            <Text style={[rd.tabBarBtnText, tab === t.id && rd.tabBarBtnTextActive]}>{t.label}</Text>
+            <View style={rd.tabBarLabelRow}>
+              <Text style={[rd.tabBarBtnText, tab === t.id && rd.tabBarBtnTextActive]}>{t.label}</Text>
+              {t.id === 'duelos' && duelAlerts > 0 && tab !== 'duelos' && <View style={rd.tabBarBadge} />}
+            </View>
             {tab === t.id && <View style={rd.tabBarIndicator} />}
           </Pressable>
         ))}
@@ -1806,6 +1891,8 @@ const rd = StyleSheet.create({
   tabBarBtn: { flex: 1, alignItems: 'center', gap: 6, paddingVertical: 4 },
   tabBarBtnText: { color: RD.textDisabled, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
   tabBarBtnTextActive: { color: RD.textPrimary },
+  tabBarLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  tabBarBadge: { width: 7, height: 7, borderRadius: 4, backgroundColor: RD.brand },
   tabBarIndicator: { width: 18, height: 2, backgroundColor: RD.brand },
 
   challengeBanner: {
@@ -1853,7 +1940,8 @@ const rd = StyleSheet.create({
   recapTitle: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 1.4 },
   recapTotal: { color: RD.gold1st, fontSize: 40, fontFamily: RD_FONT.displayBlack },
   recapRows: { alignSelf: 'stretch', gap: 6, marginTop: 4 },
-  recapRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  recapAmount: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  recapRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   recapRowLabel: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono },
   recapRowValue: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.monoBold },
   recapBtn: {

@@ -14,7 +14,7 @@
 //  mentiría diciendo "no te has chocado nunca").
 // ============================================================================
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Dimensions, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -30,7 +30,7 @@ import { dailyTimeEstimate } from './generator';
 import {
   getCareerProgress, getInventory, getGlobalBoard, getMyId, getPlayerRankToday,
   getPlayerStats, getMyDailyHistory, getMyPurpleSectors, getLifetimeCoins, getPilotAvatarId,
-  createDuel, getMyPendingDuels, getPresenceMap,
+  createDuel, cancelDuel, getMyActiveDuels, getPresenceMap,
 } from './api';
 import { LEVEL_COUNT } from './career';
 
@@ -38,6 +38,48 @@ import { LEVEL_COUNT } from './career';
 // App.js, sin tiempo real) — 3 minutos de margen para no parpadear a
 // "desconectado" entre dos latidos si uno se retrasa un poco.
 const ONLINE_WINDOW_MS = 3 * 60 * 1000;
+
+// El duelo vivo con el jugador cuyo perfil estás viendo: qué es y qué puedes
+// hacer con él. Sustituye al formulario de retar (no se puede abrir otro 1 vs
+// 1 con la misma persona hasta que este se resuelva). El resto de tus duelos
+// están en la pestaña 1 VS 1 de Inicio (DuelsTab.js), no en el perfil.
+function DuelStatusRow({ d, onOpen, onCancel, cancelling }) {
+  const mins = Math.max(1, Math.ceil((new Date(d.deadline).getTime() - Date.now()) / 60000));
+
+  // Reto MÍO sin contestar: el toque de la fila NO cancela (sería fácil de
+  // pulsar sin querer), solo el botón CANCELAR.
+  if (d.status === 'pending' && d.role === 'outgoing') {
+    return (
+      <View style={s.duelBanner}>
+        <Text style={s.duelBannerText}>
+          Esperando a {d.otherName} · {d.wager} monedas · caduca en {mins} min
+        </Text>
+        <Pressable onPress={() => onCancel(d.id)} disabled={cancelling} hitSlop={10}>
+          <Text style={[s.duelBannerLink, s.duelBannerCancel]}>{cancelling ? '…' : 'CANCELAR'}</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  let text;
+  let action;
+  if (d.status === 'pending') {
+    text = `${d.otherName} te reta por ${d.wager} monedas`;
+    action = 'VER ›';
+  } else if (!d.myRunDone) {
+    text = `1 vs 1 con ${d.otherName} · ${d.wager} monedas · te quedan ${mins} min para correr`;
+    action = 'CORRER ›';
+  } else {
+    text = `1 vs 1 con ${d.otherName} · ya has corrido, falta su vuelta`;
+    action = 'VER ›';
+  }
+  return (
+    <Pressable style={s.duelBanner} onPress={() => onOpen(d.id)}>
+      <Text style={s.duelBannerText}>{text}</Text>
+      <Text style={s.duelBannerLink}>{action}</Text>
+    </Pressable>
+  );
+}
 
 // Media pantalla de verdad, no un porcentaje del contenido del ScrollView
 // (ahí "50%" no significa nada sin un padre de altura fija) — se mide
@@ -132,7 +174,8 @@ export default function Profile({
   const [tab, setTab] = useState('piloto');
   const [pilotAvatarId, setPilotAvatarId] = useState(null); // null = todavía sin elegir uno (o cargando) -> hash de siempre
   const [online, setOnline] = useState(false);      // presencia real del jugador que se está viendo
-  const [pendingDuels, setPendingDuels] = useState([]); // retos que ME han hecho y siguen sin responder (perfil propio)
+  const [activeDuels, setActiveDuels] = useState([]); // mis duelos vivos, recibidos o enviados (ver getMyActiveDuels)
+  const [cancelBusy, setCancelBusy] = useState(null); // id del reto que se está cancelando
   const [wagerInput, setWagerInput] = useState('50');
   const [challengeBusy, setChallengeBusy] = useState(false);
   const [challengeMsg, setChallengeMsg] = useState(null); // { type: 'ok'|'err', text }
@@ -196,15 +239,20 @@ export default function Profile({
     return () => { alive = false; };
   }, [viewUserId]);
 
-  // Duelos 1vs1 (JC, 2026-09-17): en tu propio perfil, si alguien te ha
-  // retado y no has respondido, aparece aviso para ir a decidir. En el
-  // perfil de otro jugador, en cambio, se comprueba su presencia real para
-  // la insignia EN LÍNEA junto al botón RETAR.
+  // Duelos 1vs1 (JC, 2026-09-17): se cargan MIS duelos vivos tanto en tu
+  // perfil (aviso de cada uno: responder, cancelar, correr) como en el de un
+  // rival (si ya hay uno entre los dos, sustituye al formulario de retar y se
+  // ve/gestiona ahí mismo — JC, 2026-09-19: "ya tienes un reto pendiente" sin
+  // poder ver cuál era). En el perfil de otro jugador, además, se comprueba su
+  // presencia real para la insignia EN LÍNEA.
+  const reloadDuels = useCallback(
+    () => getMyActiveDuels().then(setActiveDuels).catch(() => {}),
+    []
+  );
   useEffect(() => {
     let alive = true;
-    if (!viewUserId) {
-      getMyPendingDuels().then((d) => alive && setPendingDuels(d)).catch(() => {});
-    } else {
+    if (viewUserId) {
+      getMyActiveDuels().then((d) => alive && setActiveDuels(d)).catch(() => {});
       getPresenceMap([viewUserId]).then((m) => {
         if (!alive) return;
         const seen = m.get(viewUserId);
@@ -217,21 +265,51 @@ export default function Profile({
   async function handleChallenge() {
     const wager = parseInt(wagerInput, 10);
     if (!wager || wager <= 0 || challengeBusy) return;
+    // El servidor también lo comprueba (create_duel); esto solo ahorra el
+    // viaje y da el mensaje al momento. Si el saldo aún no ha llegado, se
+    // deja pasar y decide el servidor.
+    if (wallet?.balance != null && wager > wallet.balance) {
+      setChallengeMsg({ type: 'err', text: `No tienes tantas monedas: tienes ${wallet.balance}.` });
+      return;
+    }
     setChallengeBusy(true);
     setChallengeMsg(null);
     try {
       await createDuel(viewUserId, wager);
-      setChallengeMsg({ type: 'ok', text: `Reto enviado a ${displayNickname} por ${wager} monedas.` });
+      await reloadDuels(); // el reto recién enviado sale ya abajo, con su cuenta atrás y su botón de cancelar
     } catch (e) {
       const code = String(e?.message || e);
-      const text = code.includes('DUEL_ALREADY_PENDING') ? 'Ya tenéis un duelo pendiente sin resolver.'
+      const text = code.includes('DUEL_ALREADY_PENDING') ? 'Ya tenéis un 1 vs 1 en marcha.'
+        : code.includes('INSUFFICIENT_FUNDS') ? 'No te quedan monedas libres para esa apuesta (cuentan tus retos pendientes).'
         : code.includes('INVALID_WAGER') ? 'Pon una apuesta válida.'
         : 'No se pudo enviar el reto. Inténtalo otra vez.';
       setChallengeMsg({ type: 'err', text });
+      if (code.includes('DUEL_ALREADY_PENDING')) reloadDuels();
     } finally {
       setChallengeBusy(false);
     }
   }
+
+  async function handleCancelDuel(id) {
+    if (cancelBusy) return;
+    setCancelBusy(id);
+    try { await cancelDuel(id); } catch (_) { /* ya no estaba pendiente: se recarga igual */ }
+    await reloadDuels();
+    setCancelBusy(null);
+  }
+
+  // Mi duelo vivo con el jugador que estoy viendo (si lo hay).
+  const duelWithThem = !isOwnProfile ? activeDuels.find((d) => d.otherId === viewUserId) : null;
+
+  // Mientras espero a que acepten mi reto, se mira cada pocos segundos: sin
+  // esto, al aceptar el otro jugador no aparecía CORRER aquí hasta salir del
+  // perfil y volver a entrar (JC, 2026-09-19).
+  const waitingOnThem = duelWithThem?.status === 'pending' && duelWithThem?.role === 'outgoing';
+  useEffect(() => {
+    if (!waitingOnThem) return undefined;
+    const t = setInterval(reloadDuels, 5000);
+    return () => clearInterval(t);
+  }, [waitingOnThem, reloadDuels]);
 
   const daysRaced = trend ? trend.length : null;
   // Choques por vuelta es más honesto que el total: 400 choques en 500
@@ -300,20 +378,6 @@ export default function Profile({
                 2026-09-09: tenía poca acogida como pestaña propia y no es
                 de lo principal del juego — vive junto a Garaje/Tienda, no
                 en la barra de abajo. */}
-            {/* Duelos 1vs1 (JC, 2026-09-17): en tu propio perfil, un aviso
-                si alguien te ha retado y sigues sin responder — el mismo
-                tipo de aviso que ya usa wallet.pendingPacks en la cabecera,
-                aquí a tamaño de banner porque no hay otro sitio donde
-                encontrarlo si no llega la notificación push. */}
-            {isOwnProfile && pendingDuels.map((d) => (
-              <Pressable key={d.id} style={s.duelBanner} onPress={() => onOpenDuel(d.id)}>
-                <Text style={s.duelBannerText}>
-                  {d.challengerName} te reta por {d.wager} monedas
-                </Text>
-                <Text style={s.duelBannerLink}>VER ›</Text>
-              </Pressable>
-            ))}
-
             {isOwnProfile && (
               <View style={s.actionsRow}>
                 {/* Colores distintos por botón (JC, 2026-09-16) — antes los
@@ -346,9 +410,24 @@ export default function Profile({
                 por ser "tu cuenta". La apuesta se cobra a los dos al
                 ACEPTAR, no al enviar el reto — aquí no se mueve nada
                 todavía, solo se manda. */}
-            {!isOwnProfile && (
+            {!isOwnProfile && duelWithThem && (
               <View style={s.duelCard}>
-                <Text style={s.duelCardTitle}>RETAR A UN DUELO</Text>
+                <Text style={s.duelCardTitle}>1 VS 1 EN CURSO</Text>
+                <DuelStatusRow
+                  d={duelWithThem}
+                  onOpen={onOpenDuel}
+                  onCancel={handleCancelDuel}
+                  cancelling={cancelBusy === duelWithThem.id}
+                />
+                <Text style={s.duelMsgHint}>
+                  Todos tus 1 vs 1 están en la pestaña 1 VS 1 de Inicio. Hasta que este se resuelva no podéis abrir otro.
+                </Text>
+              </View>
+            )}
+
+            {!isOwnProfile && !duelWithThem && (
+              <View style={s.duelCard}>
+                <Text style={s.duelCardTitle}>RETAR A UN 1 VS 1</Text>
                 <View style={s.duelWagerRow}>
                   <CoinIcon size={16} />
                   <TextInput
@@ -358,6 +437,9 @@ export default function Profile({
                     keyboardType="number-pad"
                     maxLength={5}
                   />
+                  {wallet?.balance != null && (
+                    <Text style={s.duelWagerHint}>tienes {wallet.balance}</Text>
+                  )}
                 </View>
                 {!!challengeMsg && (
                   <Text style={challengeMsg.type === 'ok' ? s.duelMsgOk : s.duelMsgErr}>{challengeMsg.text}</Text>
@@ -591,6 +673,9 @@ const s = StyleSheet.create({
   },
   duelBannerText: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.monoBold, flex: 1, marginRight: 8 },
   duelBannerLink: { color: RD.brand, fontSize: 12, fontFamily: RD_FONT.monoBold },
+  duelBannerCancel: { color: RD.textSecondary },
+  duelWagerHint: { color: RD.textSecondary, fontSize: 11, fontFamily: RD_FONT.mono },
+  duelMsgHint: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono },
 
   duelCard: {
     borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,

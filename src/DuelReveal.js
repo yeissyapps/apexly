@@ -114,7 +114,12 @@ export default function DuelReveal({ duelId, myId, onBack, onRematch }) {
 
   const iWon = data.winnerId === myId;
   const tie = data.winnerId == null;
-  const resultLabel = tie ? 'EMPATE — SE DEVUELVE LA APUESTA' : iWon ? `GANAS · +${data.wager * 2}` : 'PIERDES';
+  // Ganancia NETA (lo que sube tu saldo respecto a antes del duelo): la apuesta
+  // ya se cobró al aceptar, así que el bote de 2x son tu apuesta devuelta más
+  // la del rival. Igual que el historial de la pestaña 1 VS 1.
+  const resultLabel = tie
+    ? 'EMPATE — SE DEVUELVE LA APUESTA'
+    : iWon ? `GANAS · +${data.wager}` : `PIERDES · −${data.wager}`;
   const rival = data.challenger.userId === myId ? data.opponent : data.challenger;
 
   return (
