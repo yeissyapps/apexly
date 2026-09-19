@@ -1206,6 +1206,14 @@ export async function declineDuel(duelId) {
   if (error) throw error;
 }
 
+// El retador retira un reto que aún no han aceptado (ver cancel_duel en
+// duels-v2.sql). Sin dinero de por medio: solo se cobra al aceptar.
+export async function cancelDuel(duelId) {
+  await ensureSession();
+  const { error } = await supabase.rpc('cancel_duel', { p_duel_id: duelId });
+  if (error) throw error;
+}
+
 // Sube tu vuelta del duelo — mismo shape de traza que submitDailyRun. Si el
 // rival ya había corrido, el servidor liquida el duelo en el momento y esta
 // misma llamada devuelve ya el resultado (evita una segunda ida y vuelta).
@@ -1246,9 +1254,23 @@ export async function getDuel(duelId) {
   const challenger = byId.get(duel.challenger_id);
   const opponent = byId.get(duel.opponent_id);
 
+  // ¿Ya subí mi vuelta? Decide a dónde llevar a quien reabre un duelo en
+  // curso: a correr (aún no) o a esperar al rival (ya).
+  let myRunDone = false;
+  if (duel.status === 'accepted') {
+    const { data: mine } = await supabase
+      .from('duel_runs')
+      .select('duel_id')
+      .eq('duel_id', duelId)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    myRunDone = !!mine;
+  }
+
   return {
     id: duel.id,
     myId: user.id,
+    myRunDone,
     challengerId: duel.challenger_id,
     opponentId: duel.opponent_id,
     wager: duel.wager,
@@ -1264,20 +1286,28 @@ export async function getDuel(duelId) {
   };
 }
 
-// Retos que me han hecho y siguen pendientes de mi respuesta — para la
-// insignia en el perfil propio (mismo criterio visual que
-// wallet.pendingPacks: un punto, no un número).
-export async function getMyPendingDuels() {
+// Todos mis duelos que siguen vivos, en cualquiera de los dos lados: retos
+// que me han hecho y no he contestado, retos míos que esperan respuesta, y
+// duelos ya aceptados con la carrera en juego. Lo pinta el perfil (propio y
+// del rival) para que un duelo nunca quede "invisible" — antes solo se veían
+// los retos recibidos, y quien retaba se topaba con "ya tenéis un duelo
+// pendiente" sin poder ver ni cerrar ese duelo.
+export async function getMyActiveDuels() {
   const user = await ensureSession();
   const { data } = await supabase
     .from('duels')
-    .select('id, challenger_id, wager, created_at')
-    .eq('opponent_id', user.id)
-    .eq('status', 'pending')
-    .gt('accept_deadline', new Date().toISOString())
+    .select('id, challenger_id, opponent_id, wager, status, accept_deadline, race_deadline, created_at')
+    .or(`challenger_id.eq.${user.id},opponent_id.eq.${user.id}`)
+    .in('status', ['pending', 'accepted'])
     .order('created_at', { ascending: false });
-  const rows = data || [];
+  const now = Date.now();
+  const rows = (data || []).filter((d) => {
+    const deadline = d.status === 'pending' ? d.accept_deadline : d.race_deadline;
+    return deadline && new Date(deadline).getTime() > now;
+  });
   if (rows.length === 0) return [];
+
+  const otherOf = (d) => (d.challenger_id === user.id ? d.opponent_id : d.challenger_id);
 
   // Dos consultas en vez de un embed de PostgREST: duels tiene DOS foreign
   // keys a users (challenger_id/opponent_id), y el embed sin desambiguar
@@ -1286,16 +1316,99 @@ export async function getMyPendingDuels() {
   // patrón que getDuel/getDuelReveal.
   const { data: people } = await supabase
     .from('users')
-    .select('id, nickname')
-    .in('id', rows.map((d) => d.challenger_id));
+    .select('id, nickname, pilot_avatar_id')
+    .in('id', rows.map(otherOf));
   const byId = new Map((people || []).map((p) => [p.id, p]));
+
+  const acceptedIds = rows.filter((d) => d.status === 'accepted').map((d) => d.id);
+  let ranIds = new Set();
+  if (acceptedIds.length > 0) {
+    const { data: runs } = await supabase
+      .from('duel_runs')
+      .select('duel_id')
+      .eq('user_id', user.id)
+      .in('duel_id', acceptedIds);
+    ranIds = new Set((runs || []).map((r) => r.duel_id));
+  }
 
   return rows.map((d) => ({
     id: d.id,
-    challengerId: d.challenger_id,
-    challengerName: byId.get(d.challenger_id)?.nickname || '—',
+    status: d.status,
+    // 'incoming' = me han retado a mí; 'outgoing' = he retado yo.
+    role: d.opponent_id === user.id ? 'incoming' : 'outgoing',
+    otherId: otherOf(d),
+    otherName: byId.get(otherOf(d))?.nickname || '—',
+    otherAvatarId: byId.get(otherOf(d))?.pilot_avatar_id || null,
     wager: d.wager,
+    deadline: d.status === 'pending' ? d.accept_deadline : d.race_deadline,
+    myRunDone: ranIds.has(d.id),
   }));
+}
+
+// Duelos ya cerrados (los últimos), para el historial de la pestaña 1 VS 1.
+// `outcome` resume qué pasó con MI dinero: won / lost / tie / refunded (se
+// aceptó pero no llegaron a correr los dos: apuesta devuelta) / expired
+// (nadie contestó) / declined / cancelled.
+export async function getMyDuelHistory(limit = 12) {
+  const user = await ensureSession();
+  const { data } = await supabase
+    .from('duels')
+    .select('id, challenger_id, opponent_id, wager, status, winner_id, accepted_at, created_at')
+    .or(`challenger_id.eq.${user.id},opponent_id.eq.${user.id}`)
+    .in('status', ['finished', 'expired', 'declined', 'cancelled'])
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  const rows = data || [];
+  if (rows.length === 0) return [];
+  const otherOf = (d) => (d.challenger_id === user.id ? d.opponent_id : d.challenger_id);
+  const { data: people } = await supabase
+    .from('users')
+    .select('id, nickname, pilot_avatar_id')
+    .in('id', rows.map(otherOf));
+  const byId = new Map((people || []).map((p) => [p.id, p]));
+  return rows.map((d) => {
+    let outcome = d.status;
+    if (d.status === 'finished') outcome = d.winner_id == null ? 'tie' : d.winner_id === user.id ? 'won' : 'lost';
+    else if (d.status === 'expired' && d.accepted_at) outcome = 'refunded';
+    return {
+      id: d.id,
+      outcome,
+      role: d.challenger_id === user.id ? 'outgoing' : 'incoming',
+      otherId: otherOf(d),
+      otherName: byId.get(otherOf(d))?.nickname || '—',
+      otherAvatarId: byId.get(otherOf(d))?.pilot_avatar_id || null,
+      wager: d.wager,
+    };
+  });
+}
+
+// Todo lo de la pantalla de enfrentamiento (DuelIntro): el duelo + las stats
+// públicas de cada lado. Todo sale de tablas que ya se leen en el perfil
+// público de otro jugador, no hay nada privado aquí.
+export async function getDuelMatchup(duelId) {
+  const duel = await getDuel(duelId);
+  if (!duel) return null;
+  const ids = [duel.challengerId, duel.opponentId];
+  const [stats, days, wins, streaks] = await Promise.all([
+    Promise.all(ids.map((id) => getPlayerStats(id).catch(() => null))),
+    Promise.all(ids.map((id) =>
+      supabase.from('attempts').select('user_id', { count: 'exact', head: true }).eq('user_id', id)
+        .then((r) => r.count ?? 0).catch(() => 0))),
+    getWorldWinCounts(ids),
+    supabase.from('users').select('id, current_streak').in('id', ids)
+      .then((r) => new Map((r.data || []).map((u) => [u.id, u.current_streak || 0])))
+      .catch(() => new Map()),
+  ]);
+  const side = (i) => ({
+    userId: ids[i],
+    nickname: i === 0 ? duel.challengerName : duel.opponentName,
+    avatarId: i === 0 ? duel.challengerAvatarId : duel.opponentAvatarId,
+    bestMs: stats[i]?.bestMs ?? null,
+    days: days[i],
+    streak: streaks.get(ids[i]) ?? 0,
+    wins: wins[ids[i]] || 0,
+  });
+  return { duel, sides: [side(0), side(1)] };
 }
 
 // Las dos trazas ya terminadas + loadout/nombre de cada uno, para el reveal
@@ -1358,6 +1471,16 @@ export async function touchPresence() {
 export async function getPresenceMap(userIds) {
   const ids = [...new Set(userIds)].filter(Boolean);
   if (ids.length === 0) return new Map();
-  const { data } = await supabase.from('presence').select('user_id, last_seen').in('user_id', ids);
-  return new Map((data || []).map((p) => [p.user_id, new Date(p.last_seen)]));
+  // En lotes de 100: un ranking largo mete cientos de ids en la URL del
+  // `in(...)` y pasado cierto tamaño la petición se rechaza entera.
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+  const results = await Promise.all(
+    chunks.map((chunk) => supabase.from('presence').select('user_id, last_seen').in('user_id', chunk))
+  );
+  const map = new Map();
+  for (const { data } of results) {
+    for (const p of data || []) map.set(p.user_id, new Date(p.last_seen));
+  }
+  return map;
 }

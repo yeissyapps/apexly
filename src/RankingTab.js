@@ -19,6 +19,32 @@ import { getMonthlyRanking, getPresenceMap, getRankingPage, getWorldWinCounts, p
 // Mismo umbral que Profile.js: 3 minutos de margen sobre el latido de ~60s
 // de App.js para que la insignia no parpadee entre dos latidos.
 const ONLINE_WINDOW_MS = 3 * 60 * 1000;
+
+// Presencia de los jugadores que se están viendo, refrescada cada minuto
+// mientras la lista esté en pantalla. Devuelve null hasta la primera
+// respuesta (así no se pinta todo en rojo un instante antes de saber nada).
+function usePresence(userIds) {
+  const [presence, setPresence] = useState(null);
+  const key = userIds.join(',');
+  useEffect(() => {
+    if (!key) return undefined;
+    let alive = true;
+    const ids = key.split(',');
+    const load = () => getPresenceMap(ids).then((m) => { if (alive) setPresence(m); }).catch(() => {});
+    load();
+    const timer = setInterval(load, 60 * 1000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [key]);
+  return presence;
+}
+
+// true/false cuando ya se sabe; undefined mientras carga (RankRow no pinta
+// nada en ese caso). Quien nunca ha dejado latido sale como desconectado.
+function onlineOf(presence, userId) {
+  if (!presence) return undefined;
+  const seen = presence.get(userId);
+  return !!seen && Date.now() - seen.getTime() < ONLINE_WINDOW_MS;
+}
 import { RD, RD_FONT } from './theme';
 import { RankRow } from './MiniRanking';
 
@@ -119,6 +145,7 @@ function DailyRanking({ refreshKey = 0, onOpenPlayer }) {
   const [searchState, setSearchState] = useState(null); // null | 'loading' | 'done'
   const [searchResults, setSearchResults] = useState([]);
   const searchSeq = useRef(0);
+  const presence = usePresence([...rows, ...searchResults].map((r) => r.userId));
 
   const loadPage = useCallback((offset) => {
     setLoadingMore(true);
@@ -188,7 +215,7 @@ function DailyRanking({ refreshKey = 0, onOpenPlayer }) {
         ) : (
           <View style={styles.list}>
             {searchResults.map((r) => (
-              <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} onPress={onOpenPlayer} />
+              <RankRow key={r.userId} r={r} wins={winCounts[r.userId]} onPress={onOpenPlayer} online={onlineOf(presence, r.userId)} />
             ))}
           </View>
         )
@@ -212,6 +239,7 @@ function DailyRanking({ refreshKey = 0, onOpenPlayer }) {
                 unit="PTS"
                 wins={winCounts}
                 onOpenPlayer={onOpenPlayer}
+                extraRowProps={(r) => ({ online: onlineOf(presence, r.userId) })}
               />
             </View>
           )}
@@ -240,8 +268,8 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
   const [rows, setRows] = useState(null); // null = cargando
   const [error, setError] = useState(false);
   const [winCounts, setWinCounts] = useState({});
-  const [presence, setPresence] = useState(new Map()); // userId -> Date del último latido
   const [query, setQuery] = useState('');
+  const presence = usePresence((rows || []).map((r) => r.userId));
 
   useEffect(() => {
     let alive = true;
@@ -251,14 +279,8 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
       .then((res) => {
         if (!alive) return;
         setRows(res.rows);
-        const ids = res.rows.map((r) => r.userId);
-        getWorldWinCounts(ids)
+        getWorldWinCounts(res.rows.map((r) => r.userId))
           .then((wc) => { if (alive) setWinCounts(wc); })
-          .catch(() => {});
-        // Presencia real (JC, 2026-09-17) — "yo había pensado en el ranking
-        // mensual, que es donde más gente aparece": aquí, no en el diario.
-        getPresenceMap(ids)
-          .then((m) => { if (alive) setPresence(m); })
           .catch(() => {});
       })
       .catch(() => { if (alive) setError(true); });
@@ -321,11 +343,10 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
             wins={winCounts}
             onOpenPlayer={onOpenPlayer}
             extraRowProps={(r) => {
-              const seen = presence.get(r.userId);
               return {
                 timeLabel: `${r.points} pts`,
                 sub: `${r.daysPlayed} ${r.daysPlayed === 1 ? 'día jugado' : 'días jugados'}`,
-                online: !!seen && Date.now() - seen.getTime() < ONLINE_WINDOW_MS,
+                online: onlineOf(presence, r.userId),
               };
             }}
           />

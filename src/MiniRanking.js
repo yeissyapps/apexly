@@ -200,10 +200,14 @@ export function RankRow({ r, wins, timeLabel, sub, onPress, online }) {
         <AvatarThumb pilotAvatarId={r.pilotAvatarId} size={44} />
         <View style={styles.rowNameCol}>
           <View style={styles.rowNameLine}>
-            {/* Presencia real (JC, 2026-09-17), sobre todo para el ranking
-                mensual — "¿a quién puedo retar ahora mismo?" de un vistazo,
-                sin entrar en cada perfil. */}
-            {!r.isMe && online && <View style={styles.onlineDot} />}
+            {/* Presencia real (JC, 2026-09-17): "¿a quién puedo retar ahora
+                mismo?" de un vistazo, sin entrar en cada perfil. JC,
+                2026-09-19: verde si está conectado, rojo si no — antes solo
+                salía el verde y "sin punto" no se distinguía de "aún no
+                se sabe". `online` undefined = presencia sin cargar: sin punto. */}
+            {!r.isMe && online != null && (
+              <View style={[styles.presenceDot, online ? styles.presenceOn : styles.presenceOff]} />
+            )}
             <Text style={[styles.rowName, r.isMe && styles.rowNameMe]} numberOfLines={1}>
               {r.isMe ? `${r.nickname} (tú)` : r.nickname}
             </Text>
@@ -311,7 +315,9 @@ const styles = StyleSheet.create({
   rowRankMe: { color: RD.youMagenta },
   rowNameCol: { minWidth: 0, flexShrink: 1 },
   rowNameLine: { flexDirection: 'row', alignItems: 'center' },
-  onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: RD.successGreen, marginRight: 5 },
+  presenceDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
+  presenceOn: { backgroundColor: RD.successGreen },
+  presenceOff: { backgroundColor: RD.brand },
   rowName: { color: RD.textPrimary, fontSize: 13, fontWeight: '700', flexShrink: 1 },
   rowGlyph: { fontSize: 13, marginLeft: 5 },
   rowWins: { fontSize: 10, fontFamily: RD_FONT.monoBold, marginLeft: 3 },
