@@ -767,16 +767,21 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
                 transform={`rotate(${(view.ghost.h * 180) / Math.PI} ${view.ghost.x} ${view.ghost.y})`}
               />
             )}
-            {/* Coche del LÍDER de hoy: su livery real y opacidad completa —
-                no es un fantasma, es "compartís circuito". Va por debajo del
-                tuyo para que el tuyo nunca quede tapado. */}
+            {/* Coche del LÍDER de hoy: su livery real, pero semitransparente
+                (JC, 2026-09-20): a opacidad completa, en la salida los dos
+                coches parten juntos y si además comparten color no se sabe
+                cuál es el tuyo. 0.4 = más visible que tu fantasma (0.2) y
+                claramente menos que tu coche (1). Va por debajo del tuyo
+                para que el tuyo nunca quede tapado. */}
             {view.leader && leaderRun && (
-              <CarSprite
-                x={view.leader.x}
-                y={view.leader.y}
-                deg={(view.leader.h * 180) / Math.PI}
-                loadout={leaderRun.loadout}
-              />
+              <G opacity={0.4}>
+                <CarSprite
+                  x={view.leader.x}
+                  y={view.leader.y}
+                  deg={(view.leader.h * 180) / Math.PI}
+                  loadout={leaderRun.loadout}
+                />
+              </G>
             )}
             <CarSprite x={view.x} y={view.y} deg={carDeg} loadout={carLoadout} />
             {CONFIG.SHOW_DEBUG && (
