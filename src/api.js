@@ -50,6 +50,23 @@ export async function getLocalNickname() {
   return AsyncStorage.getItem(NICK_KEY);
 }
 
+// El nickname que la SESIÓN ACTUAL tiene de verdad en el servidor (o null si
+// esta sesión no tiene fila en `users` todavía). Existe porque el nombre
+// cacheado en el dispositivo (getLocalNickname) no prueba nada por sí solo:
+// si el token de sesión guardado deja de valer, ensureSession() crea una
+// cuenta anónima NUEVA sin que nada en el dispositivo cambie — el nombre
+// local se queda diciendo "Yeissy1" mientras la sesión real es otra cuenta
+// vacía. App.js compara este valor contra el local antes de confiar en él
+// (JC, 2026-09-22: "se le han borrado todas las monedas y las stats" — la
+// cuenta de verdad seguía intacta en el servidor, era la sesión del móvil la
+// que ya no era la suya).
+export async function getMyOwnNickname() {
+  const user = await ensureSession();
+  const { data, error } = await supabase.from('users').select('nickname').eq('id', user.id).maybeSingle();
+  if (error) throw error;
+  return data?.nickname ?? null;
+}
+
 // Guarda el nickname (local + tabla users). Crea la sesión anónima si hace
 // falta. Rechaza nombres ya en uso (comparación sin mayúsculas): lanza un
 // error con code='NICKNAME_TAKEN' que el onboarding atrapa para pedir otro

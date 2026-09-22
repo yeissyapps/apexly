@@ -59,7 +59,7 @@ import { CAR_DEFAULTS } from './src/car';
 
 const TRACKMAP_W = Dimensions.get('window').width - 18 * 2 - 14 * 2; // screenContent + panel
 import {
-  ensureSession, ensureDailyTrack, getLocalNickname, saveNickname, submitTime,
+  ensureSession, ensureDailyTrack, getLocalNickname, getMyOwnNickname, saveNickname, submitTime,
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
   getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
   getMyLoadout, getWallet, claimDailyReward, getRecentRewards, claimShareReward, claimCareerLevel,
@@ -783,9 +783,25 @@ export default function App() {
         const nick = await getLocalNickname();
         if (!alive) return;
         if (nick) {
-          setNickname(nick);
-          const openedByDuel = await openDuelFromColdStart();
-          if (!openedByDuel && alive) setScreen('home');
+          // No basta con que el nombre esté guardado en este dispositivo: si
+          // la SESIÓN actual no tiene fila en `users` (el token guardado dejó
+          // de valer y ensureSession() creó una cuenta anónima nueva sin que
+          // nada más cambiara — JC, 2026-09-22: "se le han borrado todas las
+          // monedas y las stats" era justo esto, no un borrado de verdad),
+          // seguir como si nada deja a la app viendo una cuenta vacía sin
+          // avisar. Se comprueba contra el servidor antes de confiar en el
+          // nombre local; un fallo de RED (no "no existe") se deja pasar tal
+          // cual estaba, para no bloquear a nadie por una conexión mala justo
+          // al arrancar.
+          let serverNick;
+          try { serverNick = await getMyOwnNickname(); } catch (_) { serverNick = nick; }
+          if (serverNick === nick) {
+            setNickname(nick);
+            const openedByDuel = await openDuelFromColdStart();
+            if (!openedByDuel && alive) setScreen('home');
+          } else {
+            setScreen('onboarding');
+          }
         } else setScreen('onboarding');
       } catch (e) {
         if (alive) setScreen('error');
@@ -837,7 +853,7 @@ export default function App() {
   }
 
   async function handleFinish(ms, trace, sectorSplits, impacts, sectorColors, sectorDeltas) {
-    setResult({ ms, isBest: false, submitting: true, impacts, sectorColors, sectorDeltas });
+    setResult({ ms, isBest: false, submitting: true, trace, impacts, sectorColors, sectorDeltas });
     setScreen('results');
     // Contadores de por vida del Perfil (vueltas/choques/tiempo en pista).
     // Cuenta TODAS las vueltas, no solo las que mejoran: "cuánto has corrido"
@@ -861,7 +877,7 @@ export default function App() {
       // primera). Se guarda en el resultado porque es lo que permite decir
       // "te has quedado a 0.043s de tu récord" cuando NO mejoras — sin él,
       // quedarte a 43 milésimas se ve igual que quedarte a seis segundos.
-      setResult({ ms, isBest, prevMs, submitting: false, streak, impacts, sectorColors, sectorDeltas });
+      setResult({ ms, isBest, prevMs, submitting: false, streak, trace, impacts, sectorColors, sectorDeltas });
       logRaceFinish({ ms, isBest });
       if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs); // fire-and-forget: avisa a quien adelantaste
       // Sube la traza de tu mejor vuelta para que, si vas 1.º, los demás
@@ -874,8 +890,35 @@ export default function App() {
       // y no sobre una pantalla a medias.
       noteRaceFinished(isBest);
     } catch (e) {
-      setResult({ ms, isBest: false, submitting: false, error: true, impacts, sectorColors, sectorDeltas });
+      setResult({ ms, isBest: false, submitting: false, error: true, trace, impacts, sectorColors, sectorDeltas });
       noteRaceFinished(false); // cuenta el uso, pero sin pedir nada tras un error
+    }
+    setRefreshKey((k) => k + 1);
+  }
+
+  // Reintenta SOLO el envío del tiempo ya corrido (no relanza la carrera).
+  // Existía el mismo fallo desde el principio (JC, 2026-09-22: "no se guarda
+  // mi tiempo"): submitTime() SÍ marcaba result.error = true si fallaba,
+  // pero la pantalla de Resultado nunca miraba ese campo — un fallo de red
+  // al enviar dejaba el tiempo sin guardar, sin ningún aviso visible, con la
+  // vuelta ya gastada. Ahora Resultado muestra el error y este botón repite
+  // exactamente los mismos pasos de handleFinish tras el submitTime.
+  async function retrySubmit() {
+    if (!result || result.submitting) return;
+    const { ms, trace, impacts, sectorColors, sectorDeltas } = result;
+    setResult((r) => ({ ...r, submitting: true, error: false }));
+    try {
+      const { isBest, prevMs } = await submitTime(ms);
+      let streak = null;
+      try { streak = await bumpStreak(); } catch (_) {}
+      claimDailyReward().catch(() => {});
+      setResult({ ms, isBest, prevMs, submitting: false, streak, trace, impacts, sectorColors, sectorDeltas });
+      logRaceFinish({ ms, isBest });
+      if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs);
+      if (isBest && trace) submitDailyRun(ms, trace, todayKey()).catch(() => {});
+      noteRaceFinished(isBest);
+    } catch (e) {
+      setResult({ ms, isBest: false, submitting: false, error: true, trace, impacts, sectorColors, sectorDeltas });
     }
     setRefreshKey((k) => k + 1);
   }
@@ -1191,6 +1234,7 @@ export default function App() {
         unlimited={unlimited}
         refreshKey={refreshKey}
         onRetry={tryPlay}
+        onRetrySubmit={retrySubmit}
         onHome={() => setScreen('home')}
         onOpenPlayer={openPlayerProfile}
       />
@@ -1995,6 +2039,7 @@ const rd = StyleSheet.create({
 
   cta: { backgroundColor: RD.brand, borderRadius: 2, paddingVertical: 16, alignItems: 'center' },
   ctaDisabled: { opacity: 0.4 },
+  ctaError: { backgroundColor: RD.danger, marginBottom: 10 },
   // El bloque de ranking (rótulo + lista) va envuelto para que el tour pueda
   // resaltarlo entero. El `gap` reproduce el que daba el contenedor cuando
   // eran dos hijos sueltos — sin él la lista se pegaría al rótulo.
@@ -2014,6 +2059,7 @@ const rd = StyleSheet.create({
   resultBadge: { borderRadius: 2, paddingHorizontal: 14, paddingVertical: 6 },
   resultBadgeText: { fontFamily: RD_FONT.monoBold, fontSize: 12, letterSpacing: 1 },
   resultNeutral: { color: RD.textSecondary, fontSize: 15, fontFamily: RD_FONT.mono },
+  resultErrorText: { color: RD.danger, fontSize: 15, fontFamily: RD_FONT.monoBold },
   resultTime: { fontFamily: RD_FONT.monoBold, fontSize: 52, fontVariant: ['tabular-nums'] },
   trackMapBox: {
     width: '100%', borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
@@ -2297,7 +2343,7 @@ function RevealValue({ shown, style, children }) {
 // ---------------------------------------------------------------------------
 //  Resultado: tiempo + stats + tarjeta para compartir. Micro-recompensa si récord.
 // ---------------------------------------------------------------------------
-function Results({ result, label, track, weather, nickname, attemptsLeft = Infinity, total = 0, unlimited = false, refreshKey, onRetry, onHome, onOpenPlayer }) {
+function Results({ result, label, track, weather, nickname, attemptsLeft = Infinity, total = 0, unlimited = false, refreshKey, onRetry, onRetrySubmit, onHome, onOpenPlayer }) {
   const wx = weather || { icon: '', label: '' };
   const outOfAttempts = attemptsLeft <= 0;
   const cardRef = useRef(null);
@@ -2595,6 +2641,8 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
           )
         ) : result.submitting ? (
           <Text style={rd.resultNeutral}>Guardando…</Text>
+        ) : result.error ? (
+          <Text style={rd.resultErrorText}>No se pudo guardar tu tiempo</Text>
         ) : null}
         <Animated.Text style={[rd.resultTime, { color: timeColor, transform: [{ scale: timeScale }] }]}>
           {fmtTime(result.ms)}
@@ -2651,6 +2699,12 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
           </>
         )}
       </View>
+
+      {result.error && (
+        <Pressable style={[rd.cta, rd.ctaError]} onPress={onRetrySubmit} disabled={result.submitting}>
+          <Text style={rd.ctaText}>{result.submitting ? 'Enviando…' : 'Reintentar envío'}</Text>
+        </Pressable>
+      )}
 
       <Pressable style={rd.cta} onPress={onRetry}>
         <Text style={rd.ctaText}>
