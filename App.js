@@ -34,6 +34,7 @@ import { fmtTime, fmtSecs, fmtCountdown } from './src/format';
 import { C, MONO, RD, RD_FONT, SECTOR_RESULT_COLORS, RARITY_COLOR } from './src/theme';
 import DangerStripe from './src/DangerStripe';
 import CoinIcon from './src/CoinIcon';
+import { checkDayChallenge, loadDayChallenge } from './src/dayChallenge';
 import Identicon from './src/Identicon';
 import MiniRanking from './src/MiniRanking';
 import RankingTab from './src/RankingTab';
@@ -52,7 +53,7 @@ import { levelSpec, gapMsFor, weatherForLevel, CAREER_AD_BATCH } from './src/car
 import { GroupHome, GrandPrixStandings, RoundStart } from './src/GrandPrix';
 import { gpCircuitSpec, gpWeather, GP_AD_BATCH, GP_FREE_ATTEMPTS, currentRoundIndex, gpFinished } from './src/gpData';
 import ShineBadge from './src/ShineBadge';
-import Tour, { tourRef, isTourDone } from './src/Tour';
+import Tour, { tourRef, isTourDone, hasRacedBefore, markFirstRace } from './src/Tour';
 import { WHATS_NEW_ITEMS, WHATS_NEW_TITLE, WHATS_NEW_VERSION, markWhatsNewSeen, shouldShowWhatsNew } from './src/WhatsNew';
 import { noteRaceFinished } from './src/rate';
 import { CAR_DEFAULTS } from './src/car';
@@ -68,7 +69,7 @@ import {
   getGpSectorBests, submitGpSectorSplits,
   submitDuelRun, getDuel, touchPresence, getMyActiveDuels, getMyDuelHistory, cancelDuel,
 } from './src/api';
-import { registerPushToken } from './src/push';
+import { registerPushToken, shouldOfferPush, notePushOfferDismissed } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
 import { loadAttempts, consumeAttempt, grantBatch, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
 import { PUSH_ENABLED, intentosTxt } from './src/features';
@@ -158,6 +159,7 @@ export default function App() {
     setScreen('perfil');
   }
   const [challenge, setChallenge] = useState(null); // { ms } reto recibido por deep link, si es de hoy
+  const [dayChallenge, setDayChallenge] = useState(null); // reto del día (src/dayChallenge.js)
   // Duelo 1vs1 en curso (JC, 2026-09-17) — el id basta para todo: las
   // pantallas de duelo (DuelDecision/DuelReveal, y duel-race más abajo)
   // piden sus propios datos con getDuel/getDuelReveal, mismo criterio que
@@ -208,9 +210,15 @@ export default function App() {
     setDuelCancelBusy(null);
   }
   const [tab, setTab] = useState('diario'); // pestaña activa de Inicio: diario | ranking | amigos
-  // Recorrido guiado de la primera apertura. null = aún no sabemos si toca
-  // (lo dice AsyncStorage); false = no toca o ya terminó; true = corriendo.
-  const [tourOn, setTourOn] = useState(null);
+  // Recorrido guiado. Sale tras la PRIMERA VUELTA, no en la primera apertura
+  // (ver src/Tour.js): así el jugador nuevo llega a correr sin pasar antes por
+  // 7 pasos de texto, y el tour ya puede enseñar un ranking y una racha
+  // reales. `tourDone`/`hasRaced`: null = aún no sabemos (lo dice AsyncStorage).
+  const [tourDone, setTourDone] = useState(null);
+  const [hasRaced, setHasRaced] = useState(null);
+  const tourOn = tourDone === false && hasRaced === true;
+  // Oferta de avisos en el Resultado (ver shouldOfferPush en src/push.js).
+  const [pushOffer, setPushOffer] = useState(false);
   const [whatsNew, setWhatsNew] = useState(false); // pop-up de novedades para quien actualiza (no para quien instala de cero)
   const [careerLevel, setCareerLevel] = useState(null); // nivel de Modo Carrera en juego, o null
   const [careerResult, setCareerResult] = useState(null); // { level, ms, passed, gapMs } del último intento
@@ -476,6 +484,7 @@ export default function App() {
     const gapMs = gapMsFor(n, careerSpec.timeEstimate);
     const passed = ms <= gapMs;
     recordLap(ms, impacts); // cuenta para los contadores del Perfil
+    noteFirstLap();
     if (passed) {
       try { await claimCareerLevel(n, Math.round(ms)); } catch (_) {}
     }
@@ -690,33 +699,55 @@ export default function App() {
   useEffect(() => {
     if (tourChecked.current || !nickname || screen !== 'home') return;
     tourChecked.current = true;
-    isTourDone().then((done) => setTourOn(!done));
+    Promise.all([isTourDone(), hasRacedBefore()]).then(([done, raced]) => {
+      setTourDone(done);
+      setHasRaced(raced);
+    });
   }, [nickname, screen]);
 
   // Novedades de la versión: solo para quien YA había terminado el tour
-  // antes de esta apertura. Si el tour SIGUE pendiente (`tourOn === true`),
+  // antes de esta apertura. Si el tour SIGUE pendiente (`tourDone === false`),
   // es una instalación nueva — nada que "actualizar" respecto a una versión
   // anterior que nunca vio — así que se marca como vista sin mostrar nada,
   // y ya no vuelve a comprobarse en aperturas futuras. Espera a que
-  // `tourOn` deje de ser `null` para no adelantarse al chequeo de arriba.
+  // `tourDone` deje de ser `null` para no adelantarse al chequeo de arriba.
   const whatsNewChecked = useRef(false);
   useEffect(() => {
-    if (whatsNewChecked.current || tourOn === null || !nickname || screen !== 'home') return;
+    if (whatsNewChecked.current || tourDone === null || !nickname || screen !== 'home') return;
     whatsNewChecked.current = true;
-    if (tourOn) { markWhatsNewSeen(); return; }
+    if (!tourDone) { markWhatsNewSeen(); return; }
     shouldShowWhatsNew().then((show) => { if (show) setWhatsNew(true); });
-  }, [tourOn, nickname, screen]);
+  }, [tourDone, nickname, screen]);
 
-  // Registrar token de notificaciones una vez que hay nickname... pero NO
-  // mientras corre el tour. Medido en dispositivo: el diálogo de permisos de
-  // Android salta justo al entrar a Inicio, que es cuando arranca el tour, y
-  // se pone por encima tapándolo. Además pedir el permiso antes de haber
-  // explicado para qué sirve es la mejor forma de que te lo denieguen: ahora
-  // se pide al terminar el recorrido, cuando ya sabe qué son las rachas y el
-  // Grand Prix (que es de lo que avisan las notificaciones).
+  // Refresca el token de notificaciones en cada arranque, pero SIN sacar nunca
+  // el diálogo del sistema: el permiso se ofrece en el Resultado de la primera
+  // vuelta (pushOffer) y solo si el jugador acepta. Antes se pedía al acabar el
+  // tour, o sea antes de haber corrido y con quien abandonaba el tour sin
+  // llegar a registrarse.
   useEffect(() => {
-    if (PUSH_ENABLED && nickname && tourOn === false) registerPushToken().catch(() => {});
-  }, [nickname, tourOn]);
+    if (PUSH_ENABLED && nickname && tourDone === true) registerPushToken({ prompt: false }).catch(() => {});
+  }, [nickname, tourDone]);
+
+  // Primera vuelta terminada (en cualquier modo): a partir de ahora toca el
+  // tour la próxima vez que se pise Inicio.
+  function noteFirstLap() {
+    markFirstRace();
+    setHasRaced(true);
+  }
+
+  // Resultado de una vuelta del diario ya guardada: ¿toca ofrecer los avisos?
+  function maybeOfferPush() {
+    if (!PUSH_ENABLED) return;
+    shouldOfferPush().then(setPushOffer).catch(() => {});
+  }
+  function acceptPushOffer() {
+    setPushOffer(false);
+    registerPushToken({ prompt: true }).catch(() => {});
+  }
+  function dismissPushOffer() {
+    setPushOffer(false);
+    notePushOfferDismissed();
+  }
 
   // Presencia real (JC, 2026-09-17: "presencia real", para la insignia EN
   // LÍNEA de los duelos) — sin tiempo real en este proyecto, así que "en
@@ -764,6 +795,31 @@ export default function App() {
     const id = setInterval(refreshDuels, 30000);
     return () => clearInterval(id);
   }, [nickname, screen]);
+
+  // Reto del día: se recarga cada vez que se vuelve a Inicio — el de rival
+  // puede cumplirse sin correr (tu rival corre después que tú y queda por
+  // detrás), y así se cobra en cuanto vuelves a mirar.
+  useEffect(() => {
+    if (!nickname || screen !== 'home') return;
+    loadDayChallenge(todayKey())
+      .then((c) => {
+        setDayChallenge(c);
+        if (c.justDone) getWallet().then(setWallet).catch(() => {});
+      })
+      .catch(() => {});
+  }, [nickname, screen]);
+
+  // Tras guardar una vuelta del Diario: ¿cumple el reto? Lo pinta también en
+  // el Resultado de ESA vuelta (si sigue en pantalla).
+  function afterDailyLap(lap) {
+    checkDayChallenge(todayKey(), lap)
+      .then((c) => {
+        setDayChallenge(c);
+        setResult((r) => (r && r.ms === lap.ms ? { ...r, dayChallenge: c } : r));
+        if (c.justDone) getWallet().then(setWallet).catch(() => {});
+      })
+      .catch(() => {});
+  }
 
   // Init: version gate + sesión anónima + ¿tenemos nickname?
   useEffect(() => {
@@ -855,6 +911,7 @@ export default function App() {
   async function handleFinish(ms, trace, sectorSplits, impacts, sectorColors, sectorDeltas) {
     setResult({ ms, isBest: false, submitting: true, trace, impacts, sectorColors, sectorDeltas });
     setScreen('results');
+    noteFirstLap();
     // Contadores de por vida del Perfil (vueltas/choques/tiempo en pista).
     // Cuenta TODAS las vueltas, no solo las que mejoran: "cuánto has corrido"
     // no es lo mismo que "cuál es tu récord".
@@ -879,6 +936,8 @@ export default function App() {
       // quedarte a 43 milésimas se ve igual que quedarte a seis segundos.
       setResult({ ms, isBest, prevMs, submitting: false, streak, trace, impacts, sectorColors, sectorDeltas });
       logRaceFinish({ ms, isBest });
+      maybeOfferPush();
+      afterDailyLap({ ms, isBest, prevMs, impacts, sectorColors, sectorDeltas });
       if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs); // fire-and-forget: avisa a quien adelantaste
       // Sube la traza de tu mejor vuelta para que, si vas 1.º, los demás
       // puedan correr contra tu coche. Mismo disparador que el aviso de
@@ -914,6 +973,8 @@ export default function App() {
       claimDailyReward().catch(() => {});
       setResult({ ms, isBest, prevMs, submitting: false, streak, trace, impacts, sectorColors, sectorDeltas });
       logRaceFinish({ ms, isBest });
+      maybeOfferPush();
+      afterDailyLap({ ms, isBest, prevMs, impacts, sectorColors, sectorDeltas });
       if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs);
       if (isBest && trace) submitDailyRun(ms, trace, todayKey()).catch(() => {});
       noteRaceFinished(isBest);
@@ -1237,6 +1298,9 @@ export default function App() {
         onRetrySubmit={retrySubmit}
         onHome={() => setScreen('home')}
         onOpenPlayer={openPlayerProfile}
+        pushOffer={pushOffer}
+        onPushYes={acceptPushOffer}
+        onPushLater={dismissPushOffer}
       />
     );
   }
@@ -1250,7 +1314,7 @@ export default function App() {
       wallet={wallet}
       duelAlerts={duels ? duels.active.filter((d) => (d.status === 'pending' && d.role === 'incoming') || (d.status === 'accepted' && !d.myRunDone)).length : 0}
       onOpenProfile={() => setScreen('perfil')}
-      tour={tourOn ? <Tour steps={TOUR_STEPS} onDone={() => setTourOn(false)} /> : null}
+      tour={tourOn ? <Tour steps={TOUR_STEPS} onDone={() => setTourDone(true)} /> : null}
     >
       {whatsNew && (
         <WhatsNewModal
@@ -1266,6 +1330,7 @@ export default function App() {
           onCloseRecap={() => setRecap(null)}
           challenge={challenge}
           onCloseChallenge={() => setChallenge(null)}
+          dayChallenge={dayChallenge}
           daily={daily}
           weather={weather}
           midnightLabel={midnightLabel}
@@ -1374,8 +1439,8 @@ function StreakPath({ current }) {
 // explicarlo antes de haber corrido una vuelta.
 const TOUR_STEPS = [
   {
-    title: 'Bienvenido a Apexly',
-    body: 'Cada día se genera un circuito nuevo, y es el mismo para todo el mundo. Mismo trazado, mismo clima, mismas condiciones: gana quien mejor lo conduzca.\n\nTe enseño lo básico en medio minuto.',
+    title: 'Ya tienes tu primer tiempo',
+    body: 'Cada día se genera un circuito nuevo, y es el mismo para todo el mundo. Mismo trazado, mismo clima, mismas condiciones: gana quien mejor lo conduzca.\n\nTe enseño el resto en medio minuto.',
   },
   {
     target: 'circuito',
@@ -1385,7 +1450,7 @@ const TOUR_STEPS = [
   {
     target: 'cta',
     title: 'Tu vuelta',
-    body: 'El coche acelera solo: tú únicamente giras, tocando el lado izquierdo o derecho de la pantalla. Cuanto más fuerte giras, más frena — trazar bien es ir rápido.\n\nTienes 3 intentos al día; cuando se acaben puedes ver un anuncio para conseguir más.',
+    body: 'Vuelve a correr cuando quieras: el coche acelera solo y tú giras, tocando el lado izquierdo o derecho. Cuanto más fuerte giras, más frena — trazar bien es ir rápido.\n\nTienes 3 intentos al día; cuando se acaben puedes ver un anuncio para conseguir más.',
   },
   {
     target: 'ranking',
@@ -1546,7 +1611,7 @@ function DuelWaitScreen({ duelId, submitError, onReady, onBack, onRetry }) {
 // monedas y el acceso a Garaje/Tienda viven en la cabecera fija (AppShell)
 // y en Perfil, ya no aquí, para no duplicar info entre sitios.
 function DiarioTab({
-  refreshKey, myStreak, wallet, recap, onCloseRecap, challenge, onCloseChallenge, daily, weather, midnightLabel,
+  refreshKey, myStreak, wallet, recap, onCloseRecap, challenge, onCloseChallenge, dayChallenge, daily, weather, midnightLabel,
   left, total, unlimited, tryPlay, privacyOptional, onOpenPlayer,
 }) {
   return (
@@ -1603,6 +1668,8 @@ function DiarioTab({
         </View>
       </View>
 
+      {dayChallenge && <DayChallengeCard c={dayChallenge} />}
+
       <Text style={rd.countdown}>
         Próximo circuito en <Text style={rd.countdownValue}>{midnightLabel}</Text>
       </Text>
@@ -1624,6 +1691,44 @@ function DiarioTab({
         </Pressable>
       )}
     </>
+  );
+}
+
+// Línea de estado del reto del día, según el tipo: solo los que tienen algo
+// que contar (cuánto te falta contra tu rival, desde qué tiempo cuenta el
+// medio segundo).
+function dayChallengeNote(c) {
+  if (c.done) return null;
+  if (c.id === 'rival' && c.rival) {
+    if (c.rivalMs == null) return `${c.rival.nickname} aún no ha corrido hoy: en cuanto lo haga, tendrás su tiempo a batir.`;
+    if (c.myMs == null) return `Su tiempo de hoy: ${fmtTime(c.rivalMs)}`;
+    return `Te faltan ${fmtSecs(c.myMs - c.rivalMs)}s · su tiempo: ${fmtTime(c.rivalMs)}`;
+  }
+  if (c.id === 'medio' && c.firstMs != null) {
+    return `Tu primera vuelta: ${fmtTime(c.firstMs)} · necesitas ${fmtTime(c.firstMs - 500)}`;
+  }
+  return null;
+}
+
+// Tarjeta del reto del día (Inicio y Resultado). `c.justDone` = se acaba de
+// cumplir con esta vuelta: se celebra en vez de solo marcarlo.
+function DayChallengeCard({ c }) {
+  const note = dayChallengeNote(c);
+  return (
+    <View style={[rd.dayCh, c.done && rd.dayChDone]}>
+      <View style={rd.panelHeadRow}>
+        <Text style={[rd.labelMono, c.done && { color: RD.successGreen }]}>
+          {c.done ? (c.justDone ? '¡RETO DEL DÍA CUMPLIDO!' : 'RETO DEL DÍA · CUMPLIDO') : 'RETO DEL DÍA'}
+        </Text>
+        <View style={rd.dayChCoins}>
+          <Text style={[rd.dayChCoinsText, c.done && { color: RD.successGreen }]}>+{c.coins}</Text>
+          <CoinIcon size={12} />
+        </View>
+      </View>
+      <Text style={rd.dayChTitle}>{c.title}</Text>
+      {!c.done && <Text style={rd.dayChDesc}>{c.desc}</Text>}
+      {!!note && <Text style={rd.dayChNote}>{note}</Text>}
+    </View>
   );
 }
 
@@ -2020,6 +2125,13 @@ const rd = StyleSheet.create({
   panel: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 8 },
   panelHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   labelMono: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1.4 },
+  dayCh: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 6 },
+  dayChDone: { borderColor: RD.successGreen },
+  dayChCoins: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  dayChCoinsText: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.monoBold },
+  dayChTitle: { color: RD.textPrimary, fontSize: 18, fontFamily: RD_FONT.displayBlack, textTransform: 'uppercase' },
+  dayChDesc: { color: RD.textSecondary, fontSize: 13, lineHeight: 18 },
+  dayChNote: { color: RD.trackBlue, fontSize: 12, fontFamily: RD_FONT.mono, lineHeight: 17 },
   attBadge: { backgroundColor: RD.cream, paddingHorizontal: 6, paddingVertical: 3 },
   attBadgeText: { color: RD.bg, fontSize: 10, fontFamily: RD_FONT.monoBold },
   trackName: {
@@ -2081,6 +2193,15 @@ const rd = StyleSheet.create({
     textAlign: 'center', marginTop: 2,
   },
   resultChaseTime: { color: RD.trackBlue },
+  pushOffer: {
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    paddingVertical: 12, paddingHorizontal: 14, gap: 10,
+  },
+  pushOfferText: { color: RD.textSecondary, fontSize: 13, fontFamily: RD_FONT.mono, lineHeight: 19 },
+  pushOfferBtns: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  pushOfferYes: { backgroundColor: RD.brand, borderRadius: 2, paddingHorizontal: 16, paddingVertical: 9 },
+  pushOfferYesText: { color: RD.bg, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.4 },
+  pushOfferLater: { color: RD.textDisabled, fontSize: 12, fontFamily: RD_FONT.mono },
   resultBtnsRow: { flexDirection: 'row', gap: 10 },
   resultSecondaryBtn: {
     flex: 1, borderWidth: 1, borderColor: '#3a3a3a', borderRadius: 2,
@@ -2343,7 +2464,7 @@ function RevealValue({ shown, style, children }) {
 // ---------------------------------------------------------------------------
 //  Resultado: tiempo + stats + tarjeta para compartir. Micro-recompensa si récord.
 // ---------------------------------------------------------------------------
-function Results({ result, label, track, weather, nickname, attemptsLeft = Infinity, total = 0, unlimited = false, refreshKey, onRetry, onRetrySubmit, onHome, onOpenPlayer }) {
+function Results({ result, label, track, weather, nickname, attemptsLeft = Infinity, total = 0, unlimited = false, refreshKey, onRetry, onRetrySubmit, onHome, onOpenPlayer, pushOffer = false, onPushYes, onPushLater }) {
   const wx = weather || { icon: '', label: '' };
   const outOfAttempts = attemptsLeft <= 0;
   const cardRef = useRef(null);
@@ -2704,6 +2825,24 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
         <Pressable style={[rd.cta, rd.ctaError]} onPress={onRetrySubmit} disabled={result.submitting}>
           <Text style={rd.ctaText}>{result.submitting ? 'Enviando…' : 'Reintentar envío'}</Text>
         </Pressable>
+      )}
+
+      {result.dayChallenge && !result.error && <DayChallengeCard c={result.dayChallenge} />}
+
+      {pushOffer && !result.error && (
+        <View style={rd.pushOffer}>
+          <Text style={rd.pushOfferText}>
+            ¿Te avisamos si alguien te adelanta en el ranking o si se te pasa el día sin correr?
+          </Text>
+          <View style={rd.pushOfferBtns}>
+            <Pressable style={rd.pushOfferYes} onPress={onPushYes}>
+              <Text style={rd.pushOfferYesText}>Sí, avísame</Text>
+            </Pressable>
+            <Pressable onPress={onPushLater} hitSlop={10}>
+              <Text style={rd.pushOfferLater}>Ahora no</Text>
+            </Pressable>
+          </View>
+        </View>
       )}
 
       <Pressable style={rd.cta} onPress={onRetry}>

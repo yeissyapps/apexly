@@ -50,6 +50,24 @@ export async function markTourDone() {
   try { await AsyncStorage.setItem(TOUR_KEY, 'done'); } catch (_) {}
 }
 
+// El tour ya NO sale en la primera apertura, sino tras la primera vuelta:
+// explicar el ranking y la racha antes de haber corrido es señalar huecos
+// vacíos, y son 7 pasos de texto entre el jugador y el juego. Este marcador
+// dice si ya ha terminado alguna vuelta en este dispositivo.
+const FIRST_RACE_KEY = 'firstRace:v1';
+
+export async function hasRacedBefore() {
+  try {
+    return (await AsyncStorage.getItem(FIRST_RACE_KEY)) === 'done';
+  } catch (_) {
+    return false;
+  }
+}
+
+export async function markFirstRace() {
+  try { await AsyncStorage.setItem(FIRST_RACE_KEY, 'done'); } catch (_) {}
+}
+
 // ---- Registro de objetivos --------------------------------------------------
 // Registro a nivel de módulo en vez de contexto de React: los elementos a
 // resaltar viven en componentes distintos (AppShell tiene las pestañas y el
