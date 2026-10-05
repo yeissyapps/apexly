@@ -406,6 +406,59 @@ export async function claimShareReward() {
   }
 }
 
+// ---- Reto del día (ver src/dayChallenge.js y supabase/day_challenge.sql) ----
+
+// +15 monedas, una vez al día (idempotente en servidor). Lanza si falla: el
+// llamante no debe dar el reto por cobrado si no ha llegado.
+export async function claimDayChallenge(day = todayKey()) {
+  await ensureSession();
+  const { data, error } = await supabase.rpc('claim_day_challenge', { p_day: day });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return { granted: !!row?.granted, newBalance: row?.new_balance ?? null };
+}
+
+// ¿Ya se cobró el reto de `day`? (otro dispositivo, o reinstalación).
+export async function isDayChallengeClaimed(day = todayKey()) {
+  const user = await ensureSession();
+  const { data, error } = await supabase
+    .from('wallet_transactions')
+    .select('reason')
+    .eq('user_id', user.id)
+    .eq('reason', 'challenge')
+    .eq('day', day)
+    .limit(1);
+  if (error) return false;
+  return (data || []).length > 0;
+}
+
+// Mejor tiempo de un jugador en un día (null si no ha corrido).
+export async function getBestOn(userId, day = todayKey()) {
+  const { data, error } = await supabase
+    .from('attempts')
+    .select('best_ms')
+    .eq('user_id', userId)
+    .eq('day', day)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.best_ms ?? null;
+}
+
+// Cuántos jugadores has adelantado al pasar de `prevMs` a `ms`: los que iban
+// por delante de tu marca anterior y ahora quedan por detrás de la nueva.
+export async function countPassed(ms, prevMs, day = todayKey()) {
+  const user = await ensureSession();
+  const { count, error } = await supabase
+    .from('attempts')
+    .select('user_id', { count: 'exact', head: true })
+    .eq('day', day)
+    .gt('best_ms', ms)
+    .lt('best_ms', prevMs)
+    .neq('user_id', user.id);
+  if (error) throw error;
+  return count ?? 0;
+}
+
 // ---- Códigos de invitación (ver supabase/referrals.sql) --------------------
 
 // Código propio, generándolo la primera vez que se pide (idempotente en

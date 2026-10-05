@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 
 import { supabase } from './supabase';
@@ -23,7 +24,37 @@ Notifications.setNotificationHandler({
   }),
 });
 
-export async function registerPushToken() {
+// Pre-aviso propio antes del diálogo del sistema. El del sistema solo se puede
+// denegar una vez de verdad (en iOS, para siempre), así que no se lanza en
+// frío: primero se ofrece en el Resultado de la primera vuelta, con el motivo
+// delante, y solo si el jugador dice que sí se pide el permiso. Un "Ahora no"
+// no gasta el diálogo del sistema; se vuelve a ofrecer una vez más y ya.
+const OFFER_KEY = 'push:offer:v1';
+const MAX_OFFER_DISMISSALS = 2;
+
+async function offerDismissals() {
+  try { return Number(await AsyncStorage.getItem(OFFER_KEY)) || 0; } catch (_) { return 0; }
+}
+
+// Solo si el permiso está sin decidir: 'granted' no necesita oferta y
+// 'denied' no se puede revertir desde la app.
+export async function shouldOfferPush() {
+  try {
+    if ((await offerDismissals()) >= MAX_OFFER_DISMISSALS) return false;
+    const { status } = await Notifications.getPermissionsAsync();
+    return status === 'undetermined';
+  } catch (_) {
+    return false;
+  }
+}
+
+export async function notePushOfferDismissed() {
+  try { await AsyncStorage.setItem(OFFER_KEY, String((await offerDismissals()) + 1)); } catch (_) {}
+}
+
+// `prompt: false` = solo refresca el token si el permiso YA está concedido,
+// sin sacar nunca el diálogo del sistema (arranque de la app).
+export async function registerPushToken({ prompt = true } = {}) {
   try {
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
@@ -33,7 +64,7 @@ export async function registerPushToken() {
     }
     const existing = await Notifications.getPermissionsAsync();
     let status = existing.status;
-    if (status !== 'granted') {
+    if (status !== 'granted' && prompt) {
       status = (await Notifications.requestPermissionsAsync()).status;
     }
     if (status !== 'granted') return null;
