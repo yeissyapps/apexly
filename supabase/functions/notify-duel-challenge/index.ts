@@ -20,6 +20,7 @@
 // ============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { pushText, tokensFor } from '../_shared/push.ts';
 
 Deno.serve(async (req) => {
   try {
@@ -50,18 +51,17 @@ Deno.serve(async (req) => {
     if (uid !== actingId) return json({ error: 'forbidden' }, 403);
 
     const { data: me } = await asUser.from('users').select('nickname').eq('id', uid).single();
-    const myName = me?.nickname ?? 'Alguien';
+    const myName = me?.nickname ?? null;
 
-    const body = kind === 'challenge'
-      ? `${myName} te reta a una carrera por ${duel.wager} monedas. ¿Aceptas?`
-      : `${myName} ha aceptado tu reto — tienes 15 minutos para correr.`;
-
+    // Cada aviso en el idioma del móvil que lo recibe (_shared/push.ts).
     const admin = createClient(url, service);
-    const { data: toks } = await admin.from('push_tokens').select('token').eq('user_id', targetId);
-    const seenTokens = new Set<string>();
-    const messages = (toks ?? [])
-      .filter((t) => t.token && !seenTokens.has(t.token) && seenTokens.add(t.token))
-      .map((t) => ({ to: t.token, title: 'Apexly', body, sound: 'default', data: { duelId, kind } }));
+    const toks = await tokensFor(admin, [targetId]);
+    const messages = toks.map((t) => ({
+      to: t.token, title: 'Apexly', sound: 'default', data: { duelId, kind },
+      body: pushText(t.lang, kind === 'challenge' ? 'duelChallenge' : 'duelAccepted', {
+        name: myName ?? pushText(t.lang, 'someone'), n: duel.wager,
+      }),
+    }));
     if (messages.length === 0) return json({ sent: 0 });
 
     await fetch('https://exp.host/--/api/v2/push/send', {

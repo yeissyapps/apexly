@@ -14,6 +14,7 @@ import { todayKey, dayOffset } from './daily';
 import { CAR_DEFAULTS } from './car';
 import { CONFIG } from './config';
 import { F1_POINTS } from './gpData';
+import { t } from './i18n';
 
 const NICK_KEY = 'nickname';
 
@@ -81,7 +82,7 @@ export async function saveNickname(nickname) {
     .neq('id', user.id)
     .maybeSingle();
   if (existing) {
-    const err = new Error('Ese nombre ya lo tiene otro jugador.');
+    const err = new Error(t('Ese nombre ya lo tiene otro jugador.'));
     err.code = 'NICKNAME_TAKEN';
     throw err;
   }
@@ -92,7 +93,7 @@ export async function saveNickname(nickname) {
     // Respaldo por si dos jugadores mandan el mismo nombre casi a la vez (el
     // check de arriba no ve al otro todavía) — lo atrapa el índice único.
     if (error.code === '23505') {
-      const err = new Error('Ese nombre ya lo tiene otro jugador.');
+      const err = new Error(t('Ese nombre ya lo tiene otro jugador.'));
       err.code = 'NICKNAME_TAKEN';
       throw err;
     }
@@ -100,6 +101,20 @@ export async function saveNickname(nickname) {
   }
   await AsyncStorage.setItem(NICK_KEY, clean);
   return clean;
+}
+
+// Piloto de bienvenida: un avatar común al azar para quien aún no tiene
+// ninguno (supabase/starter_avatar.sql). Idempotente; null si no tocaba o si
+// el SQL aún no está corrido — nunca debe bloquear el alta.
+export async function grantStarterAvatar() {
+  try {
+    await ensureSession();
+    const { data, error } = await supabase.rpc('grant_starter_avatar');
+    if (error) return null;
+    return data ?? null;
+  } catch (_) {
+    return null;
+  }
 }
 
 // Registra (idempotente) el circuito del día (etiqueta descriptiva).
@@ -127,6 +142,41 @@ export async function submitTime(ms) {
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) throw new Error('SUBMIT_TIME_EMPTY');
+  return { isBest: row.is_best, bestMs: row.best_ms, prevMs: row.prev_ms };
+}
+
+// Tiempo del día + traza de la vuelta en UNA llamada (supabase/lap_validation.sql):
+// el servidor revisa que la traza sea físicamente posible y, si es tu mejor
+// marca, la guarda como coche del líder — sustituye a submitTime +
+// submitDailyRun. La traza se reduce a 3000 muestras como mucho (una vuelta
+// normal tiene ~800; solo una muy lenta pasa de ahí), que es el tope del
+// servidor, conservando siempre la última: es la que tiene que cuadrar con el
+// tiempo.
+export async function submitLap(ms, trace) {
+  await ensureSession();
+  let tr = Array.isArray(trace) ? trace : [];
+  if (tr.length > 3000) {
+    const step = Math.ceil(tr.length / 2999);
+    const last = tr[tr.length - 1];
+    tr = tr.filter((_, i) => i % step === 0);
+    if (tr[tr.length - 1] !== last) tr.push(last);
+  }
+  const { data, error } = await supabase.rpc('submit_lap', {
+    p_day: todayKey(),
+    p_ms: Math.round(ms),
+    p_trace: tr,
+  });
+  // Red de seguridad: si submit_lap aún no existe en el servidor (PGRST202,
+  // SQL sin correr), el camino viejo. Sin esto, publicar la app antes que el
+  // SQL dejaba a TODO el mundo sin poder guardar un solo tiempo.
+  if (error?.code === 'PGRST202') {
+    const res = await submitTime(ms);
+    if (res.isBest && tr.length) submitDailyRun(ms, tr).catch(() => {});
+    return res;
+  }
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error('SUBMIT_LAP_EMPTY');
   return { isBest: row.is_best, bestMs: row.best_ms, prevMs: row.prev_ms };
 }
 
@@ -254,7 +304,7 @@ export async function getMyLoadout() {
   const user = await ensureSession();
   const { data } = await supabase
     .from('users')
-    .select('car_chassis, car_frame, car_body_color, car_wing_shape, car_wing_color, car_livery, car_livery_pattern, car_lights_color')
+    .select('car_chassis, car_frame, car_body_color, car_wing_shape, car_wing_color, car_livery, car_livery_pattern, car_lights_color, pilot_avatar_id')
     .eq('id', user.id)
     .maybeSingle();
   if (!data) return { ...CAR_DEFAULTS };
@@ -269,6 +319,9 @@ export async function getMyLoadout() {
     livery: data.car_livery,
     liveryPattern: data.car_livery_pattern || CAR_DEFAULTS.liveryPattern,
     lightsColor: data.car_lights_color || CAR_DEFAULTS.lightsColor,
+    // No es del coche (no lo guarda save_loadout): solo para enseñar tu
+    // piloto en la muestra de marcos del Garaje.
+    pilotAvatarId: data.pilot_avatar_id ?? null,
   };
 }
 
@@ -341,7 +394,7 @@ export async function getLeaderRun(day = todayKey()) {
 
   return {
     userId: run.user_id,
-    nickname: who?.nickname || 'Líder',
+    nickname: who?.nickname || t('Líder'),
     ms: run.ms,
     trace: run.trace,
     loadout: who
@@ -959,7 +1012,7 @@ export async function getGlobalBoard(day = todayKey()) {
       const myRank = (fasterRes.count ?? 0) + 1;
       me = {
         userId: myId,
-        nickname: mine.users?.nickname ?? 'Tú',
+        nickname: mine.users?.nickname ?? t('Tú'),
         pilotAvatarId: mine.users?.pilot_avatar_id ?? null,
         streak: mine.users?.current_streak ?? 0,
         frame: mine.users?.car_frame || 'sin_marco',
@@ -1079,15 +1132,30 @@ export async function getMonthlyRanking(ref = new Date()) {
   const startKey = todayKey(monthStart);
   const endKey = todayKey(monthEnd);
 
-  const { data, error } = await supabase
-    .from('attempts')
-    .select('user_id, day, best_ms, users(nickname, car_frame, pilot_avatar_id)')
-    .gte('day', startKey)
-    .lt('day', endKey);
-  if (error) throw error;
+  // PAGINADO: PostgREST corta cada respuesta en el tope de filas del proyecto
+  // (1000 en Supabase). Un mes entero de `attempts` lo pasa en cuanto hay
+  // ~33 jugadores diarios, y sin paginar la tabla salía mal sin ningún error
+  // — y distinta de la que paga close-monthly-rewards, que sí pagina (mismo
+  // orden estable que allí: día, tiempo, usuario).
+  const data = [];
+  for (let from = 0; ; ) {
+    const { data: page, error } = await supabase
+      .from('attempts')
+      .select('user_id, day, best_ms, users(nickname, car_frame, pilot_avatar_id)')
+      .gte('day', startKey)
+      .lt('day', endKey)
+      .order('day', { ascending: true })
+      .order('best_ms', { ascending: true })
+      .order('user_id', { ascending: true })
+      .range(from, from + 999);
+    if (error) throw error;
+    if (!page || page.length === 0) break;
+    data.push(...page);
+    from += page.length;
+  }
 
   const byDay = new Map();
-  for (const r of data || []) {
+  for (const r of data) {
     if (!byDay.has(r.day)) byDay.set(r.day, []);
     byDay.get(r.day).push(r);
   }
@@ -1499,7 +1567,10 @@ export async function getDuelReveal(duelId) {
   const byUser = new Map((runs || []).map((r) => [r.user_id, r]));
   const challengerRun = byUser.get(duel.challenger_id);
   const opponentRun = byUser.get(duel.opponent_id);
-  if (!challengerRun || !opponentRun) return null;
+  // Incomparecencia (ver duels-forfeit.sql): terminado con UNA sola vuelta,
+  // la del ganador. El que no corrió va sin tiempo ni traza.
+  const forfeit = !challengerRun || !opponentRun;
+  if (!challengerRun && !opponentRun) return null;
 
   const { data: people } = await supabase
     .from('users')
@@ -1510,14 +1581,15 @@ export async function getDuelReveal(duelId) {
   const sideFor = (userId, run) => ({
     userId,
     nickname: byId.get(userId)?.nickname || '—',
-    ms: run.ms,
-    trace: run.trace,
+    ms: run?.ms ?? null,
+    trace: run?.trace ?? null,
     loadout: loadoutFromRow(byId.get(userId)),
   });
 
   return {
     wager: duel.wager,
     winnerId: duel.winner_id,
+    forfeit,
     challenger: sideFor(duel.challenger_id, challengerRun),
     opponent: sideFor(duel.opponent_id, opponentRun),
   };

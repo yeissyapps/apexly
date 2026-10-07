@@ -19,6 +19,7 @@ import Svg, {
   Defs, Pattern, Rect, G, Path, Circle, Text as SvgText, Line, ClipPath,
 } from 'react-native-svg';
 import { RD } from './theme';
+import { t } from './i18n';
 
 export default function PackArt({ width = 116, variant = 'paid', serial = '000' }) {
   // Proporción de credencial (ISO 7810 girada), no de sobre de cromos: es lo
@@ -68,7 +69,7 @@ export default function PackArt({ width = 116, variant = 'paid', serial = '000' 
         </SvgText>
         <Line x1="14" y1="93" x2="86" y2="93" stroke={RD.panelBorder} strokeWidth="1" />
         <SvgText x="14" y="105" fill={RD.textPrimary} fontSize="8.5" letterSpacing="0.4">
-          {variant === 'free' ? 'REGALO · RACHA 7' : '1 PIEZA'}
+          {variant === 'free' ? t('REGALO · RACHA 7') : t('1 PIEZA')}
         </SvgText>
         {/* El nº de serie va a la DERECHA del lacre (que ocupa x 13-31): en
             la esquina inferior izquierda quedaba justo debajo y el sello lo

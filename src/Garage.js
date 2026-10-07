@@ -32,12 +32,14 @@ import Svg, { Circle, Ellipse, G, Line, Path, Rect } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 
 import DangerStripe from './DangerStripe';
+import AvatarThumb from './AvatarThumb';
 import CarSprite from './CarSprite';
 import { RD, RD_FONT, RARITY_COLOR, RARITY_LABEL } from './theme';
 import { CAR_DEFAULTS, CAR_COLORS, WING_SHAPES, LIVERY_PATTERNS, LIGHT_COLORS, TOTAL_PIECES } from './car';
 import { CHASSIS } from './chassis';
 import { FRAMES, PACK_FRAMES, frameStyle, frameGlyphColor } from './frames';
 import { getMyLoadout, saveLoadout, getInventory } from './api';
+import { t } from './i18n';
 
 // Con 5 pestañas cada una tiene ~70dp: "CARROCERÍA" partía en dos líneas y
 // descuadraba la fila entera. "PINTURA" dice lo mismo (es el color del
@@ -188,7 +190,7 @@ function ChassisSwatch({ ch, isSelected, isPreviewing, isLocked, onPress }) {
         {!isLocked && rc && <View style={[s.ownedPip, { backgroundColor: rc }]} pointerEvents="none" />}
       </View>
       <Text style={[s.swatchLabel, isPreviewing && s.swatchLabelPreviewing, !isLocked && rc && { color: rc }]}>
-        {isPreviewing ? 'Mirando' : ch.label}
+        {t(ch.label)}
       </Text>
     </Pressable>
   );
@@ -230,7 +232,7 @@ function Swatch({ opt, value, isSelected, isPreviewing, isLocked, onPress, wrapS
         ]}
         numberOfLines={2}
       >
-        {isPreviewing ? 'Mirando' : (opt.label || '')}
+        {t(opt.label || '')}
       </Text>
     </Pressable>
   );
@@ -282,7 +284,7 @@ function PieceGrid({ field, category, options, selected, getValue = (o) => o.c, 
         return (
           <View key={String(rarity)} style={{ gap: 10 }}>
             <View style={s.groupHeader}>
-              <Text style={[s.groupLabel, { color: rc }]}>{GROUP_LABEL[String(rarity)]}</Text>
+              <Text style={[s.groupLabel, { color: rc }]}>{t(GROUP_LABEL[String(rarity)])}</Text>
               <View style={[s.groupRule, { backgroundColor: rc, opacity: 0.25 }]} />
               <Text style={s.groupCount}>
                 {rarity ? `${have}/${items.length}` : items.length}
@@ -343,8 +345,8 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
       const msg = String(e?.message || '');
       setSaveError(
         msg.includes('PIECE_NOT_OWNED')
-          ? 'Esa pieza todavía no es tuya.'
-          : 'No se pudo guardar. Comprueba la conexión.',
+          ? t('Esa pieza todavía no es tuya.')
+          : t('No se pudo guardar. Comprueba la conexión.'),
       );
     });
   }
@@ -383,48 +385,48 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
       <DangerStripe height={6} />
       <ScrollView contentContainerStyle={s.content}>
         <Pressable onPress={onBack} hitSlop={12}>
-          <Text style={s.backLink}>‹ INICIO</Text>
+          <Text style={s.backLink}>{t('‹ INICIO')}</Text>
         </Pressable>
 
         <View style={s.titleRow}>
-          <Text style={s.pageTitle}>Garaje</Text>
-          <Text style={s.collectionCount}>{premiumOwned}/{TOTAL_PIECES} piezas</Text>
+          <Text style={s.pageTitle}>{t('Garaje')}</Text>
+          <Text style={s.collectionCount}>{t('{n}/{total} desbloqueadas', { n: premiumOwned, total: TOTAL_PIECES })}</Text>
         </View>
-        <Text style={s.disclaimer}>Solo estético — no afecta al rendimiento del coche</Text>
+        <Text style={s.disclaimer}>{t('Solo estético — no afecta al rendimiento del coche')}</Text>
         {!!saveError && <Text style={s.saveError}>{saveError}</Text>}
 
         <View style={s.preview}>
           <Showcase loadout={displayLoadout} />
           <Animated.View pointerEvents="none" style={[s.savedPill, { opacity: savedAnim }]}>
-            <Text style={s.savedPillText}>✓ GUARDADO</Text>
+            <Text style={s.savedPillText}>{t('✓ GUARDADO')}</Text>
           </Animated.View>
           {preview && (
             <View style={s.previewBadge}>
-              <Text style={s.previewBadgeText}>SOLO ESTÁS MIRANDO — NO ES TUYA</Text>
+              <Text style={s.previewBadgeText}>{t('SOLO ESTÁS MIRANDO — NO ES TUYA')}</Text>
               <Pressable onPress={onOpenTienda} hitSlop={8}>
-                <Text style={s.previewBadgeLink}>CONSEGUIR ›</Text>
+                <Text style={s.previewBadgeLink}>{t('CONSEGUIR ›')}</Text>
               </Pressable>
             </View>
           )}
         </View>
 
         <View style={s.tabsRow}>
-          {TABS.map((t) => (
+          {TABS.map((gt) => (
             <Pressable
-              key={t.id}
-              style={[s.tab, tab === t.id && s.tabActive]}
-              onPress={() => selectTab(t.id)}
+              key={gt.id}
+              style={[s.tab, tab === gt.id && s.tabActive]}
+              onPress={() => selectTab(gt.id)}
             >
               {/* numberOfLines + adjustsFontSizeToFit: si algún día una
                   etiqueta crece, encoge en vez de partirse y descuadrar la
                   fila (que es lo que pasó al meter la 5.ª pestaña). */}
               <Text
-                style={[s.tabText, tab === t.id && s.tabTextActive]}
+                style={[s.tabText, tab === gt.id && s.tabTextActive]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 minimumFontScale={0.8}
               >
-                {t.label}
+                {t(gt.label)}
               </Text>
             </Pressable>
           ))}
@@ -463,7 +465,7 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
 
         {tab === 'wing' && (
           <>
-            <Text style={s.sectionLabel}>FORMA</Text>
+            <Text style={s.sectionLabel}>{t('FORMA')}</Text>
             <PieceGrid
               field="wingShape"
               category="wing"
@@ -475,7 +477,7 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
               onPreview={previewLocked}
               onSelect={(id) => apply({ wingShape: id })}
             />
-            <Text style={s.sectionLabel}>COLOR</Text>
+            <Text style={s.sectionLabel}>{t('COLOR')}</Text>
             <PieceGrid
               field="wingColor"
               category="color"
@@ -491,7 +493,7 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
 
         {tab === 'livery' && (
           <>
-            <Text style={s.sectionLabel}>PATRÓN</Text>
+            <Text style={s.sectionLabel}>{t('PATRÓN')}</Text>
             <PieceGrid
               field="liveryPattern"
               category="livery"
@@ -503,7 +505,7 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
               onPreview={previewLocked}
               onSelect={(id) => apply({ liveryPattern: id })}
             />
-            <Text style={s.sectionLabel}>COLOR</Text>
+            <Text style={s.sectionLabel}>{t('COLOR')}</Text>
             <PieceGrid
               field="livery"
               category="color"
@@ -521,7 +523,7 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
         {tab === 'frame' && (
           <View style={{ gap: 10 }}>
             <Text style={s.frameHint}>
-              Es la única pieza que ven los demás: se pinta en tu fila del ranking.
+              {t('Es la única pieza que ven los demás: rodea a tu piloto en el ranking.')}
             </Text>
             {FRAMES.map((f) => {
               const locked = f.locked && !owned.has(`frame:${f.id}`);
@@ -535,17 +537,21 @@ export default function Garage({ onBack, onOpenTienda, nickname }) {
                 >
                   {/* La muestra ES una fila de ranking de mentira: un swatch
                       abstracto no diría dónde acaba apareciendo esto. */}
-                  <View style={[s.frameRow, frameStyle(f, RD), locked && s.frameRowLocked, selected && s.frameRowSelected, previewing && s.frameRowPreviewing]}>
+                  <View style={[s.frameRow, locked && s.frameRowLocked, selected && s.frameRowSelected, previewing && s.frameRowPreviewing]}>
                     <Text style={s.frameRank}>01</Text>
-                    <Text style={s.frameNick}>{nickname || 'Tú'}</Text>
+                    {/* Igual que en el ranking: el marco rodea al avatar. */}
+                    <View style={[s.frameAvatar, frameStyle(f, RD)]}>
+                      <AvatarThumb pilotAvatarId={loadout.pilotAvatarId ?? null} size={30} />
+                    </View>
+                    <Text style={s.frameNick}>{nickname || t('Tú')}</Text>
                     {!!f.glyph && <Text style={{ color: frameGlyphColor(f, RD), fontSize: 13 }}>{f.glyph}</Text>}
                     <View style={{ flex: 1 }} />
                     {locked && <LockIcon color={rc || RD.brand} />}
                   </View>
                   <View style={s.frameMeta}>
-                    <Text style={[s.frameLabel, !locked && rc && { color: rc }]}>{f.label}</Text>
+                    <Text style={[s.frameLabel, !locked && rc && { color: rc }]}>{t(f.label)}</Text>
                     <Text style={[s.frameTier, rc && { color: rc }]}>
-                      {f.achievement ? 'LOGRO · 1.º DEL MUNDO' : f.rarity ? f.rarity.toUpperCase() : 'LIBRE'}
+                      {f.achievement ? t('LOGRO · 1.º DEL MUNDO') : f.rarity ? t(RARITY_LABEL[f.rarity]).toUpperCase() : t('LIBRE')}
                     </Text>
                   </View>
                 </Pressable>
@@ -643,6 +649,7 @@ const s = StyleSheet.create({
     backgroundColor: RD.youMagentaBg, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 2,
   },
   frameRowLocked: { opacity: 0.45 },
+  frameAvatar: { padding: 2, borderRadius: 3 },
   frameRowSelected: { borderWidth: 1, borderColor: '#ffffff' },
   frameRowPreviewing: { borderWidth: 1, borderColor: RD.brand },
   frameRank: { color: RD.youMagenta, fontSize: 12, fontFamily: RD_FONT.mono },

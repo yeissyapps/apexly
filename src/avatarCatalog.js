@@ -12,6 +12,7 @@
 // ============================================================================
 
 import { TOTAL_PIECES } from './car';
+import { t } from './i18n';
 
 export const AVATARS = [
   { key: 'base', label: 'BASE', rarity: 'base',
@@ -86,8 +87,8 @@ export const TOTAL_COLLECTIBLES =
 const TIER_WORD = { comun: 'Común', raro: 'Raro', epico: 'Épico' };
 export function avatarDisplayLabel(a) {
   if (!a) return '';
-  if (a.key === 'base') return 'Base';
-  if (a.key === 'legendario') return 'Legendario';
+  if (a.key === 'base') return t('Base');
+  if (a.key === 'legendario') return t('Legendario');
   const [tier, num] = a.key.split('_');
-  return `${TIER_WORD[tier] || tier} ${num}`;
+  return `${t(TIER_WORD[tier] || tier)} ${num}`;
 }

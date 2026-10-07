@@ -24,6 +24,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { RD, RD_FONT } from './theme';
+import { t } from './i18n';
 
 export const GP_ACCENT = RD.trackBlue;
 
@@ -50,7 +51,7 @@ export default function SeasonRail({ total = 7, current = null, finished = false
     <View style={s.wrap}>
       <View style={s.rail}>{segs}</View>
       <Text style={s.label}>
-        {finished ? `GRAND PRIX COMPLETO · ${total} RONDAS` : `RONDA ${current} DE ${total}`}
+        {finished ? t('GRAND PRIX COMPLETO · {n} RONDAS', { n: total }) : t('RONDA {n} DE {total}', { n: current, total })}
       </Text>
     </View>
   );

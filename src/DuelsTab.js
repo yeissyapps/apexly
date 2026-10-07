@@ -14,6 +14,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import AvatarThumb from './AvatarThumb';
 import CoinIcon from './CoinIcon';
 import { RD, RD_FONT } from './theme';
+import { t } from './i18n';
 
 const POLL_MS = 8000;
 
@@ -26,18 +27,18 @@ function ActiveCard({ d, onOpen, onCancel, cancelling }) {
   let action = null;
   let hot = false; // pide algo al jugador ahora mismo
   if (d.status === 'pending' && d.role === 'incoming') {
-    status = `Te reta · te quedan ${minsLeft(d.deadline)} min para responder`;
-    action = { label: 'RESPONDER', onPress: () => onOpen(d.id) };
+    status = t('Te reta · te quedan {n} min para responder', { n: minsLeft(d.deadline) });
+    action = { label: t('RESPONDER'), onPress: () => onOpen(d.id) };
     hot = true;
   } else if (d.status === 'pending') {
-    status = `Esperando su respuesta · caduca en ${minsLeft(d.deadline)} min`;
+    status = t('Esperando su respuesta · caduca en {n} min', { n: minsLeft(d.deadline) });
   } else if (!d.myRunDone) {
-    status = `Aceptado · te quedan ${minsLeft(d.deadline)} min para correr`;
-    action = { label: 'CORRER', onPress: () => onOpen(d.id) };
+    status = t('Aceptado · te quedan {n} min para correr', { n: minsLeft(d.deadline) });
+    action = { label: t('CORRER'), onPress: () => onOpen(d.id) };
     hot = true;
   } else {
-    status = 'Ya has corrido · falta su vuelta';
-    action = { label: 'VER', onPress: () => onOpen(d.id) };
+    status = t('Ya has corrido · falta su vuelta');
+    action = { label: t('VER'), onPress: () => onOpen(d.id) };
   }
   const canCancel = d.status === 'pending' && d.role === 'outgoing';
 
@@ -60,7 +61,7 @@ function ActiveCard({ d, onOpen, onCancel, cancelling }) {
         )}
         {canCancel && (
           <Pressable onPress={() => onCancel(d.id)} disabled={cancelling} hitSlop={10}>
-            <Text style={s.cancelText}>{cancelling ? '…' : 'CANCELAR'}</Text>
+            <Text style={s.cancelText}>{cancelling ? '…' : t('CANCELAR')}</Text>
           </Pressable>
         )}
       </View>
@@ -69,13 +70,13 @@ function ActiveCard({ d, onOpen, onCancel, cancelling }) {
 }
 
 const OUTCOME = {
-  won: { text: (h) => `Ganaste · +${h.wager}`, color: RD.successGreen },
-  lost: { text: (h) => `Perdiste · −${h.wager}`, color: RD.textSecondary },
-  tie: { text: () => 'Empate · apuesta devuelta', color: RD.textTertiary },
-  refunded: { text: () => 'Sin resolver · apuesta devuelta', color: RD.textTertiary },
-  expired: { text: () => 'Caducó sin respuesta', color: RD.textTertiary },
-  declined: { text: (h) => (h.role === 'outgoing' ? 'Te lo rechazó' : 'Lo rechazaste'), color: RD.textTertiary },
-  cancelled: { text: () => 'Cancelado', color: RD.textTertiary },
+  won: { text: (h) => t('Ganaste · +{n}', { n: h.wager }), color: RD.successGreen },
+  lost: { text: (h) => t('Perdiste · −{n}', { n: h.wager }), color: RD.textSecondary },
+  tie: { text: () => t('Empate · apuesta devuelta'), color: RD.textTertiary },
+  refunded: { text: () => t('Sin resolver · apuesta devuelta'), color: RD.textTertiary },
+  expired: { text: () => t('Caducó sin respuesta'), color: RD.textTertiary },
+  declined: { text: (h) => (h.role === 'outgoing' ? t('Te lo rechazó') : t('Lo rechazaste')), color: RD.textTertiary },
+  cancelled: { text: () => t('Cancelado'), color: RD.textTertiary },
 };
 
 function HistoryRow({ h, onOpen }) {
@@ -90,7 +91,7 @@ function HistoryRow({ h, onOpen }) {
         <Text style={s.histName} numberOfLines={1}>{h.otherName}</Text>
         <Text style={[s.histOutcome, { color: o.color }]}>{o.text(h)}</Text>
       </View>
-      {canOpen && <Text style={s.histLink}>VER ›</Text>}
+      {canOpen && <Text style={s.histLink}>{t('VER ›')}</Text>}
     </Wrap>
   );
 }
@@ -98,19 +99,19 @@ function HistoryRow({ h, onOpen }) {
 export default function DuelsTab({ duels, cancelBusy, onRefresh, onOpenDuel, onCancel }) {
   useEffect(() => {
     onRefresh();
-    const t = setInterval(onRefresh, POLL_MS);
-    return () => clearInterval(t);
+    const id = setInterval(onRefresh, POLL_MS);
+    return () => clearInterval(id);
   }, []);
 
-  if (!duels) return <Text style={s.muted}>Cargando…</Text>;
+  if (!duels) return <Text style={s.muted}>{t('Cargando…')}</Text>;
   const { active, past } = duels;
 
   return (
     <View style={s.wrap}>
-      <Text style={s.sectionTitle}>EN JUEGO</Text>
+      <Text style={s.sectionTitle}>{t('EN JUEGO')}</Text>
       {active.length === 0 ? (
         <Text style={s.muted}>
-          No tienes ningún 1 vs 1 en marcha. Entra en el perfil de un jugador desde el Ranking y pulsa RETAR.
+          {t('No tienes ningún 1 vs 1 en marcha. Entra en el perfil de un jugador desde el Ranking y pulsa RETAR.')}
         </Text>
       ) : (
         active.map((d) => (
@@ -126,7 +127,7 @@ export default function DuelsTab({ duels, cancelBusy, onRefresh, onOpenDuel, onC
 
       {past.length > 0 && (
         <>
-          <Text style={[s.sectionTitle, s.sectionGap]}>HISTORIAL</Text>
+          <Text style={[s.sectionTitle, s.sectionGap]}>{t('HISTORIAL')}</Text>
           {past.map((h) => <HistoryRow key={h.id} h={h} onOpen={onOpenDuel} />)}
         </>
       )}
@@ -136,7 +137,7 @@ export default function DuelsTab({ duels, cancelBusy, onRefresh, onOpenDuel, onC
 
 const s = StyleSheet.create({
   wrap: { gap: 10 },
-  muted: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, lineHeight: 18 },
+  muted: { color: RD.textTertiary, fontSize: 14, fontFamily: RD_FONT.body, lineHeight: 20 },
   sectionTitle: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.monoBold, letterSpacing: 1.2 },
   sectionGap: { marginTop: 10 },
 

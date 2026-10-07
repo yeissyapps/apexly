@@ -13,6 +13,7 @@ import AvatarThumb from './AvatarThumb';
 import CoinIcon from './CoinIcon';
 import { getDuel, acceptDuel, declineDuel } from './api';
 import { RD, RD_FONT } from './theme';
+import { t } from './i18n';
 
 export default function DuelDecision({ duelId, onBack, onAccepted, onDeclined }) {
   const [duel, setDuel] = useState(null);
@@ -30,7 +31,7 @@ export default function DuelDecision({ duelId, onBack, onAccepted, onDeclined })
 
   useEffect(() => {
     let alive = true;
-    getDuel(duelId).then((d) => alive && setDuel(d)).catch(() => alive && setError('No se pudo cargar el reto.'));
+    getDuel(duelId).then((d) => alive && setDuel(d)).catch(() => alive && setError(t('No se pudo cargar el reto.')));
     return () => { alive = false; };
   }, [duelId]);
 
@@ -44,11 +45,13 @@ export default function DuelDecision({ duelId, onBack, onAccepted, onDeclined })
       onAccepted(duelId);
     } catch (e) {
       const code = String(e?.message || e);
-      const text = code.includes('DUEL_EXPIRED') ? 'Se te ha pasado el tiempo para responder.'
-        : code.includes('INSUFFICIENT_FUNDS') ? 'No te llega el saldo para esta apuesta.'
-        : code.includes('CHALLENGER_INSUFFICIENT_FUNDS') ? `${duel?.challengerName || 'El retador'} ya no tiene saldo suficiente.`
-        : code.includes('DUEL_NOT_PENDING') ? 'Este reto ya no está disponible.'
-        : 'No se pudo aceptar. Inténtalo otra vez.';
+      // CHALLENGER_ antes que INSUFFICIENT_FUNDS: el segundo está contenido
+      // en el primero, así que en el orden de antes nunca se llegaba a él.
+      const text = code.includes('DUEL_EXPIRED') ? t('Se te ha pasado el tiempo para responder.')
+        : code.includes('CHALLENGER_INSUFFICIENT_FUNDS') ? t('{name} ya no tiene saldo suficiente.', { name: duel?.challengerName || t('El retador') })
+        : code.includes('INSUFFICIENT_FUNDS') ? t('No te llega el saldo para esta apuesta.')
+        : code.includes('DUEL_NOT_PENDING') ? t('Este reto ya no está disponible.')
+        : t('No se pudo aceptar. Inténtalo otra vez.');
       busyRef.current = false;
       // El componente puede haber sido desmontado mientras esperaba (p.ej.
       // el padre ya cambió de pantalla) — actualizar estado ahí sería un
@@ -77,7 +80,7 @@ export default function DuelDecision({ duelId, onBack, onAccepted, onDeclined })
         <DangerStripe height={6} />
         <View style={s.centerMsg}>
           <Text style={s.centerMsgText}>{error}</Text>
-          <Pressable onPress={onBack} hitSlop={12}><Text style={s.backLink}>‹ VOLVER</Text></Pressable>
+          <Pressable onPress={onBack} hitSlop={12}><Text style={s.backLink}>{t('‹ VOLVER')}</Text></Pressable>
         </View>
       </View>
     );
@@ -89,31 +92,31 @@ export default function DuelDecision({ duelId, onBack, onAccepted, onDeclined })
   return (
     <View style={s.screen}>
       <DangerStripe height={6} />
-      <Pressable onPress={onBack} hitSlop={12}><Text style={s.backLink}>‹ INICIO</Text></Pressable>
+      <Pressable onPress={onBack} hitSlop={12}><Text style={s.backLink}>{t('‹ INICIO')}</Text></Pressable>
 
       <View style={s.content}>
-        <Text style={s.eyebrow}>TE HA RETADO</Text>
+        <Text style={s.eyebrow}>{t('TE HA RETADO')}</Text>
         <AvatarThumb pilotAvatarId={duel.challengerAvatarId} size={96} />
         <Text style={s.name}>{duel.challengerName}</Text>
 
         <View style={s.wagerCard}>
           <CoinIcon size={22} />
           <Text style={s.wagerAmount}>{duel.wager}</Text>
-          <Text style={s.wagerLabel}>en juego — gana quien haga mejor tiempo</Text>
+          <Text style={s.wagerLabel}>{t('en juego — gana quien haga mejor tiempo')}</Text>
         </View>
 
         {alreadyDecided ? (
           <Text style={s.doneText}>
-            {duel.status === 'declined' ? 'Ya rechazaste este reto.' : 'Este reto ya no está disponible.'}
+            {duel.status === 'declined' ? t('Ya rechazaste este reto.') : t('Este reto ya no está disponible.')}
           </Text>
         ) : (
           <>
             {!!error && <Text style={s.errorText}>{error}</Text>}
             <Pressable style={[s.acceptBtn, busy && s.btnDisabled]} onPress={handleAccept} disabled={busy}>
-              <Text style={s.acceptBtnText}>{busy ? 'UN MOMENTO…' : `ACEPTAR · -${duel.wager}`}</Text>
+              <Text style={s.acceptBtnText}>{busy ? t('UN MOMENTO…') : t('ACEPTAR · -{n}', { n: duel.wager })}</Text>
             </Pressable>
             <Pressable onPress={handleDecline} disabled={busy} hitSlop={10}>
-              <Text style={s.declineText}>Rechazar</Text>
+              <Text style={s.declineText}>{t('Rechazar')}</Text>
             </Pressable>
           </>
         )}

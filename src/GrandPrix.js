@@ -36,7 +36,8 @@ import { RD, RD_FONT, SECTOR_RESULT_COLORS } from './theme';
 import { CONFIG } from './config';
 import { fmtTime, fmtSecs, fmtGap, fmtCountdown } from './format';
 import { getActiveGrandPrix, startGrandPrix, getGroupMembers, getGpResults, getGpRoundLeader, getGpSectorRecords, leaveGroup, getMyId } from './api';
-import { gpCircuitSpec, roundLabel, currentRoundIndex, nextRoundUnlockAt, gpFinished, computeStandings, lapTimesFromSectorMs } from './gpData';
+import { t, tParts } from './i18n';
+import { gpCircuitSpec, currentRoundIndex, nextRoundUnlockAt, gpFinished, computeStandings, lapTimesFromSectorMs } from './gpData';
 
 // Ancho útil del mapa: pantalla menos el padding del ScrollView (18×2) menos
 // el de la tarjeta de ronda (16×2).
@@ -73,8 +74,8 @@ function SectorBattle({ gpId, dayIndex, myMs, mySectors }) {
   if (!leader || !leader.sectorMs || leader.ms >= myMs) {
     return (
       <View style={s.panel}>
-        <Text style={s.panelLabel}>SECTORES</Text>
-        <Text style={s.body}>Vas líder de esta ronda — todavía no hay con quién comparar.</Text>
+        <Text style={s.panelLabel}>{t('SECTORES')}</Text>
+        <Text style={s.body}>{t('Vas líder de esta ronda — todavía no hay con quién comparar.')}</Text>
       </View>
     );
   }
@@ -92,8 +93,8 @@ function SectorBattle({ gpId, dayIndex, myMs, mySectors }) {
 
   return (
     <View style={s.panel}>
-      <Text style={s.panelLabel}>DÓNDE PIERDES CONTRA {leader.nickname.toUpperCase()}</Text>
-      <Text style={s.hint}>En verde ganas tiempo, en rojo lo pierdes.</Text>
+      <Text style={s.panelLabel}>{t('DÓNDE PIERDES CONTRA {name}', { name: leader.nickname.toUpperCase() })}</Text>
+      <Text style={s.hint}>{t('En verde ganas tiempo, en rojo lo pierdes.')}</Text>
 
       <View style={s.deltaList}>
         {laps.map((lapSectors, lap) => {
@@ -104,8 +105,8 @@ function SectorBattle({ gpId, dayIndex, myMs, mySectors }) {
             if (theirs == null) {
               return (
                 <View key={i} style={s.deltaRow}>
-                  <Text style={s.deltaSector}>VUELTA {lap + 1} · SECTOR {i + 1}</Text>
-                  <Text style={s.deltaNone}>sin dato</Text>
+                  <Text style={s.deltaSector}>{t('VUELTA {lap} · SECTOR {n}', { lap: lap + 1, n: i + 1 })}</Text>
+                  <Text style={s.deltaNone}>{t('sin dato')}</Text>
                 </View>
               );
             }
@@ -114,7 +115,7 @@ function SectorBattle({ gpId, dayIndex, myMs, mySectors }) {
             lapDelta += d;
             return (
               <View key={i} style={s.deltaRow}>
-                <Text style={s.deltaSector}>VUELTA {lap + 1} · SECTOR {i + 1}</Text>
+                <Text style={s.deltaSector}>{t('VUELTA {lap} · SECTOR {n}', { lap: lap + 1, n: i + 1 })}</Text>
                 <Text style={[s.deltaValue, { color: d <= 0 ? RD.successGreen : RD.danger }]}>{signed(d)}</Text>
               </View>
             );
@@ -124,7 +125,7 @@ function SectorBattle({ gpId, dayIndex, myMs, mySectors }) {
               {rows}
               {lapHasData && (
                 <View style={s.deltaRow}>
-                  <Text style={[s.deltaSector, s.deltaSectorTotal]}>VUELTA {lap + 1} COMPLETA</Text>
+                  <Text style={[s.deltaSector, s.deltaSectorTotal]}>{t('VUELTA {lap} COMPLETA', { lap: lap + 1 })}</Text>
                   <Text style={[s.deltaValue, { color: lapDelta <= 0 ? RD.successGreen : RD.danger }]}>
                     {signed(lapDelta)}
                   </Text>
@@ -135,7 +136,7 @@ function SectorBattle({ gpId, dayIndex, myMs, mySectors }) {
         })}
         <View style={s.deltaRule} />
         <View style={s.deltaRow}>
-          <Text style={[s.deltaSector, s.deltaSectorTotal]}>CARRERA COMPLETA</Text>
+          <Text style={[s.deltaSector, s.deltaSectorTotal]}>{t('CARRERA COMPLETA')}</Text>
           <Text style={[s.deltaValue, s.deltaValueTotal, { color: totalDelta <= 0 ? RD.successGreen : RD.danger }]}>
             {signed(totalDelta)}
           </Text>
@@ -146,9 +147,8 @@ function SectorBattle({ gpId, dayIndex, myMs, mySectors }) {
 }
 
 async function shareInvite(group) {
-  const msg =
-    `Únete a mi grupo "${group.name}" en Apexly 🏁\n\n` +
-    `Abre la app → Amigos → "Unirse con código" e introduce:\n${group.join_code}`;
+  // La pestaña se llama GRAND PRIX desde 2026-09-09 (antes "Amigos").
+  const msg = t('Únete a mi grupo "{name}" en Apexly 🏁\n\nAbre la app → Grand Prix → "Unirse con código" e introduce:\n{code}', { name: group.name, code: group.join_code });
   try { await Share.share({ message: msg }); } catch (_) {}
 }
 
@@ -227,15 +227,15 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
 
   function confirmLeave() {
     Alert.alert(
-      'Salir del grupo',
-      `¿Seguro que quieres salir de "${group.name}"? Necesitarás el código para volver a unirte.`,
+      t('Salir del grupo'),
+      t('¿Seguro que quieres salir de "{name}"? Necesitarás el código para volver a unirte.', { name: group.name }),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: t('Cancelar'), style: 'cancel' },
         {
-          text: 'Salir', style: 'destructive', onPress: async () => {
+          text: t('Salir'), style: 'destructive', onPress: async () => {
             setLeaving(true);
             try { await leaveGroup(group.id); onLeave && onLeave(); }
-            catch (_) { setLeaving(false); Alert.alert('No se pudo salir del grupo. Prueba otra vez.'); }
+            catch (_) { setLeaving(false); Alert.alert(t('No se pudo salir del grupo. Prueba otra vez.')); }
           },
         },
       ],
@@ -285,9 +285,9 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
       const already = msg.includes('GP_ALREADY_ACTIVE');
       const needsMore = msg.includes('GP_NEEDS_3_PLAYERS');
       setErr(
-        already ? 'Ya hay un Grand Prix activo en este grupo.'
-        : needsMore ? 'Hacen falta al menos 3 jugadores en el grupo para arrancar un Grand Prix.'
-        : 'No se pudo arrancar el Grand Prix.'
+        already ? t('Ya hay un Grand Prix activo en este grupo.')
+        : needsMore ? t('Hacen falta al menos 3 jugadores en el grupo para arrancar un Grand Prix.')
+        : t('No se pudo arrancar el Grand Prix.')
       );
       if (already) refresh();
     } finally {
@@ -342,18 +342,18 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
 
         {/* Cabecera: el grupo es el sujeto, el GP es lo que le está pasando. */}
         <Pressable onPress={onBack} hitSlop={12}>
-          <Text style={s.backLink}>‹ AMIGOS</Text>
+          <Text style={s.backLink}>{t('‹ GRAND PRIX')}</Text>
         </Pressable>
         <View style={s.titleRow}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={s.pageTitle} numberOfLines={1}>{group.name}</Text>
-            <Text style={s.subtitle}>CÓDIGO {group.join_code}</Text>
+            <Text style={s.subtitle}>{t('CÓDIGO {code}', { code: group.join_code })}</Text>
           </View>
           {/* Compartir SIEMPRE visible. Antes solo salía cuando NO había un GP
               activo, así que en cuanto arrancabas la temporada desaparecía la
               única forma de meter gente — justo cuando más ganas dan. */}
           <Pressable style={s.inviteBtn} onPress={() => shareInvite(group)} hitSlop={8}>
-            <Text style={s.inviteBtnText}>COMPARTIR</Text>
+            <Text style={s.inviteBtnText}>{t('COMPARTIR')}</Text>
           </Pressable>
         </View>
 
@@ -363,15 +363,15 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
           <View style={[s.resultBanner, result.error ? s.resultErr : result.isPractice ? s.resultPractice : s.resultOk]}>
             <Text style={s.resultText}>
               {result.error
-                ? 'No se pudo enviar el tiempo. Prueba otra vez.' +
+                ? t('No se pudo enviar el tiempo. Prueba otra vez.') +
                   (CONFIG.DIAG && result.errorMsg ? `\n(${result.errorMsg})` : '')
                 : result.isPractice
-                ? `Práctica — ${fmtTime(result.ms)} (no cuenta, quedan vueltas de práctica o ya clasifica la siguiente)`
-                : `Clasificación ronda ${result.dayIndex} — ${fmtTime(result.ms)}${result.isBest ? ' · ¡mejor tiempo!' : ''}`}
+                ? t('Práctica — {time} (no cuenta, quedan vueltas de práctica o ya clasifica la siguiente)', { time: fmtTime(result.ms) })
+                : t('Clasificación ronda {n} — {time}', { n: result.dayIndex, time: fmtTime(result.ms) }) + (result.isBest ? t(' · ¡mejor tiempo!') : '')}
               {myBestLap != null && (
                 <Text style={s.resultLap}>
-                  {'\n'}Vuelta rápida: {fmtTime(myBestLap)}
-                  {fastestLap && fastestLap.userId === myId && fastestLap.ms === myBestLap ? ' · ¡la más rápida de la ronda!' : ''}
+                  {'\n'}{t('Vuelta rápida: {time}', { time: fmtTime(myBestLap) })}
+                  {fastestLap && fastestLap.userId === myId && fastestLap.ms === myBestLap ? t(' · ¡la más rápida de la ronda!') : ''}
                 </Text>
               )}
             </Text>
@@ -389,24 +389,23 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
           <ActivityIndicator color={GP_ACCENT} style={{ marginTop: 24 }} />
         ) : !gp ? (
           <View style={s.panel}>
-            <Text style={s.panelLabel}>GRAND PRIX</Text>
-            <Text style={s.bigStatement}>Vuestro campeonato. 7 circuitos exclusivos del grupo.</Text>
+            <Text style={s.panelLabel}>{t('GRAND PRIX')}</Text>
+            <Text style={s.bigStatement}>{t('Vuestro campeonato. 7 circuitos exclusivos del grupo.')}</Text>
             <Text style={s.body}>
-              Un circuito cerrado nuevo cada día, con clima real. Sector a sector contra el resto del
-              grupo, puntos como en la F1 — y al cabo de la semana, uno se corona campeón.
+              {t('Un circuito cerrado nuevo cada día, con clima real. Sector a sector contra el resto del grupo, puntos como en la F1 — y al cabo de la semana, uno se corona campeón.')}
             </Text>
-            <Text style={s.hint}>Mínimo 3 jugadores para arrancarlo.</Text>
+            <Text style={s.hint}>{t('Mínimo 3 jugadores para arrancarlo.')}</Text>
             <Pressable style={[s.cta, starting && s.ctaDisabled]} disabled={starting} onPress={handleStart}>
-              <Text style={s.ctaText}>{starting ? 'Arrancando…' : 'Arrancar Grand Prix'}</Text>
+              <Text style={s.ctaText}>{starting ? t('Arrancando…') : t('Arrancar Grand Prix')}</Text>
             </Pressable>
             {!!err && <Text style={s.err}>{err}</Text>}
           </View>
         ) : finished ? (
           <View style={s.panel}>
-            <Text style={s.panelLabel}>GRAND PRIX TERMINADO</Text>
-            <Text style={s.bigStatement}>Ya hay campeón.</Text>
+            <Text style={s.panelLabel}>{t('GRAND PRIX TERMINADO')}</Text>
+            <Text style={s.bigStatement}>{t('Ya hay campeón.')}</Text>
             <Pressable style={s.cta} onPress={() => onViewStandings(gp)}>
-              <Text style={s.ctaText}>Ver clasificación final</Text>
+              <Text style={s.ctaText}>{t('Ver clasificación final')}</Text>
             </Pressable>
           </View>
         ) : (
@@ -416,7 +415,7 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
             <View style={s.roundCard}>
               {/* Sin "Ronda N": el SeasonRail de arriba ya dice "RONDA N DE 7"
                   — repetirlo aquí era ruido. Solo el circuito. */}
-              <Text style={s.roundKicker}>{spec?.label}</Text>
+              <Text style={s.roundKicker}>{tParts(spec?.label)}</Text>
               {/* El circuito, dibujado. El argumento del modo es "7 circuitos
                   que solo existen para este grupo" y la pantalla no enseñaba
                   ninguno: era una promesa en texto. Verlo es lo que lo hace
@@ -426,24 +425,24 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
                   <MiniTrackMap track={spec.track} w={TRACK_W} h={92} />
                 </View>
               )}
-              {!!countdown && <Text style={s.countdown}>La ronda {roundIdx + 1} abre en {countdown}</Text>}
+              {!!countdown && <Text style={s.countdown}>{t('La ronda {n} abre en {time}', { n: roundIdx + 1, time: countdown })}</Text>}
               <Pressable style={s.cta} onPress={() => onPlayRound(gp, roundIdx)}>
-                <Text style={s.ctaText}>Correr la ronda {roundIdx}</Text>
+                <Text style={s.ctaText}>{t('Correr la ronda {n}', { n: roundIdx })}</Text>
               </Pressable>
             </View>
 
             <View style={s.panel}>
               <View style={s.panelHead}>
-                <Text style={s.panelLabel}>RONDA {roundIdx} · EN PISTA</Text>
+                <Text style={s.panelLabel}>{t('RONDA {n} · EN PISTA', { n: roundIdx })}</Text>
                 <Pressable onPress={() => onViewStandings(gp)} hitSlop={8}>
-                  <Text style={s.linkAccent}>CLASIFICACIÓN ›</Text>
+                  <Text style={s.linkAccent}>{t('CLASIFICACIÓN ›')}</Text>
                 </Pressable>
               </View>
               {(!!fastestLap || (!!sectorRecords && Object.keys(sectorRecords).length > 0)) && (
                 <View style={s.recordsBlock}>
                   {!!fastestLap && (
                     <View style={s.fastestLapRow}>
-                      <Text style={s.fastestLapLabel}>VUELTA RÁPIDA</Text>
+                      <Text style={s.fastestLapLabel}>{t('VUELTA RÁPIDA')}</Text>
                       <Text style={s.fastestLapText}>{fmtTime(fastestLap.ms)}</Text>
                       <Text style={s.fastestLapName} numberOfLines={1}>{fastestLap.nickname}</Text>
                     </View>
@@ -468,7 +467,7 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
               {roundResults == null ? (
                 <ActivityIndicator color={GP_ACCENT} style={{ marginTop: 8 }} />
               ) : roundResults.length === 0 ? (
-                <Text style={s.body}>Nadie ha marcado tiempo todavía. Sé el primero y sal en cabeza.</Text>
+                <Text style={s.body}>{t('Nadie ha marcado tiempo todavía. Sé el primero y sal en cabeza.')}</Text>
               ) : (
                 <View style={s.roundList}>
                   {roundResults.map((r, i) => {
@@ -482,7 +481,7 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
                         <Text style={s.roundName} numberOfLines={1}>{r.nickname}</Text>
                         <Text style={s.roundTime}>{fmtTime(r.ms)}</Text>
                         <Text style={[s.roundGap, i === 0 && { color: podiumColor, fontFamily: RD_FONT.monoBold }]}>
-                          {i === 0 ? 'LÍDER' : fmtGap(r.ms - roundResults[0].ms)}
+                          {i === 0 ? t('LÍDER') : fmtGap(r.ms - roundResults[0].ms)}
                         </Text>
                       </View>
                     );
@@ -494,7 +493,7 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
         )}
 
         <View style={s.panel}>
-          <Text style={s.panelLabel}>EN EL GRUPO {members ? `· ${members.length}` : ''}</Text>
+          <Text style={s.panelLabel}>{t('EN EL GRUPO')} {members ? `· ${members.length}` : ''}</Text>
           {members == null ? (
             <ActivityIndicator color={GP_ACCENT} style={{ marginTop: 8 }} />
           ) : (
@@ -509,7 +508,7 @@ export function GroupHome({ group, result, onDismissResult, onPlayRound, onViewS
         </View>
 
         <Pressable style={{ marginTop: 4 }} onPress={confirmLeave} disabled={leaving} hitSlop={8}>
-          <Text style={s.leaveLink}>{leaving ? 'Saliendo…' : 'Salir del grupo'}</Text>
+          <Text style={s.leaveLink}>{leaving ? t('Saliendo…') : t('Salir del grupo')}</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -536,11 +535,11 @@ export function RoundStart({ gp, roundIdx, onChoose, onBack }) {
       <StatusBar hidden />
       <ScrollView contentContainerStyle={s.content}>
         <Pressable onPress={onBack} hitSlop={12}>
-          <Text style={s.backLink}>‹ VOLVER</Text>
+          <Text style={s.backLink}>{t('‹ VOLVER')}</Text>
         </Pressable>
 
         <SeasonRail total={gp.circuit_count} current={roundIdx} />
-        <Text style={s.pageTitle}>{roundLabel(roundIdx, spec)}</Text>
+        <Text style={s.pageTitle}>{t('Ronda {n}', { n: roundIdx })} · {tParts(spec.label)}</Text>
 
         {spec?.track && (
           <View style={[s.panel, { paddingVertical: 10 }]}>
@@ -550,24 +549,22 @@ export function RoundStart({ gp, roundIdx, onChoose, onBack }) {
           </View>
         )}
 
-        <Text style={s.hint}>Solo se pregunta la primera vez que entras a esta ronda.</Text>
+        <Text style={s.hint}>{t('Solo se pregunta la primera vez que entras a esta ronda.')}</Text>
 
         <Pressable style={s.choiceCard} onPress={() => onChoose('practica')}>
-          <Text style={s.choiceTitle}>Calentar primero</Text>
+          <Text style={s.choiceTitle}>{t('Calentar primero')}</Text>
           <Text style={s.choiceBody}>
-            Una carrera de prueba que no cuenta y luego la que clasifica. Si quieres repetir
-            después, puedes ver un vídeo para un intento más.
+            {t('Una carrera de prueba que no cuenta y luego la que clasifica. Si quieres repetir después, puedes ver un vídeo para un intento más.')}
           </Text>
-          <Text style={s.choiceMeta}>2 INTENTOS · EL 2.º CUENTA</Text>
+          <Text style={s.choiceMeta}>{t('2 INTENTOS · EL 2.º CUENTA')}</Text>
         </Pressable>
 
         <Pressable style={[s.choiceCard, s.choiceCardRisk]} onPress={() => onChoose('directo')}>
-          <Text style={s.choiceTitle}>A la primera</Text>
+          <Text style={s.choiceTitle}>{t('A la primera')}</Text>
           <Text style={s.choiceBody}>
-            Sales y lo que marques en tus 3 vueltas es tu tiempo de la ronda. Sin ensayo — pero
-            si quieres repetir, puedes ver un vídeo para un intento más.
+            {t('Sales y lo que marques en tus 3 vueltas es tu tiempo de la ronda. Sin ensayo — pero si quieres repetir, puedes ver un vídeo para un intento más.')}
           </Text>
-          <Text style={[s.choiceMeta, { color: RD.danger }]}>1 INTENTO · CUENTA</Text>
+          <Text style={[s.choiceMeta, { color: RD.danger }]}>{t('1 INTENTO · CUENTA')}</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -592,7 +589,7 @@ function PodiumRow({ pos, nickname, ms, isLeader, gapMs }) {
       <Text style={s.roundName} numberOfLines={1}>{nickname}</Text>
       <Text style={s.roundTime}>{fmtTime(ms)}</Text>
       <Text style={[s.roundGap, isLeader && { color: podiumColor, fontFamily: RD_FONT.monoBold }]}>
-        {isLeader ? 'LÍDER' : fmtGap(gapMs)}
+        {isLeader ? t('LÍDER') : fmtGap(gapMs)}
       </Text>
     </View>
   );
@@ -612,7 +609,7 @@ function HistoricStandings({ results, maxDay }) {
     .sort((a, b) => a.ms - b.ms);
 
   if (days.length === 0) {
-    return <Text style={s.body}>Todavía no se ha cerrado ninguna ronda.</Text>;
+    return <Text style={s.body}>{t('Todavía no se ha cerrado ninguna ronda.')}</Text>;
   }
 
   return (
@@ -620,12 +617,12 @@ function HistoricStandings({ results, maxDay }) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.dayPickerRow}>
         {days.map((d) => (
           <Pressable key={d} onPress={() => setDay(d)} style={[s.dayChip, d === day && s.dayChipActive]}>
-            <Text style={[s.dayChipText, d === day && s.dayChipTextActive]}>RONDA {d}</Text>
+            <Text style={[s.dayChipText, d === day && s.dayChipTextActive]}>{t('RONDA {n}', { n: d })}</Text>
           </Pressable>
         ))}
       </ScrollView>
       {dayRows.length === 0 ? (
-        <Text style={s.body}>Nadie marcó tiempo en esta ronda.</Text>
+        <Text style={s.body}>{t('Nadie marcó tiempo en esta ronda.')}</Text>
       ) : (
         <View style={s.roundList}>
           {dayRows.map((r, i) => (
@@ -665,15 +662,15 @@ export function GrandPrixStandings({ group, gp, onBack, onOpenPlayer }) {
         <Pressable onPress={onBack} hitSlop={12}>
           <Text style={s.backLink}>‹ {group.name.toUpperCase()}</Text>
         </Pressable>
-        <Text style={s.pageTitle}>{finished ? 'Campeonato' : 'Clasificación'}</Text>
+        <Text style={s.pageTitle}>{finished ? t('Campeonato') : t('Clasificación')}</Text>
         <SeasonRail total={gp.circuit_count} current={roundIdx} finished={finished} />
 
         <View style={s.viewTabs}>
           <Pressable style={[s.viewTab, view === 'general' && s.viewTabActive]} onPress={() => setView('general')}>
-            <Text style={[s.viewTabText, view === 'general' && s.viewTabTextActive]}>GENERAL</Text>
+            <Text style={[s.viewTabText, view === 'general' && s.viewTabTextActive]}>{t('GENERAL')}</Text>
           </Pressable>
           <Pressable style={[s.viewTab, view === 'historico' && s.viewTabActive]} onPress={() => setView('historico')}>
-            <Text style={[s.viewTabText, view === 'historico' && s.viewTabTextActive]}>HISTÓRICO</Text>
+            <Text style={[s.viewTabText, view === 'historico' && s.viewTabTextActive]}>{t('HISTÓRICO')}</Text>
           </Pressable>
         </View>
 
@@ -683,7 +680,7 @@ export function GrandPrixStandings({ group, gp, onBack, onOpenPlayer }) {
           <HistoricStandings results={results} maxDay={maxHistoricDay} />
         ) : (
           <>
-            <Text style={s.hint}>Cada hueco es una ronda. El número, los puntos que sacaste.</Text>
+            <Text style={s.hint}>{t('Cada hueco es una ronda. El número, los puntos que sacaste.')}</Text>
             <View style={s.standingsList}>
               {rows.map((r, i) => {
                 const podiumColor = SEASON_PODIUM[i];
@@ -704,7 +701,7 @@ export function GrandPrixStandings({ group, gp, onBack, onOpenPlayer }) {
                     </View>
                     <View style={s.pointsBox}>
                       <Text style={[s.standingPoints, i === 0 && s.standingPointsLead]}>{r.points}</Text>
-                      <Text style={s.pointsUnit}>PTS</Text>
+                      <Text style={s.pointsUnit}>{t('PTS')}</Text>
                     </View>
                   </RowWrap>
                 );
@@ -742,7 +739,7 @@ const s = StyleSheet.create({
   panelHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   panelLabel: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 1.2 },
   linkAccent: { color: GP_ACCENT, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.8 },
-  body: { color: RD.textSecondary, fontSize: 13, fontFamily: RD_FONT.mono, lineHeight: 20 },
+  body: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.body, lineHeight: 21 },
   hint: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, lineHeight: 16 },
   bigStatement: {
     color: RD.textPrimary, fontSize: 22, fontFamily: RD_FONT.displayBold,
@@ -776,7 +773,7 @@ const s = StyleSheet.create({
   },
   choiceCardRisk: { borderColor: RD.danger },
   choiceTitle: { color: RD.textPrimary, fontSize: 21, fontFamily: RD_FONT.displayBold },
-  choiceBody: { color: RD.textSecondary, fontSize: 13, fontFamily: RD_FONT.mono, lineHeight: 19 },
+  choiceBody: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.body, lineHeight: 20 },
   choiceMeta: { color: GP_ACCENT, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 1.2 },
 
   membersWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },

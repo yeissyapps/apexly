@@ -28,6 +28,7 @@ import {
   getMyReferralCode, hasRedeemedReferral, redeemReferralCode,
 } from './api';
 import { logReferralCodeShared, logReferralRedeemed } from './analytics';
+import { t } from './i18n';
 
 const PACK_COST = 125;
 // Solo para el texto — el número real y la validación viven en el servidor
@@ -41,11 +42,12 @@ const REFERRAL_BONUS = 50;
 function pieceLabel(category, pieceId) {
   const find = (list) => list.find((o) => o.id === pieceId)?.label;
   if (category === 'avatar') return avatarDisplayLabel(AVATARS.find((a) => a.key === pieceId)) || pieceId;
-  if (category === 'wing') return find(WING_SHAPES) ?? pieceId;
-  if (category === 'livery') return find(LIVERY_PATTERNS) ?? pieceId;
-  if (category === 'chassis') return find(CHASSIS) ?? pieceId;
-  if (category === 'light') return find(LIGHT_COLORS) ?? pieceId;
-  if (category === 'frame') return find(FRAMES) ?? pieceId;
+  if (category === 'wing') return t(find(WING_SHAPES)) || pieceId;
+  if (category === 'livery') return t(find(LIVERY_PATTERNS)) || pieceId;
+  if (category === 'chassis') return t(find(CHASSIS)) || pieceId;
+  if (category === 'light') return t(find(LIGHT_COLORS)) || pieceId;
+  if (category === 'frame') return t(find(FRAMES)) || pieceId;
+  if (category === 'color') return t(find(CAR_COLORS)) || pieceId;
   return pieceId.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 }
 
@@ -115,10 +117,7 @@ export default function Tienda({ onBack }) {
 
   function shareMyCode() {
     Share.share({
-      message:
-        `¡Échale un ojo a Apexly! Un circuito nuevo cada día, batallas contra ` +
-        `tus amigos y contra el mundo.\n\nMete mi código ${myCode} en la Tienda ` +
-        `al instalarte la app — ganamos monedas los dos.\n\n${SHARE_LINK}`,
+      message: t('¡Échale un ojo a Apexly! Un circuito nuevo cada día, batallas contra tus amigos y contra el mundo.\n\nMete mi código {code} en la Tienda al instalarte la app — ganamos monedas los dos.\n\n{link}', { code: myCode, link: SHARE_LINK }),
     }).catch(() => {});
     logReferralCodeShared();
   }
@@ -130,16 +129,16 @@ export default function Tienda({ onBack }) {
     setRedeemMsg(null);
     try {
       const bonus = await redeemReferralCode(code);
-      setRedeemMsg({ type: 'ok', text: `¡Código válido! +${bonus} monedas para los dos.` });
+      setRedeemMsg({ type: 'ok', text: t('¡Código válido! +{n} monedas para los dos.', { n: bonus }) });
       setAlreadyRedeemed(true);
       logReferralRedeemed();
       refresh();
     } catch (e) {
       const msg = String(e?.message || '');
-      const text = msg.includes('CODE_NOT_FOUND') ? 'Ese código no existe.'
-        : msg.includes('CANNOT_REDEEM_OWN_CODE') ? 'No puedes usar tu propio código.'
-        : msg.includes('ALREADY_REDEEMED') ? 'Ya has canjeado un código antes.'
-        : 'No se pudo canjear. Inténtalo de nuevo.';
+      const text = msg.includes('CODE_NOT_FOUND') ? t('Ese código no existe.')
+        : msg.includes('CANNOT_REDEEM_OWN_CODE') ? t('No puedes usar tu propio código.')
+        : msg.includes('ALREADY_REDEEMED') ? t('Ya has canjeado un código antes.')
+        : t('No se pudo canjear. Inténtalo de nuevo.');
       setRedeemMsg({ type: 'err', text });
     } finally {
       setRedeemBusy(false);
@@ -161,10 +160,10 @@ export default function Tienda({ onBack }) {
       refresh();
     } catch (e) {
       const code = String(e?.message || e);
-      if (code.includes('INSUFFICIENT_FUNDS')) setErrorMsg('No te llega el saldo para otro sobre.');
-      else if (code.includes('NO_PENDING_PACK')) setErrorMsg('No tienes sobres pendientes.');
-      else if (code.includes('COLLECTION_COMPLETE')) setErrorMsg('Ya tienes todas las piezas — colección completa.');
-      else setErrorMsg('No se pudo abrir el sobre. Inténtalo de nuevo.');
+      if (code.includes('INSUFFICIENT_FUNDS')) setErrorMsg(t('No te llega el saldo para otro sobre.'));
+      else if (code.includes('NO_PENDING_PACK')) setErrorMsg(t('No tienes sobres pendientes.'));
+      else if (code.includes('COLLECTION_COMPLETE')) setErrorMsg(t('Ya tienes todas las piezas — colección completa.'));
+      else setErrorMsg(t('No se pudo abrir el sobre. Inténtalo de nuevo.'));
     } finally {
       openingRef.current = false;
       setBusy(false);
@@ -197,29 +196,29 @@ export default function Tienda({ onBack }) {
       <DangerStripe height={6} />
       <ScrollView contentContainerStyle={s.content}>
         <Pressable onPress={onBack} hitSlop={12}>
-          <Text style={s.backLink}>‹ INICIO</Text>
+          <Text style={s.backLink}>{t('‹ INICIO')}</Text>
         </Pressable>
         {/* Título y monedas en la MISMA fila: el saldo ocupaba un panel
             entero para un solo número. Mismo icono que la cabecera de
             Inicio (JC, 2026-09-16: "lo mismo para tienda") — sin recuadro,
             solo el símbolo + el número. */}
         <View style={s.titleRow}>
-          <Text style={s.pageTitle}>Tienda</Text>
+          <Text style={s.pageTitle}>{t('Tienda')}</Text>
           <View style={s.coinChip}>
             <CoinIcon size={20} />
             <Text style={s.coinChipValue}>{wallet.balance}</Text>
           </View>
         </View>
-        <Text style={s.disclaimer}>Solo estético — no afecta al rendimiento del coche</Text>
+        <Text style={s.disclaimer}>{t('Solo estético — no afecta al rendimiento del coche')}</Text>
 
         {wallet.pendingPacks > 0 && (
           <View style={[s.card, s.cardWithArt, s.freeCard]}>
             <PackArt width={76} variant="free" serial={wallet.pendingPacks} />
             <View style={s.cardText}>
-              <Text style={s.cardTitle}>YA SON TUYOS · {wallet.pendingPacks}</Text>
-              <Text style={s.cardBody}>Regalo de tu racha de 7 días — sin caducar.</Text>
+              <Text style={s.cardTitle}>{t('YA SON TUYOS · {n}', { n: wallet.pendingPacks })}</Text>
+              <Text style={s.cardBody}>{t('Regalo de tu racha de 7 días — sin caducar.')}</Text>
               <Pressable style={[s.cardBtn, s.freeBtn]} onPress={() => handleOpen('free')} disabled={busy}>
-                <Text style={[s.cardBtnText, s.freeBtnText]}>ABRIR</Text>
+                <Text style={[s.cardBtnText, s.freeBtnText]}>{t('ABRIR')}</Text>
               </Pressable>
             </View>
           </View>
@@ -230,16 +229,16 @@ export default function Tienda({ onBack }) {
             el texto y no invitaba a nada. */}
         <View style={s.hero}>
           <PackArt width={186} variant="paid" serial={ownedCount + 1} />
-          <Text style={s.heroName}>Sobre de paddock</Text>
+          <Text style={s.heroName}>{t('Sobre de paddock')}</Text>
           <Text style={s.heroBody}>
-            1 pieza aleatoria, nunca repetida.
+            {t('1 pieza aleatoria, nunca repetida.')}
           </Text>
           <View style={s.oddsRow}>
-            <Text style={[s.odd, { color: RD.trackBlue }]}>65% rara</Text>
+            <Text style={[s.odd, { color: RD.trackBlue }]}>{t('65% rara')}</Text>
             <Text style={s.oddSep}>·</Text>
-            <Text style={[s.odd, { color: RD.youMagenta }]}>30% épica</Text>
+            <Text style={[s.odd, { color: RD.youMagenta }]}>{t('30% épica')}</Text>
             <Text style={s.oddSep}>·</Text>
-            <Text style={[s.odd, { color: RD.gold1st }]}>5% legendaria</Text>
+            <Text style={[s.odd, { color: RD.gold1st }]}>{t('5% legendaria')}</Text>
           </View>
           <Pressable
             style={[s.heroBtn, (busy || complete || wallet.balance < PACK_COST) && s.heroBtnDisabled]}
@@ -247,16 +246,16 @@ export default function Tienda({ onBack }) {
             disabled={busy || complete || wallet.balance < PACK_COST}
           >
             <Text style={[s.heroBtnText, (busy || complete || wallet.balance < PACK_COST) && s.heroBtnTextDisabled]}>
-              {complete ? 'COLECCIÓN COMPLETA'
-                : wallet.balance < PACK_COST ? `TE FALTAN ${PACK_COST - wallet.balance} MONEDAS`
-                : `COMPRAR · ${PACK_COST}`}
+              {complete ? t('COLECCIÓN COMPLETA')
+                : wallet.balance < PACK_COST ? t('TE FALTAN {n} MONEDAS', { n: PACK_COST - wallet.balance })
+                : t('COMPRAR · {n}', { n: PACK_COST })}
             </Text>
           </Pressable>
         </View>
 
         {errorMsg && <Text style={s.errorText}>{errorMsg}</Text>}
 
-        <Text style={s.progressText}>Colección: {ownedCount}/{TOTAL_COLLECTIBLES} piezas</Text>
+        <Text style={s.progressText}>{t('Colección: {n}/{total} piezas', { n: ownedCount, total: TOTAL_COLLECTIBLES })}</Text>
 
         {/* Invitar a un amigo. JC: "a la gente le gusta el concepto pero no
             aumentan los jugadores" — el enlace de compartir una vuelta no
@@ -265,25 +264,24 @@ export default function Tienda({ onBack }) {
             reparte a mano y se escribe a mano esquiva ese agujero entero:
             no depende de ninguna infraestructura de atribución. */}
         <View style={s.card}>
-          <Text style={s.cardTitle}>INVITA A UN AMIGO</Text>
+          <Text style={s.cardTitle}>{t('INVITA A UN AMIGO')}</Text>
           <Text style={s.cardBody}>
-            Comparte tu código. Cuando un amigo lo mete en su Tienda al
-            instalarse la app, ganáis {REFERRAL_BONUS} monedas los dos.
+            {t('Comparte tu código. Cuando un amigo lo mete en su Tienda al instalarse la app, ganáis {n} monedas los dos.', { n: REFERRAL_BONUS })}
           </Text>
           <Pressable style={s.referralCodeBox} onPress={shareMyCode} disabled={!myCode}>
             <Text style={s.referralCodeText}>{myCode || '······'}</Text>
-            <Text style={s.referralCodeShare}>COMPARTIR ›</Text>
+            <Text style={s.referralCodeShare}>{t('COMPARTIR ›')}</Text>
           </Pressable>
 
           {alreadyRedeemed === false && (
             <>
-              <Text style={s.referralRedeemLabel}>¿TE HAN DADO UN CÓDIGO?</Text>
+              <Text style={s.referralRedeemLabel}>{t('¿TE HAN DADO UN CÓDIGO?')}</Text>
               <View style={s.referralRedeemRow}>
                 <TextInput
                   style={s.referralInput}
                   value={redeemInput}
-                  onChangeText={(t) => setRedeemInput(t.toUpperCase())}
-                  placeholder="CÓDIGO"
+                  onChangeText={(v) => setRedeemInput(v.toUpperCase())}
+                  placeholder={t('CÓDIGO')}
                   placeholderTextColor={RD.textDisabled}
                   autoCapitalize="characters"
                   maxLength={6}
@@ -293,7 +291,7 @@ export default function Tienda({ onBack }) {
                   onPress={handleRedeem}
                   disabled={!redeemInput.trim() || redeemBusy}
                 >
-                  <Text style={s.referralRedeemBtnText}>{redeemBusy ? '…' : 'CANJEAR'}</Text>
+                  <Text style={s.referralRedeemBtnText}>{redeemBusy ? '…' : t('CANJEAR')}</Text>
                 </Pressable>
               </View>
               {redeemMsg && (
@@ -304,7 +302,7 @@ export default function Tienda({ onBack }) {
             </>
           )}
           {alreadyRedeemed === true && !redeemMsg && (
-            <Text style={s.referralRedeemLabel}>YA HAS CANJEADO UN CÓDIGO — SOLO SE PUEDE UNA VEZ</Text>
+            <Text style={s.referralRedeemLabel}>{t('YA HAS CANJEADO UN CÓDIGO — SOLO SE PUEDE UNA VEZ')}</Text>
           )}
         </View>
       </ScrollView>
@@ -335,19 +333,19 @@ export default function Tienda({ onBack }) {
               )}
               {reveal.rarity === 'legendaria' ? (
                 <ShineBadge style={[s.rarityBadge, { backgroundColor: RARITY_COLOR[reveal.rarity] }]}>
-                  <Text style={s.rarityBadgeText}>{RARITY_LABEL[reveal.rarity]}</Text>
+                  <Text style={s.rarityBadgeText}>{t(RARITY_LABEL[reveal.rarity])}</Text>
                 </ShineBadge>
               ) : (
                 <View style={[s.rarityBadge, { backgroundColor: RARITY_COLOR[reveal.rarity] }]}>
-                  <Text style={s.rarityBadgeText}>{RARITY_LABEL[reveal.rarity]}</Text>
+                  <Text style={s.rarityBadgeText}>{t(RARITY_LABEL[reveal.rarity])}</Text>
                 </View>
               )}
               <Text style={s.revealLabel}>{pieceLabel(reveal.category, reveal.pieceId)}</Text>
               <Pressable style={s.equipBtn} onPress={handleEquip}>
-                <Text style={s.equipBtnText}>EQUIPAR AHORA</Text>
+                <Text style={s.equipBtnText}>{t('EQUIPAR AHORA')}</Text>
               </Pressable>
               <Pressable onPress={() => setReveal(null)} hitSlop={12}>
-                <Text style={s.laterLink}>Seguir</Text>
+                <Text style={s.laterLink}>{t('Seguir')}</Text>
               </Pressable>
             </View>
           </PackReveal>
@@ -408,7 +406,7 @@ const s = StyleSheet.create({
   cardWithArt: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   cardText: { flex: 1, minWidth: 0, gap: 8 },
   cardTitle: { color: RD.textPrimary, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
-  cardBody: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, lineHeight: 17 },
+  cardBody: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.body, lineHeight: 20 },
   cardBtn: { borderWidth: 1, borderColor: RD.brand, borderRadius: 2, paddingVertical: 12, alignItems: 'center', marginTop: 4 },
   cardBtnDisabled: { borderColor: RD.panelBorder, opacity: 0.5 },
   cardBtnText: { color: RD.brand, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },

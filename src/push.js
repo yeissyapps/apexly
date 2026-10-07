@@ -11,6 +11,7 @@ import * as Notifications from 'expo-notifications';
 
 import { supabase } from './supabase';
 import { ensureSession } from './api';
+import { getLang } from './i18n';
 
 const EAS_PROJECT_ID = '93215df9-b32e-46ce-b086-f562f66db6f3';
 
@@ -80,7 +81,11 @@ export async function registerPushToken({ prompt = true } = {}) {
     // acumularse en un solo dispositivo, y eso hacía que el recordatorio de
     // las 20:00 llegara aunque hubieras jugado.
     // Ver supabase/register_push_token.sql.
-    await supabase.rpc('register_push_token', { p_token: token });
+    // Con el idioma del móvil, para que los avisos lleguen en él (ver
+    // supabase/push_lang.sql). Si el servidor aún tiene la versión de un solo
+    // parámetro (PGRST202), se registra sin idioma, como antes.
+    const { error } = await supabase.rpc('register_push_token', { p_token: token, p_lang: getLang() });
+    if (error?.code === 'PGRST202') await supabase.rpc('register_push_token', { p_token: token });
     return token;
   } catch (e) {
     return null; // sin push no pasa nada crítico

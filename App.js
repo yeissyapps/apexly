@@ -54,17 +54,18 @@ import { GroupHome, GrandPrixStandings, RoundStart } from './src/GrandPrix';
 import { gpCircuitSpec, gpWeather, GP_AD_BATCH, GP_FREE_ATTEMPTS, currentRoundIndex, gpFinished } from './src/gpData';
 import ShineBadge from './src/ShineBadge';
 import Tour, { tourRef, isTourDone, hasRacedBefore, markFirstRace } from './src/Tour';
-import { WHATS_NEW_ITEMS, WHATS_NEW_TITLE, WHATS_NEW_VERSION, markWhatsNewSeen, shouldShowWhatsNew } from './src/WhatsNew';
+import { whatsNewItems, whatsNewTitle, WHATS_NEW_VERSION, markWhatsNewSeen, shouldShowWhatsNew } from './src/WhatsNew';
 import { noteRaceFinished } from './src/rate';
 import { CAR_DEFAULTS } from './src/car';
+import { t, tParts, pick, ord } from './src/i18n';
 
 const TRACKMAP_W = Dimensions.get('window').width - 18 * 2 - 14 * 2; // screenContent + panel
 import {
-  ensureSession, ensureDailyTrack, getLocalNickname, getMyOwnNickname, saveNickname, submitTime,
+  ensureSession, ensureDailyTrack, getLocalNickname, getMyOwnNickname, saveNickname, grantStarterAvatar, submitLap,
   listMyGroups, createGroup, joinGroup, bumpStreak, getMyStreak, notifyOvertakes,
   getLeaderboard, getGlobalBoard, getSectorBests, submitSectorSplits,
   getMyLoadout, getWallet, claimDailyReward, getRecentRewards, claimShareReward, claimCareerLevel,
-  submitGpResult, notifyGpOvertake, recordLap, submitDailyRun, getLeaderRun, getMyGpRoundSectors,
+  submitGpResult, notifyGpOvertake, recordLap, getLeaderRun, getMyGpRoundSectors,
   getActiveGrandPrix, getGpResults, getMyId, getMyReferralCode,
   getGpSectorBests, submitGpSectorSplits,
   submitDuelRun, getDuel, touchPresence, getMyActiveDuels, getMyDuelHistory, cancelDuel,
@@ -339,7 +340,7 @@ export default function App() {
     try {
       const ok = await buyUnlimited();
       if (ok) { setUnlimited(true); logPurchaseUnlimited(); }
-      else setAdMsg('No se ha completado la compra.');
+      else setAdMsg(t('No se ha completado la compra.'));
       return ok;
     } finally {
       setBuying(false);
@@ -422,10 +423,7 @@ export default function App() {
           // Ha dicho que no en el formulario. Es decisión suya y es
           // reversible, así que se le dice dónde: el enlace acaba de
           // aparecer al pie de Inicio.
-          setAdMsg(
-            'Sin consentimiento para anuncios no podemos mostrarte ninguno. ' +
-            'Puedes cambiarlo en «Privacidad de anuncios», al final de Inicio.'
-          );
+          setAdMsg(t('Sin consentimiento para anuncios no podemos mostrarte ninguno. Puedes cambiarlo en «Privacidad de anuncios», al final de Inicio.'));
           return false;
         }
         // Sin relleno de AdMob, sin red, o el usuario cerró el vídeo antes de
@@ -435,7 +433,7 @@ export default function App() {
         // diagnóstico: al jugador no le dice nada y ensucia el aviso.
         const why = CONFIG.DIAG ? getLastAdError() : '';
         setAdMsg(
-          'Ahora mismo no hay ningún anuncio disponible. Prueba de nuevo en unos minutos.' +
+          t('Ahora mismo no hay ningún anuncio disponible. Prueba de nuevo en unos minutos.') +
           (why ? `\n(${why})` : '')
         );
         return false;
@@ -445,7 +443,7 @@ export default function App() {
       logAdWatched();
       return true;
     } catch (_) {
-      setAdMsg('No se ha podido cargar el anuncio. Prueba de nuevo en unos minutos.');
+      setAdMsg(t('No se ha podido cargar el anuncio. Prueba de nuevo en unos minutos.'));
       return false;
     } finally {
       unlockingRef.current = false;
@@ -891,6 +889,8 @@ export default function App() {
   async function onNicknameDone(nick) {
     try {
       const saved = await saveNickname(nick);
+      // Piloto de bienvenida (común al azar): sin esperar, nunca bloquea.
+      grantStarterAvatar();
       setNickname(saved);
       logOnboardingComplete();
       setScreen('home');
@@ -926,7 +926,10 @@ export default function App() {
       submitSectorSplits(sectorSplits).then(() => getSectorBests(todayKey())).then(setSectorBests).catch(() => {});
     }
     try {
-      const { isBest, prevMs } = await submitTime(ms);
+      // Tiempo + traza juntos (ver submitLap en api.js): la traza de tu mejor
+      // vuelta, la que los demás ven como coche del líder si vas 1.º, ya se
+      // guarda en la misma llamada.
+      const { isBest, prevMs } = await submitLap(ms, trace);
       let streak = null;
       try { streak = await bumpStreak(); } catch (_) {}
       claimDailyReward().catch(() => {}); // monedas de racha si toca hoy (idempotente en servidor)
@@ -939,10 +942,6 @@ export default function App() {
       maybeOfferPush();
       afterDailyLap({ ms, isBest, prevMs, impacts, sectorColors, sectorDeltas });
       if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs); // fire-and-forget: avisa a quien adelantaste
-      // Sube la traza de tu mejor vuelta para que, si vas 1.º, los demás
-      // puedan correr contra tu coche. Mismo disparador que el aviso de
-      // adelantamiento y también fire-and-forget: el tiempo ya está a salvo.
-      if (isBest && trace) submitDailyRun(ms, trace, todayKey()).catch(() => {});
       // Valoración: mejorar tu propia marca es el mejor momento del diario
       // para pedirla (ver src/rate.js). Va después de pintar el resultado,
       // para que el diálogo del sistema caiga sobre la pantalla de Resultado
@@ -967,7 +966,7 @@ export default function App() {
     const { ms, trace, impacts, sectorColors, sectorDeltas } = result;
     setResult((r) => ({ ...r, submitting: true, error: false }));
     try {
-      const { isBest, prevMs } = await submitTime(ms);
+      const { isBest, prevMs } = await submitLap(ms, trace);
       let streak = null;
       try { streak = await bumpStreak(); } catch (_) {}
       claimDailyReward().catch(() => {});
@@ -976,7 +975,6 @@ export default function App() {
       maybeOfferPush();
       afterDailyLap({ ms, isBest, prevMs, impacts, sectorColors, sectorDeltas });
       if (PUSH_ENABLED && isBest) notifyOvertakes(ms, prevMs);
-      if (isBest && trace) submitDailyRun(ms, trace, todayKey()).catch(() => {});
       noteRaceFinished(isBest);
     } catch (e) {
       setResult({ ms, isBest: false, submitting: false, error: true, trace, impacts, sectorColors, sectorDeltas });
@@ -997,14 +995,14 @@ export default function App() {
     return (
       <View style={styles.centerScreen}>
         <StatusBar hidden />
-        <Text style={styles.errTitle}>Nueva versión disponible</Text>
-        <Text style={styles.errSub}>Hay que actualizar Apexly para seguir jugando.</Text>
+        <Text style={styles.errTitle}>{t('Nueva versión disponible')}</Text>
+        <Text style={styles.errSub}>{t('Hay que actualizar Apexly para seguir jugando.')}</Text>
         {storeUrl ? (
           <Pressable style={styles.primaryBtn} onPress={() => Linking.openURL(storeUrl)}>
-            <Text style={styles.primaryBtnText}>Actualizar</Text>
+            <Text style={styles.primaryBtnText}>{t('Actualizar')}</Text>
           </Pressable>
         ) : (
-          <Text style={styles.errSub}>Búscalo como "Apexly" en la tienda de tu móvil.</Text>
+          <Text style={styles.errSub}>{t('Búscalo como "Apexly" en la tienda de tu móvil.')}</Text>
         )}
       </View>
     );
@@ -1014,10 +1012,10 @@ export default function App() {
     return (
       <View style={styles.centerScreen}>
         <StatusBar hidden />
-        <Text style={styles.errTitle}>No hay conexión</Text>
-        <Text style={styles.errSub}>No se pudo conectar con el servidor.</Text>
+        <Text style={styles.errTitle}>{t('No hay conexión')}</Text>
+        <Text style={styles.errSub}>{t('No se pudo conectar con el servidor.')}</Text>
         <Pressable style={styles.primaryBtn} onPress={() => { setScreen('loading'); setRetry((r) => r + 1); }}>
-          <Text style={styles.primaryBtnText}>Reintentar</Text>
+          <Text style={styles.primaryBtnText}>{t('Reintentar')}</Text>
         </Pressable>
       </View>
     );
@@ -1266,7 +1264,7 @@ export default function App() {
     const isDuel = nomoreReturn === 'duel-race';
     return (
       <NoMoreAttempts
-        title={isGp ? 'SIN INTENTOS EN ESTA RONDA' : isCareer ? 'SIN INTENTOS EN ESTE NIVEL' : isDuel ? 'SIN INTENTOS EN ESTE DUELO' : 'SIN INTENTOS POR HOY'}
+        title={t(isGp ? 'SIN INTENTOS EN ESTA RONDA' : isCareer ? 'SIN INTENTOS EN ESTE NIVEL' : isDuel ? 'SIN INTENTOS EN ESTE DUELO' : 'SIN INTENTOS POR HOY')}
         adBatch={isGp ? GP_AD_BATCH : isCareer ? CAREER_AD_BATCH : isDuel ? 1 : AD_BATCH}
         unlocking={unlocking}
         adMsg={adMsg}
@@ -1314,7 +1312,7 @@ export default function App() {
       wallet={wallet}
       duelAlerts={duels ? duels.active.filter((d) => (d.status === 'pending' && d.role === 'incoming') || (d.status === 'accepted' && !d.myRunDone)).length : 0}
       onOpenProfile={() => setScreen('perfil')}
-      tour={tourOn ? <Tour steps={TOUR_STEPS} onDone={() => setTourDone(true)} /> : null}
+      tour={tourOn ? <Tour steps={tourSteps()} onDone={() => setTourDone(true)} /> : null}
     >
       {whatsNew && (
         <WhatsNewModal
@@ -1437,44 +1435,45 @@ function StreakPath({ current }) {
 // racha >= 1) — así que enseña el MISMO componente con una racha de ejemplo.
 // Compartir no está: vive en la pantalla de Resultado y no tiene sentido
 // explicarlo antes de haber corrido una vuelta.
-const TOUR_STEPS = [
+// Función y no constante: los textos se traducen al pintar (ver src/i18n.js).
+const tourSteps = () => [
   {
-    title: 'Ya tienes tu primer tiempo',
-    body: 'Cada día se genera un circuito nuevo, y es el mismo para todo el mundo. Mismo trazado, mismo clima, mismas condiciones: gana quien mejor lo conduzca.\n\nTe enseño el resto en medio minuto.',
+    title: t('Ya tienes tu primer tiempo'),
+    body: t('Cada día se genera un circuito nuevo, y es el mismo para todo el mundo. Mismo trazado, mismo clima, mismas condiciones: gana quien mejor lo conduzca.\n\nTe enseño el resto en medio minuto.'),
   },
   {
     target: 'circuito',
-    title: 'El circuito de hoy',
-    body: 'Cambia cada 24 horas. Debajo del nombre tienes el tiempo de referencia de una vuelta limpia y el clima, que afecta al agarre y a la velocidad punta. El número de la esquina son los intentos que te quedan hoy.',
+    title: t('El circuito de hoy'),
+    body: t('Cambia cada 24 horas. Debajo del nombre tienes el tiempo de referencia de una vuelta limpia y el clima, que afecta al agarre y a la velocidad punta. El número de la esquina son los intentos que te quedan hoy.'),
   },
   {
     target: 'cta',
-    title: 'Tu vuelta',
-    body: 'Vuelve a correr cuando quieras: el coche acelera solo y tú giras, tocando el lado izquierdo o derecho. Cuanto más fuerte giras, más frena — trazar bien es ir rápido.\n\nTienes 3 intentos al día; cuando se acaben puedes ver un anuncio para conseguir más.',
+    title: t('Tu vuelta'),
+    body: t('Vuelve a correr cuando quieras: el coche acelera solo y tú giras, tocando el lado izquierdo o derecho. Cuanto más fuerte giras, más frena — trazar bien es ir rápido.\n\nTienes 3 intentos al día; cuando se acaben puedes ver un anuncio para conseguir más.'),
   },
   {
     target: 'ranking',
-    title: 'Ranking global',
-    body: 'Tu mejor tiempo del día entra aquí solo. Compites contra todos los que han corrido exactamente el mismo circuito que tú, y al cerrar el día los primeros se llevan monedas.\n\nEn la pestaña RANKING tienes la clasificación completa del día, y también la del mes: puntúa cada día como en la F1, y el 50% mejor se lleva un premio grande en monedas al cerrar el mes.',
+    title: t('Ranking global'),
+    body: t('Tu mejor tiempo del día entra aquí solo. Compites contra todos los que han corrido exactamente el mismo circuito que tú, y al cerrar el día los primeros se llevan monedas.\n\nEn la pestaña RANKING tienes la clasificación completa del día, y también la del mes: puntúa cada día como en la F1, y el 50% mejor se lleva un premio grande en monedas al cerrar el mes.'),
   },
   {
-    title: 'La racha',
+    title: t('La racha'),
     demo: <StreakPath current={3} />,
     // JC, 2026-09-17: "poner lo del icono de las monedas" — el texto
     // repetía en palabras ("monedas — 5, 10, 15, 20") lo que el demo de
     // arriba ya enseña con el icono real desde que se rediseñó el banner
     // (App.js, StreakPath). Apunta al icono en vez de recitar los números.
-    body: 'Corre al menos una vuelta cada día y la racha sube. El icono de cada casilla es lo que ganas ese día — cada vez más — y el séptimo cae un sobre con piezas para el coche.\n\nSi te saltas un día, vuelve a empezar de cero.',
+    body: t('Corre al menos una vuelta cada día y la racha sube. El icono de cada casilla es lo que ganas ese día — cada vez más — y el séptimo cae un sobre con piezas para el coche.\n\nSi te saltas un día, vuelve a empezar de cero.'),
   },
   {
     target: 'tab-amigos',
-    title: 'Grand Prix',
-    body: 'Crea un grupo de al menos 3 amigos y arrancad un Grand Prix: 7 circuitos exclusivos vuestros, uno por día. Sectores morado y verde en vivo contra el mejor tiempo del grupo, punto extra por vuelta rápida, y puntos de F1 (25-18-15…) para la clasificación general — con premio en monedas para el podio al terminar la temporada.',
+    title: t('Grand Prix'),
+    body: t('Crea un grupo de al menos 3 amigos y arrancad un Grand Prix: 7 circuitos exclusivos vuestros, uno por día. Sectores morado y verde en vivo contra el mejor tiempo del grupo, punto extra por vuelta rápida, y puntos de F1 (25-18-15…) para la clasificación general — con premio en monedas para el podio al terminar la temporada.'),
   },
   {
     target: 'perfil',
-    title: 'Perfil, garaje, tienda y carrera',
-    body: 'Aquí ves tus estadísticas y entras al Garaje, para personalizar el coche, a la Tienda, donde se gastan las monedas en sobres, y al Modo Carrera: 30 niveles en solitario de dificultad creciente, cada uno con un tiempo objetivo que desbloquea el siguiente.',
+    title: t('Perfil, garaje, tienda y carrera'),
+    body: t('Aquí ves tus estadísticas y entras al Garaje, para personalizar el coche, a la Tienda, donde se gastan las monedas en sobres, y al Modo Carrera: 30 niveles en solitario de dificultad creciente, cada uno con un tiempo objetivo que desbloquea el siguiente.'),
   },
 ];
 
@@ -1486,7 +1485,7 @@ function RecapModal({ rewards, onClose }) {
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={rd.recapBackdrop}>
         <View style={rd.recapCard}>
-          <Text style={rd.recapTitle}>PREMIOS DE AYER</Text>
+          <Text style={rd.recapTitle}>{t('PREMIOS DE AYER')}</Text>
           <View style={rd.recapAmount}>
             <Text style={rd.recapTotal}>+{total}</Text>
             <CoinIcon size={32} />
@@ -1494,7 +1493,7 @@ function RecapModal({ rewards, onClose }) {
           <View style={rd.recapRows}>
             {rewards.streak > 0 && (
               <View style={rd.recapRow}>
-                <Text style={rd.recapRowLabel}>Racha diaria</Text>
+                <Text style={rd.recapRowLabel}>{t('Racha diaria')}</Text>
                 <View style={rd.recapAmount}>
                   <Text style={rd.recapRowValue}>+{rewards.streak}</Text>
                   <CoinIcon size={13} />
@@ -1503,7 +1502,7 @@ function RecapModal({ rewards, onClose }) {
             )}
             {rewards.ranking > 0 && (
               <View style={rd.recapRow}>
-                <Text style={rd.recapRowLabel}>Posición en el ranking</Text>
+                <Text style={rd.recapRowLabel}>{t('Posición en el ranking')}</Text>
                 <View style={rd.recapAmount}>
                   <Text style={rd.recapRowValue}>+{rewards.ranking}</Text>
                   <CoinIcon size={13} />
@@ -1512,7 +1511,7 @@ function RecapModal({ rewards, onClose }) {
             )}
           </View>
           <Pressable style={rd.recapBtn} onPress={onClose}>
-            <Text style={rd.recapBtnText}>GENIAL</Text>
+            <Text style={rd.recapBtnText}>{t('GENIAL')}</Text>
           </Pressable>
         </View>
       </View>
@@ -1529,13 +1528,13 @@ function WhatsNewModal({ onClose }) {
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={rd.recapBackdrop}>
         <View style={rd.whatsNewCard}>
-          <Text style={rd.recapTitle}>NOVEDADES · v{WHATS_NEW_VERSION}</Text>
+          <Text style={rd.recapTitle}>{t('NOVEDADES · v{v}', { v: WHATS_NEW_VERSION })}</Text>
           <View style={rd.whatsNewHero}>
             <AvatarThumb pilotAvatarId="legendario" size={110} />
           </View>
-          <Text style={rd.whatsNewTitle}>{WHATS_NEW_TITLE}</Text>
+          <Text style={rd.whatsNewTitle}>{whatsNewTitle()}</Text>
           <View style={rd.whatsNewList}>
-            {WHATS_NEW_ITEMS.map((item) => (
+            {whatsNewItems().map((item) => (
               <View key={item.title} style={rd.whatsNewItem}>
                 <Text style={rd.whatsNewItemTitle}>{item.title}</Text>
                 <Text style={rd.whatsNewItemBody}>{item.body}</Text>
@@ -1543,7 +1542,7 @@ function WhatsNewModal({ onClose }) {
             ))}
           </View>
           <Pressable style={rd.recapBtn} onPress={onClose}>
-            <Text style={rd.recapBtnText}>VAMOS</Text>
+            <Text style={rd.recapBtnText}>{t('VAMOS')}</Text>
           </Pressable>
         </View>
       </View>
@@ -1577,28 +1576,28 @@ function DuelWaitScreen({ duelId, submitError, onReady, onBack, onRetry }) {
       {submitError ? (
         <>
           <Text style={{ color: RD.danger, fontSize: 18, fontFamily: RD_FONT.displayBlack, textTransform: 'uppercase', textAlign: 'center' }}>
-            No se pudo enviar tu vuelta
+            {t('No se pudo enviar tu vuelta')}
           </Text>
           <Text style={{ color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' }}>
-            Puede que sí se haya guardado y solo se perdiera la confirmación — seguimos esperando por si acaso. Si tienes tiempo, también puedes volver a correr.
+            {t('Puede que sí se haya guardado y solo se perdiera la confirmación — seguimos esperando por si acaso. Si tienes tiempo, también puedes volver a correr.')}
           </Text>
           <Pressable style={{ backgroundColor: RD.brand, borderRadius: 2, paddingVertical: 13, paddingHorizontal: 22, marginTop: 6 }} onPress={onRetry}>
-            <Text style={{ color: RD.bg, fontSize: 14, fontFamily: RD_FONT.displayBlack, letterSpacing: 0.6 }}>VOLVER A CORRER</Text>
+            <Text style={{ color: RD.bg, fontSize: 14, fontFamily: RD_FONT.displayBlack, letterSpacing: 0.6 }}>{t('VOLVER A CORRER')}</Text>
           </Pressable>
         </>
       ) : (
         <>
           <ActivityIndicator color={RD.brand} />
           <Text style={{ color: RD.textPrimary, fontSize: 18, fontFamily: RD_FONT.displayBlack, textTransform: 'uppercase', textAlign: 'center' }}>
-            Esperando a tu rival
+            {t('Esperando a tu rival')}
           </Text>
           <Text style={{ color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, textAlign: 'center' }}>
-            Tu vuelta ya está guardada. En cuanto corra, se revela el resultado.
+            {t('Tu vuelta ya está guardada. En cuanto corra, se revela el resultado.')}
           </Text>
         </>
       )}
       <Pressable onPress={onBack} hitSlop={12}>
-        <Text style={{ color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, marginTop: 10 }}>‹ VOLVER A INICIO</Text>
+        <Text style={{ color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono, marginTop: 10 }}>{t('‹ VOLVER A INICIO')}</Text>
       </Pressable>
     </View>
   );
@@ -1620,7 +1619,7 @@ function DiarioTab({
 
       {challenge && (
         <Pressable style={rd.challengeBanner} onPress={onCloseChallenge}>
-          <Text style={rd.challengeBannerText}>RETO · bate los {fmtTime(challenge.ms)}</Text>
+          <Text style={rd.challengeBannerText}>{t('RETO · bate los {time}', { time: fmtTime(challenge.ms) })}</Text>
         </Pressable>
       )}
 
@@ -1645,7 +1644,7 @@ function DiarioTab({
                 mostrar el día absoluto de la racha en vez de la posición
                 1-7 del ciclo — el número ya está debajo, no hace falta
                 repetirlo. */}
-            <Text style={rd.labelMono}>TU RACHA · SEMANA {Math.ceil(myStreak.current / 7)}</Text>
+            <Text style={rd.labelMono}>{t('TU RACHA · SEMANA {n}', { n: Math.ceil(myStreak.current / 7) })}</Text>
           </View>
           <StreakPath current={myStreak?.current} />
         </View>
@@ -1655,39 +1654,41 @@ function DiarioTab({
           con su padre y deja de ser medible — el tour necesita medirla. */}
       <View style={rd.panel} ref={tourRef('circuito')} collapsable={false}>
         <View style={rd.panelHeadRow}>
-          <Text style={rd.labelMono}>CIRCUITO DE HOY</Text>
+          <Text style={rd.labelMono}>{t('CIRCUITO DE HOY')}</Text>
           <View style={rd.attBadge}>
             <Text style={rd.attBadgeText}>{unlimited ? '∞' : `${Math.max(0, left)}/${total}`}</Text>
           </View>
         </View>
-        <Text style={rd.trackName}>{daily.label}</Text>
-        <Text style={rd.trackDesc}>Objetivo: ~{Math.round(daily.timeEstimate)}s en limpio</Text>
+        <Text style={rd.trackName}>{tParts(daily.label)}</Text>
+        <Text style={rd.trackDesc}>{t('Objetivo: ~{s}s en limpio', { s: Math.round(daily.timeEstimate) })}</Text>
         <View style={rd.wxRow}>
           <View style={rd.wxDot} />
-          <Text style={rd.wxText}>{weather.label.toUpperCase()} · {weather.hint}</Text>
+          <Text style={rd.wxText}>{t(weather.label).toUpperCase()} · {t(weather.hint)}</Text>
         </View>
       </View>
 
-      {dayChallenge && <DayChallengeCard c={dayChallenge} />}
-
       <Text style={rd.countdown}>
-        Próximo circuito en <Text style={rd.countdownValue}>{midnightLabel}</Text>
+        {t('Próximo circuito en')} <Text style={rd.countdownValue}>{midnightLabel}</Text>
       </Text>
 
       <Pressable style={rd.cta} onPress={tryPlay} ref={tourRef('cta')} collapsable={false}>
-        <Text style={rd.ctaText}>{unlimited || left > 0 ? 'Jugar' : `Ver anuncio · +${intentosTxt(AD_BATCH)}`}</Text>
+        <Text style={rd.ctaText}>{unlimited || left > 0 ? t('Jugar') : t('Ver anuncio · +{n}', { n: intentosTxt(AD_BATCH) })}</Text>
       </Pressable>
+
+      {/* Debajo de Jugar, no encima (auditoría, 2026-10-05): encima empujaba
+          el botón principal fuera de la pantalla en móviles pequeños. */}
+      {dayChallenge && <DayChallengeCard c={dayChallenge} />}
 
       {/* Ranking GLOBAL completo — vive aquí (es el del reto diario), no en
           Amigos (que ahora es solo grupos/Grand Prix). */}
       <View style={rd.rankingBlock} ref={tourRef('ranking')} collapsable={false}>
-        <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING GLOBAL DE HOY</Text>
+        <Text style={[rd.labelMono, { marginTop: 4 }]}>{t('RANKING GLOBAL DE HOY')}</Text>
         <MiniRanking refreshKey={refreshKey} showTabs={false} onOpenPlayer={onOpenPlayer} />
       </View>
 
       {privacyOptional && (
         <Pressable style={rd.privacyLink} onPress={() => showPrivacyOptions()} hitSlop={8}>
-          <Text style={rd.privacyLinkText}>Privacidad de anuncios</Text>
+          <Text style={rd.privacyLinkText}>{t('Privacidad de anuncios')}</Text>
         </Pressable>
       )}
     </>
@@ -1700,12 +1701,12 @@ function DiarioTab({
 function dayChallengeNote(c) {
   if (c.done) return null;
   if (c.id === 'rival' && c.rival) {
-    if (c.rivalMs == null) return `${c.rival.nickname} aún no ha corrido hoy: en cuanto lo haga, tendrás su tiempo a batir.`;
-    if (c.myMs == null) return `Su tiempo de hoy: ${fmtTime(c.rivalMs)}`;
-    return `Te faltan ${fmtSecs(c.myMs - c.rivalMs)}s · su tiempo: ${fmtTime(c.rivalMs)}`;
+    if (c.rivalMs == null) return t('{name} aún no ha corrido hoy: en cuanto lo haga, tendrás su tiempo a batir.', { name: c.rival.nickname });
+    if (c.myMs == null) return t('Su tiempo de hoy: {time}', { time: fmtTime(c.rivalMs) });
+    return t('Te faltan {gap}s · su tiempo: {time}', { gap: fmtSecs(c.myMs - c.rivalMs), time: fmtTime(c.rivalMs) });
   }
   if (c.id === 'medio' && c.firstMs != null) {
-    return `Tu primera vuelta: ${fmtTime(c.firstMs)} · necesitas ${fmtTime(c.firstMs - 500)}`;
+    return t('Tu primera vuelta: {first} · necesitas {target}', { first: fmtTime(c.firstMs), target: fmtTime(c.firstMs - 500) });
   }
   return null;
 }
@@ -1718,7 +1719,7 @@ function DayChallengeCard({ c }) {
     <View style={[rd.dayCh, c.done && rd.dayChDone]}>
       <View style={rd.panelHeadRow}>
         <Text style={[rd.labelMono, c.done && { color: RD.successGreen }]}>
-          {c.done ? (c.justDone ? '¡RETO DEL DÍA CUMPLIDO!' : 'RETO DEL DÍA · CUMPLIDO') : 'RETO DEL DÍA'}
+          {t(c.done ? (c.justDone ? '¡RETO DEL DÍA CUMPLIDO!' : 'RETO DEL DÍA · CUMPLIDO') : 'RETO DEL DÍA')}
         </Text>
         <View style={rd.dayChCoins}>
           <Text style={[rd.dayChCoinsText, c.done && { color: RD.successGreen }]}>+{c.coins}</Text>
@@ -1812,7 +1813,7 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
       await refresh();
       onOpenGroup(g);
     } catch (e) {
-      setMsg({ type: 'err', text: 'No se pudo crear el grupo.' });
+      setMsg({ type: 'err', text: t('No se pudo crear el grupo.') });
     } finally { setBusy(false); }
   }
 
@@ -1830,7 +1831,7 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
       onOpenGroup(g);
     } catch (e) {
       const notFound = String(e?.message || '').includes('GROUP_NOT_FOUND');
-      setMsg({ type: 'err', text: notFound ? 'Ese código no existe.' : 'No se pudo unir al grupo.' });
+      setMsg({ type: 'err', text: notFound ? t('Ese código no existe.') : t('No se pudo unir al grupo.') });
     } finally { setBusy(false); }
   }
 
@@ -1844,7 +1845,7 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
 
       {groups.length > 0 && (
         <>
-          <Text style={rd.groupsLabel}>TUS GRUPOS</Text>
+          <Text style={rd.groupsLabel}>{t('TUS GRUPOS')}</Text>
           <View style={rd.groupsList}>
             {groups.map((g) => (
               <Pressable key={g.id} style={rd.groupCard} onPress={() => onOpenGroup(g)}>
@@ -1852,9 +1853,9 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
                 <View style={rd.groupRow}>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={rd.groupName} numberOfLines={1}>{g.name}</Text>
-                    <Text style={rd.groupCode}>CÓDIGO {g.join_code}</Text>
+                    <Text style={rd.groupCode}>{t('CÓDIGO {code}', { code: g.join_code })}</Text>
                   </View>
-                  <Text style={rd.groupOpenHint}>ABRIR ›</Text>
+                  <Text style={rd.groupOpenHint}>{t('ABRIR ›')}</Text>
                 </View>
               </Pressable>
             ))}
@@ -1863,25 +1864,25 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
       )}
 
       <View style={rd.panel}>
-        <Text style={rd.labelMono}>CREAR UN GRUPO</Text>
+        <Text style={rd.labelMono}>{t('CREAR UN GRUPO')}</Text>
         <Animated.View style={{ transform: [{ translateX: nameShake.interpolate({ inputRange: [-1, 1], outputRange: [-8, 8] }) }] }}>
           <TextInput
             ref={nameRef}
             style={rd.input}
             value={name}
             onChangeText={setName}
-            placeholder="Nombre del grupo"
+            placeholder={t('Nombre del grupo')}
             placeholderTextColor={RD.textDisabled}
             maxLength={24}
           />
         </Animated.View>
         <Pressable style={[rd.cta, busy && rd.ctaDisabled]} onPress={doCreate} disabled={busy}>
-          <Text style={rd.ctaText}>Crear</Text>
+          <Text style={rd.ctaText}>{t('Crear')}</Text>
         </Pressable>
       </View>
 
       <View style={rd.panel}>
-        <Text style={rd.labelMono}>UNIRSE CON CÓDIGO</Text>
+        <Text style={rd.labelMono}>{t('UNIRSE CON CÓDIGO')}</Text>
         <TextInput
           style={[rd.input, rd.inputMono]}
           value={code}
@@ -1892,7 +1893,7 @@ function AmigosTab({ refreshKey, onOpenGroup }) {
           maxLength={6}
         />
         <Pressable style={[rd.secondaryBtnBig, (!code.trim() || busy) && rd.ctaDisabled]} onPress={doJoin} disabled={!code.trim() || busy}>
-          <Text style={rd.secondaryBtnBigText}>Unirme</Text>
+          <Text style={rd.secondaryBtnBigText}>{t('Unirme')}</Text>
         </Pressable>
       </View>
     </View>
@@ -1964,20 +1965,20 @@ function AppShell({ tab, setTab, nickname, wallet, duelAlerts = 0, onOpenProfile
           useSafeAreaInsets() y no se aplicaba bien — esto es el patrón
           estándar de RN para exactamente este problema, más fiable). */}
       <SafeAreaView edges={['bottom']} style={rd.tabBar}>
-        {TABS.map((t) => (
+        {TABS.map((tb) => (
           <Pressable
-            key={t.id}
+            key={tb.id}
             style={rd.tabBarBtn}
-            onPress={() => setTab(t.id)}
+            onPress={() => setTab(tb.id)}
             hitSlop={4}
-            ref={tourRef(`tab-${t.id}`)}
+            ref={tourRef(`tab-${tb.id}`)}
             collapsable={false}
           >
             <View style={rd.tabBarLabelRow}>
-              <Text style={[rd.tabBarBtnText, tab === t.id && rd.tabBarBtnTextActive]}>{t.label}</Text>
-              {t.id === 'duelos' && duelAlerts > 0 && tab !== 'duelos' && <View style={rd.tabBarBadge} />}
+              <Text style={[rd.tabBarBtnText, tab === tb.id && rd.tabBarBtnTextActive]}>{t(tb.label)}</Text>
+              {tb.id === 'duelos' && duelAlerts > 0 && tab !== 'duelos' && <View style={rd.tabBarBadge} />}
             </View>
-            {tab === t.id && <View style={rd.tabBarIndicator} />}
+            {tab === tb.id && <View style={rd.tabBarIndicator} />}
           </Pressable>
         ))}
       </SafeAreaView>
@@ -2120,17 +2121,17 @@ const rd = StyleSheet.create({
   whatsNewList: { gap: 16, marginBottom: 6 },
   whatsNewItem: { gap: 3 },
   whatsNewItemTitle: { color: RD.gold1st, fontSize: 13, fontFamily: RD_FONT.monoBold },
-  whatsNewItemBody: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, lineHeight: 17 },
+  whatsNewItemBody: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.body, lineHeight: 20 },
 
   panel: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 8 },
   panelHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  labelMono: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1.4 },
+  labelMono: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 1.2 },
   dayCh: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 6 },
   dayChDone: { borderColor: RD.successGreen },
   dayChCoins: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   dayChCoinsText: { color: RD.textPrimary, fontSize: 12, fontFamily: RD_FONT.monoBold },
   dayChTitle: { color: RD.textPrimary, fontSize: 18, fontFamily: RD_FONT.displayBlack, textTransform: 'uppercase' },
-  dayChDesc: { color: RD.textSecondary, fontSize: 13, lineHeight: 18 },
+  dayChDesc: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.body, lineHeight: 20 },
   dayChNote: { color: RD.trackBlue, fontSize: 12, fontFamily: RD_FONT.mono, lineHeight: 17 },
   attBadge: { backgroundColor: RD.cream, paddingHorizontal: 6, paddingVertical: 3 },
   attBadgeText: { color: RD.bg, fontSize: 10, fontFamily: RD_FONT.monoBold },
@@ -2197,7 +2198,7 @@ const rd = StyleSheet.create({
     borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
     paddingVertical: 12, paddingHorizontal: 14, gap: 10,
   },
-  pushOfferText: { color: RD.textSecondary, fontSize: 13, fontFamily: RD_FONT.mono, lineHeight: 19 },
+  pushOfferText: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.body, lineHeight: 20 },
   pushOfferBtns: { flexDirection: 'row', alignItems: 'center', gap: 18 },
   pushOfferYes: { backgroundColor: RD.brand, borderRadius: 2, paddingHorizontal: 16, paddingVertical: 9 },
   pushOfferYesText: { color: RD.bg, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.4 },
@@ -2290,28 +2291,28 @@ function NoMoreAttempts({ title = 'SIN INTENTOS POR HOY', adBatch = AD_BATCH, un
       <DangerStripe height={6} />
       <View style={rd.onboardWrap}>
         <View style={rd.panel}>
-          <Text style={rd.labelMono}>{title}</Text>
+          <Text style={rd.labelMono}>{t(title)}</Text>
           <Text style={rd.noAttemptsBody}>
-            Has usado tus intentos gratis. Mira un anuncio y sigue intentando bajar tu tiempo — te da {intentosTxt(adBatch)} más.
+            {t('Has usado tus intentos gratis. Mira un anuncio y sigue intentando bajar tu tiempo — te da {n} más.', { n: intentosTxt(adBatch) })}
           </Text>
           <Pressable
             style={[rd.cta, unlocking && rd.ctaDisabled]}
             disabled={unlocking}
             onPress={onWatchAd}
           >
-            <Text style={rd.ctaText}>{unlocking ? 'Cargando anuncio…' : `Ver anuncio · +${intentosTxt(adBatch)}`}</Text>
+            <Text style={rd.ctaText}>{unlocking ? t('Cargando anuncio…') : t('Ver anuncio · +{n}', { n: intentosTxt(adBatch) })}</Text>
           </Pressable>
           {!!adMsg && !unlocking && <Text style={rd.noAttemptsMsg}>{adMsg}</Text>}
         </View>
 
         {IAP_AVAILABLE && (
           <>
-            <Text style={rd.orDivider}>O BIEN</Text>
+            <Text style={rd.orDivider}>{t('O BIEN')}</Text>
 
             <View style={rd.panel}>
-              <Text style={rd.labelMono}>SIN LÍMITES</Text>
+              <Text style={rd.labelMono}>{t('SIN LÍMITES')}</Text>
               <Text style={rd.noAttemptsBody}>
-                Intentos ilimitados para siempre, sin ver anuncios. Compra única.
+                {t('Intentos ilimitados para siempre, sin ver anuncios. Compra única.')}
               </Text>
               <Pressable
                 style={[rd.secondaryBtnBig, buying && rd.ctaDisabled]}
@@ -2319,7 +2320,7 @@ function NoMoreAttempts({ title = 'SIN INTENTOS POR HOY', adBatch = AD_BATCH, un
                 onPress={onBuyUnlimited}
               >
                 <Text style={rd.secondaryBtnBigText}>
-                  {buying ? 'Procesando…' : `Ilimitado para siempre · ${unlimitedPrice || UNLIMITED_FALLBACK_PRICE}`}
+                  {buying ? t('Procesando…') : t('Ilimitado para siempre · {price}', { price: unlimitedPrice || UNLIMITED_FALLBACK_PRICE })}
                 </Text>
               </Pressable>
             </View>
@@ -2327,7 +2328,7 @@ function NoMoreAttempts({ title = 'SIN INTENTOS POR HOY', adBatch = AD_BATCH, un
         )}
 
         <Pressable style={{ marginTop: 4 }} onPress={onBack}>
-          <Text style={rd.noAttemptsSkip}>Ahora no</Text>
+          <Text style={rd.noAttemptsSkip}>{t('Ahora no')}</Text>
         </Pressable>
       </View>
     </ScrollView>
@@ -2350,7 +2351,7 @@ function Onboarding({ onDone }) {
     try {
       await onDone(value);
     } catch (e) {
-      setError(e?.code === 'NICKNAME_TAKEN' ? e.message : 'No se pudo guardar. Inténtalo de nuevo.');
+      setError(e?.code === 'NICKNAME_TAKEN' ? e.message : t('No se pudo guardar. Inténtalo de nuevo.'));
       setSaving(false);
     }
   }
@@ -2362,16 +2363,16 @@ function Onboarding({ onDone }) {
       <View style={rd.onboardWrap}>
         <View style={rd.onboardBrand}>
           <Text style={rd.onboardTitle}>APEX<Text style={{ color: RD.brand }}>LY</Text></Text>
-          <Text style={rd.onboardTagline}>CIRCUITO DIARIO</Text>
+          <Text style={rd.onboardTagline}>{t('CIRCUITO DIARIO')}</Text>
         </View>
 
         <View style={rd.panel}>
-          <Text style={rd.labelMono}>¿CÓMO TE LLAMAMOS?</Text>
+          <Text style={rd.labelMono}>{t('¿CÓMO TE LLAMAMOS?')}</Text>
           <TextInput
             style={rd.input}
             value={value}
             onChangeText={(v) => { setValue(v); if (error) setError(''); }}
-            placeholder="Tu nombre"
+            placeholder={t('Tu nombre')}
             placeholderTextColor={RD.textDisabled}
             maxLength={16}
             autoFocus
@@ -2385,7 +2386,7 @@ function Onboarding({ onDone }) {
             disabled={!ok || saving}
             onPress={submit}
           >
-            <Text style={rd.ctaText}>{saving ? 'Guardando…' : 'Empezar'}</Text>
+            <Text style={rd.ctaText}>{saving ? t('Guardando…') : t('Empezar')}</Text>
           </Pressable>
         </View>
       </View>
@@ -2397,7 +2398,7 @@ function Onboarding({ onDone }) {
 // en Resultado): rotan al azar para que no se repita siempre la misma. `gap`
 // llega ya formateado (p.ej. "0.120", sin "s") y siempre se pinta en azul
 // junto a la "s"; el resto del texto en blanco (ver rd.resultChase/-Time).
-const CHASE_LINES = [
+const CHASE_LINES = { es: [
   (gap, rival) => <>Estás a solo <Text style={rd.resultChaseTime}>{gap}s</Text> de {rival} · ¿no quieres quitarle el puesto?</>,
   (gap, rival) => <>{rival} te saca solo <Text style={rd.resultChaseTime}>{gap}s</Text> — una curva mejor tomada y es tuyo.</>,
   (gap, rival) => <>A <Text style={rd.resultChaseTime}>{gap}s</Text> de quitarle el puesto a {rival}. Con una vuelta más lo tienes.</>,
@@ -2410,19 +2411,39 @@ const CHASE_LINES = [
   (gap, rival) => <>{rival} va <Text style={rd.resultChaseTime}>{gap}s</Text> por delante. Te ve por el retrovisor.</>,
   (gap, rival) => <>Solo <Text style={rd.resultChaseTime}>{gap}s</Text> te separan de {rival} — mantén pulsado para tomar las horquillas.</>,
   (gap, rival) => <>{rival} está a tu alcance: <Text style={rd.resultChaseTime}>{gap}s</Text>, ni un suspiro.</>,
-];
+], en: [
+  (gap, rival) => <>You're just <Text style={rd.resultChaseTime}>{gap}s</Text> behind {rival} · fancy taking their spot?</>,
+  (gap, rival) => <>{rival} is only <Text style={rd.resultChaseTime}>{gap}s</Text> ahead — one better corner and it's yours.</>,
+  (gap, rival) => <><Text style={rd.resultChaseTime}>{gap}s</Text> away from taking {rival}'s place. One more lap and you've got it.</>,
+  (gap, rival) => <>Only <Text style={rd.resultChaseTime}>{gap}s</Text> between your name and {rival}'s. One more lap.</>,
+  (gap, rival) => <><Text style={rd.resultChaseTime}>{gap}s</Text>. Flash your lights and make them move over. Overtake.</>,
+  (gap, rival) => <>A cleaner line wins you those <Text style={rd.resultChaseTime}>{gap}s</Text> on {rival}.</>,
+  (gap, rival) => <>You need <Text style={rd.resultChaseTime}>{gap}s</Text> to pass {rival} — it's in the braking, not the straights.</>,
+  (gap, rival) => <><Text style={rd.resultChaseTime}>{gap}s</Text> is nothing. {rival} knows it, and so do you.</>,
+  (gap, rival) => <>Tidy up your corner entry and those <Text style={rd.resultChaseTime}>{gap}s</Text> on {rival} will vanish.</>,
+  (gap, rival) => <>{rival} is <Text style={rd.resultChaseTime}>{gap}s</Text> ahead. They can see you in the mirror.</>,
+  (gap, rival) => <>Just <Text style={rd.resultChaseTime}>{gap}s</Text> between you and {rival} — hold the turn through the hairpins.</>,
+  (gap, rival) => <>{rival} is within reach: <Text style={rd.resultChaseTime}>{gap}s</Text>, barely a breath.</>,
+] };
 
 // Banco de frases del bloque "líder del ranking" (junto al mapa con el peor
 // sector en rojo): mismo mecanismo de rotación al azar que CHASE_LINES.
 // `sectorNum` llega en base 1 (S1/S2/S3, igual que las etiquetas de arriba).
-const LEADER_LINES = [
+const LEADER_LINES = { es: [
   (sectorNum) => <>En el mapa puedes ver cuál es tu peor sector respecto al líder de hoy. Trabaja el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> y te pondrás en el podio.</>,
   (sectorNum) => <>El <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> es tu talón de Aquiles hoy — ahí es donde más te saca el líder. Corrígelo y subes al podio.</>,
   (sectorNum) => <>Fíjate en el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text>, en rojo en el mapa: es tu mayor diferencia con el líder de hoy.</>,
   (sectorNum) => <>Todo tu margen para el podio está en el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> — es donde más se aleja el líder.</>,
   (sectorNum) => <>El líder de hoy te saca la diferencia sobre todo en el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text>. Iguálalo ahí y el podio es tuyo.</>,
   (sectorNum) => <>Marcado en rojo: el <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> es tu única barrera para el podio de hoy.</>,
-];
+], en: [
+  (sectorNum) => <>The map shows your worst sector against today's leader. Work on <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> and you'll make the podium.</>,
+  (sectorNum) => <><Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> is your Achilles' heel today — that's where the leader gains most. Fix it and you're on the podium.</>,
+  (sectorNum) => <>Look at <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text>, in red on the map: it's your biggest gap to today's leader.</>,
+  (sectorNum) => <>All your podium margin is in <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> — that's where the leader pulls away.</>,
+  (sectorNum) => <>Today's leader makes the difference mostly in <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text>. Match them there and the podium is yours.</>,
+  (sectorNum) => <>Marked in red: <Text style={rd.resultChaseTime}>Sector {sectorNum}</Text> is the only thing between you and today's podium.</>,
+] };
 
 // Icono de compartir (nodo + 2 enlaces, mismo lenguaje visual que LockIcon en
 // Garage.js: SVG a mano, sin librería de iconos).
@@ -2439,7 +2460,10 @@ function ShareIcon({ color }) {
 }
 
 // Variantes del texto de reto (rotan al azar para no repetirse siempre igual).
-const SHARE_TAGLINES = ['¿Me superas?', 'No creo que la superes.', 'A ver si la bates.'];
+const SHARE_TAGLINES = {
+  es: ['¿Me superas?', 'No creo que la superes.', 'A ver si la bates.'],
+  en: ['Can you beat me?', "I don't think you can beat it.", "Let's see you beat it."],
+};
 
 // Una celda del reveal escalonado: entra con un empujoncito hacia arriba
 // cuando le toca su turno. Solo se revela el VALOR — la etiqueta (S1, TOTAL)
@@ -2536,10 +2560,10 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     const candidates = [];
     if (standing.above) {
       const gapTxt = fmtSecs(standing.above.gapMs);
-      CHASE_LINES.forEach((tpl) => candidates.push(tpl(gapTxt, standing.above.nickname)));
+      pick(CHASE_LINES).forEach((tpl) => candidates.push(tpl(gapTxt, standing.above.nickname)));
     }
     if (showWorstSectorTip) {
-      LEADER_LINES.forEach((tpl) => candidates.push(tpl(worstSectorIdx + 1)));
+      pick(LEADER_LINES).forEach((tpl) => candidates.push(tpl(worstSectorIdx + 1)));
     }
     if (candidates.length === 0) return null;
     return candidates[Math.floor(Math.random() * candidates.length)];
@@ -2674,9 +2698,9 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     return () => { alive = false; };
   }, [standing]);
 
-  const rankText = standing ? `${standing.rank}.º de ${standing.total} en el mundo` : null;
+  const rankText = standing ? t('{rank} de {total} en el mundo', { rank: ord(standing.rank), total: standing.total }) : null;
 
-  const [tagline] = useState(() => SHARE_TAGLINES[Math.floor(Math.random() * SHARE_TAGLINES.length)]);
+  const [tagline] = useState(() => { const l = pick(SHARE_TAGLINES); return l[Math.floor(Math.random() * l.length)]; });
 
   async function shareResult() {
     // El enlace va en el TEXTO, no en la tarjeta: un PNG no puede llevar un
@@ -2689,7 +2713,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     // Ahora va el redirector, que lleva a la tienda a quien no la tiene (ver
     // src/links.js) y arrastra los mismos ms/day para cuando haya App Links.
     const parts = [`Apexly · ${dayShort()} ${wx.icon}`.trim(), fmtTime(result.ms)];
-    if (standing) parts.push(`${standing.rank}.º de ${standing.total} · +${fmtSecs(standing.gapToLeaderMs)}s al líder`);
+    if (standing) parts.push(t('{rank} de {total} · +{gap}s al líder', { rank: ord(standing.rank), total: standing.total, gap: fmtSecs(standing.gapToLeaderMs) }));
     parts.push('', tagline, retoLink(result.ms, todayKey()));
     // Código de invitación colado en el mismo mensaje: JC señaló que
     // compartir una vuelta puede que no sea, de por sí, algo que la gente
@@ -2699,7 +2723,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     // usuario aún no tiene sesión resuelta), se comparte sin él — nunca
     // bloquea compartir la vuelta por esto.
     if (myCode) {
-      parts.push('', `¿No la tienes? Instálatela y mete mi código ${myCode} en la Tienda — ganamos monedas los dos.`);
+      parts.push('', t('¿No la tienes? Instálatela y mete mi código {code} en la Tienda — ganamos monedas los dos.', { code: myCode }));
     }
     // Genera la imagen y la comparte (con vista previa); si no puede, texto.
     await shareCardImage(cardRef, parts.join('\n'));
@@ -2710,16 +2734,16 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
     // `granted` distingue el primer compartido del día (sí paga) de uno
     // posterior (ya cobrado hoy) — para no prometer +5 que no van a llegar.
     const r = await claimShareReward().catch(() => null);
-    flashShare(r?.granted ? '+5 MONEDAS' : '✓ COMPARTIDO');
+    flashShare(r?.granted ? t('+5 MONEDAS') : t('✓ COMPARTIDO'));
   }
 
   const banner =
-    vibe === 'global' ? { text: '◆  MEJOR TIEMPO MUNDIAL  ◆', bg: RD.gold1st } :
-    vibe === 'group' ? { text: '★ 1.º DE TU GRUPO', bg: RD.trackBlue } :
-    vibe === 'best' ? { text: '★ NUEVO RÉCORD', bg: RD.successGreen } :
+    vibe === 'global' ? { text: t('◆  MEJOR TIEMPO MUNDIAL  ◆'), bg: RD.gold1st } :
+    vibe === 'group' ? { text: t('★ 1.º DE TU GRUPO'), bg: RD.trackBlue } :
+    vibe === 'best' ? { text: t('★ NUEVO RÉCORD'), bg: RD.successGreen } :
     // El amarillo es el mismo que ya significa "sector no mejorado" en pista:
     // reutilizarlo aquí dice "no llegaste" sin necesidad de explicarlo.
-    vibe === 'casi' ? { text: casiMs === 0 ? 'HAS IGUALADO TU RÉCORD' : `A ${fmtSecs(casiMs)}s DE TU RÉCORD`, bg: SECTOR_RESULT_COLORS.yellow } :
+    vibe === 'casi' ? { text: casiMs === 0 ? t('HAS IGUALADO TU RÉCORD') : t('A {gap}s DE TU RÉCORD', { gap: fmtSecs(casiMs) }), bg: SECTOR_RESULT_COLORS.yellow } :
     null;
   const vibeColor =
     vibe === 'global' ? RD.gold1st : vibe === 'group' ? RD.trackBlue : vibe === 'best' ? RD.successGreen :
@@ -2761,9 +2785,9 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
             </Animated.View>
           )
         ) : result.submitting ? (
-          <Text style={rd.resultNeutral}>Guardando…</Text>
+          <Text style={rd.resultNeutral}>{t('Guardando…')}</Text>
         ) : result.error ? (
-          <Text style={rd.resultErrorText}>No se pudo guardar tu tiempo</Text>
+          <Text style={rd.resultErrorText}>{t('No se pudo guardar tu tiempo')}</Text>
         ) : null}
         <Animated.Text style={[rd.resultTime, { color: timeColor, transform: [{ scale: timeScale }] }]}>
           {fmtTime(result.ms)}
@@ -2792,7 +2816,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
                 <>
                   <View style={rd.sectorSplitDivider} />
                   <View style={rd.sectorSplitCol}>
-                    <Text style={rd.sectorSplitLabel}>TOTAL</Text>
+                    <Text style={rd.sectorSplitLabel}>{t('TOTAL')}</Text>
                     <RevealValue shown={step >= sectorCount + 1} style={[rd.sectorSplitValue, { color: total <= 0 ? RD.successGreen : RD.danger }]}>
                       {`${total <= 0 ? '−' : '+'}${(Math.abs(total) / 1000).toFixed(3)}s`}
                     </RevealValue>
@@ -2808,13 +2832,13 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
             <View style={rd.resultDivider} />
             {rankFrom != null ? (
               <Text style={rd.resultRank}>
-                <Text style={rd.resultRankFrom}>{rankFrom}.º</Text>
+                <Text style={rd.resultRankFrom}>{ord(rankFrom)}</Text>
                 {'  →  '}
-                <Text style={rd.resultRankTo}>{standing.rank}.º</Text>
-                {`  ·  ${rankFrom - standing.rank === 1 ? 'has adelantado a 1' : `has adelantado a ${rankFrom - standing.rank}`}`}
+                <Text style={rd.resultRankTo}>{ord(standing.rank)}</Text>
+                {'  ·  ' + (rankFrom - standing.rank === 1 ? t('has adelantado a 1') : t('has adelantado a {n}', { n: rankFrom - standing.rank }))}
               </Text>
             ) : (
-              <Text style={rd.resultRank}>{standing.rank}.º de {standing.total} en el mundo</Text>
+              <Text style={rd.resultRank}>{t('{rank} de {total} en el mundo', { rank: ord(standing.rank), total: standing.total })}</Text>
             )}
             {finalLine && <Text style={rd.resultChase}>{finalLine}</Text>}
           </>
@@ -2823,7 +2847,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
 
       {result.error && (
         <Pressable style={[rd.cta, rd.ctaError]} onPress={onRetrySubmit} disabled={result.submitting}>
-          <Text style={rd.ctaText}>{result.submitting ? 'Enviando…' : 'Reintentar envío'}</Text>
+          <Text style={rd.ctaText}>{result.submitting ? t('Enviando…') : t('Reintentar envío')}</Text>
         </Pressable>
       )}
 
@@ -2832,14 +2856,14 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
       {pushOffer && !result.error && (
         <View style={rd.pushOffer}>
           <Text style={rd.pushOfferText}>
-            ¿Te avisamos si alguien te adelanta en el ranking o si se te pasa el día sin correr?
+            {t('¿Te avisamos si alguien te adelanta en el ranking o si se te pasa el día sin correr?')}
           </Text>
           <View style={rd.pushOfferBtns}>
             <Pressable style={rd.pushOfferYes} onPress={onPushYes}>
-              <Text style={rd.pushOfferYesText}>Sí, avísame</Text>
+              <Text style={rd.pushOfferYesText}>{t('Sí, avísame')}</Text>
             </Pressable>
             <Pressable onPress={onPushLater} hitSlop={10}>
-              <Text style={rd.pushOfferLater}>Ahora no</Text>
+              <Text style={rd.pushOfferLater}>{t('Ahora no')}</Text>
             </Pressable>
           </View>
         </View>
@@ -2848,20 +2872,20 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
       <Pressable style={rd.cta} onPress={onRetry}>
         <Text style={rd.ctaText}>
           {outOfAttempts
-            ? `Ver anuncio · +${intentosTxt(AD_BATCH)}`
+            ? t('Ver anuncio · +{n}', { n: intentosTxt(AD_BATCH) })
             // Tras un "casi", el botón deja de ser un "reintentar" neutro y
             // pasa a decir lo que de verdad te apetece hacer en ese momento.
-            : `${vibe === 'casi' ? 'Otra vuelta' : 'Reintentar'}${unlimited ? '' : ` (${attemptsLeft}/${total})`}`}
+            : `${vibe === 'casi' ? t('Otra vuelta') : t('Reintentar')}${unlimited ? '' : ` (${attemptsLeft}/${total})`}`}
         </Text>
       </Pressable>
 
       <View style={rd.resultBtnsRow}>
         <Pressable style={rd.resultSecondaryBtn} onPress={onHome}>
-          <Text style={rd.resultSecondaryBtnText}>Inicio</Text>
+          <Text style={rd.resultSecondaryBtnText}>{t('Inicio')}</Text>
         </Pressable>
       </View>
 
-      <Text style={[rd.labelMono, { marginTop: 4 }]}>RANKING DE HOY</Text>
+      <Text style={[rd.labelMono, { marginTop: 4 }]}>{t('RANKING DE HOY')}</Text>
       <MiniRanking refreshKey={refreshKey} showTabs={false} onOpenPlayer={onOpenPlayer} />
 
       {/* Tarjeta para compartir: renderizada fuera de pantalla y capturada a PNG.

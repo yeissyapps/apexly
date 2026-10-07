@@ -18,6 +18,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { t } from './i18n';
 import { claimDayChallenge, countPassed, ensureSession, getBestOn, getMonthlyRanking, isDayChallengeClaimed } from './api';
 
 export const DAY_CHALLENGE_COINS = 15;
@@ -27,24 +28,24 @@ const MEDIO_MS = 500;
 
 const DEFS = {
   rival: {
-    title: (c) => (c.rival ? `Bate a ${c.rival.nickname}` : 'Bate a tu rival del mes'),
-    desc: 'Tu rival del mes es quien va justo por delante de ti en la clasificación. Haz hoy mejor tiempo que su mejor vuelta.',
+    title: (c) => (c.rival ? t('Bate a {name}', { name: c.rival.nickname }) : t('Bate a tu rival del mes')),
+    desc: () => t('Tu rival del mes es quien va justo por delante de ti en la clasificación. Haz hoy mejor tiempo que su mejor vuelta.'),
   },
   adelanta: {
-    title: () => 'Adelanta a alguien',
-    desc: 'Mejora tu tiempo de hoy y sube al menos un puesto en el ranking del día.',
+    title: () => t('Adelanta a alguien'),
+    desc: () => t('Mejora tu tiempo de hoy y sube al menos un puesto en el ranking del día.'),
   },
   limpia: {
-    title: () => 'Récord sin tocar el muro',
-    desc: 'Mejora tu tiempo de hoy con una vuelta en la que no toques el muro ni una vez.',
+    title: () => t('Récord sin tocar el muro'),
+    desc: () => t('Mejora tu tiempo de hoy con una vuelta en la que no toques el muro ni una vez.'),
   },
   sectores: {
-    title: () => 'Tres sectores mejores',
-    desc: 'Bate a tu fantasma en los tres sectores de la misma vuelta: los tres en verde o morado.',
+    title: () => t('Tres sectores mejores'),
+    desc: () => t('Bate a tu fantasma en los tres sectores de la misma vuelta: los tres en verde o morado.'),
   },
   medio: {
-    title: () => 'Medio segundo',
-    desc: 'Mejora en medio segundo tu primera vuelta del día.',
+    title: () => t('Medio segundo'),
+    desc: () => t('Mejora en medio segundo tu primera vuelta del día.'),
   },
 };
 
@@ -102,7 +103,7 @@ function effectiveId(id, st) {
 function view(day, id, st, extra = {}) {
   const c = { day, id, rival: st.rival || null, firstMs: st.firstMs ?? null, done: !!st.done, ...extra };
   c.title = DEFS[id].title(c);
-  c.desc = DEFS[id].desc;
+  c.desc = DEFS[id].desc();
   c.coins = DAY_CHALLENGE_COINS;
   return c;
 }

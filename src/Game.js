@@ -22,6 +22,8 @@ import WeatherFX from './WeatherFX';
 import { RD, RD_FONT } from './theme';
 import CarSprite from './CarSprite';
 import { CAR_DEFAULTS } from './car';
+import { t } from './i18n';
+import { intentosTxt } from './features';
 
 const now = () => Date.now();
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -78,7 +80,11 @@ function nearestOnPolyline(pts, px, py, hint, window) {
 // encima de la pista) — por eso ahora reserva más alto que antes. El inset
 // superior real (notch / dynamic island / cámara) se suma aparte con
 // useSafeAreaInsets(), no es un número fijo — ver dentro del componente.
-const HUD_CONTENT_H = 122;
+// 122 -> 92 (auditoría, 2026-10-05): el contenido real (fila del crono 42 +
+// sectores ~34 + margen) cabe en ~86, y los 30 de sobra eran hueco negro que
+// se le quitaba a la pista — con la cabecera ocupando ~1/5 de la pantalla en
+// un circuito ya estrecho.
+const HUD_CONTENT_H = 92;
 
 // --- Cámara (solo render; no afecta a la física) ---------------------------
 const CAM_VIEW_W = 260; // unidades de mundo visibles a lo ancho (mayor = menos zoom)
@@ -704,11 +710,11 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
   function handleExitPress() {
     if (view.phase !== 'running') { onExit && onExit(); return; }
     Alert.alert(
-      '¿Salir de la carrera?',
-      'El intento ya se ha gastado — no se te devolverá.',
+      t('¿Salir de la carrera?'),
+      t('El intento ya se ha gastado — no se te devolverá.'),
       [
-        { text: 'Seguir corriendo', style: 'cancel' },
-        { text: 'Salir', style: 'destructive', onPress: () => onExit && onExit() },
+        { text: t('Seguir corriendo'), style: 'cancel' },
+        { text: t('Salir'), style: 'destructive', onPress: () => onExit && onExit() },
       ],
     );
   }
@@ -878,8 +884,8 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
             ]}
           >
             <View style={styles.moradoPill}>
-              <Text style={styles.moradoTitle}>SECTOR {moradoIdx + 1} MORADO</Text>
-              <Text style={styles.moradoSub}>MEJOR DEL MUNDO HOY</Text>
+              <Text style={styles.moradoTitle}>{t('SECTOR {n} MORADO', { n: moradoIdx + 1 })}</Text>
+              <Text style={styles.moradoSub}>{t('MEJOR DEL MUNDO HOY')}</Text>
             </View>
           </Animated.View>
         )}
@@ -920,29 +926,28 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
 
         {view.phase === 'ready' && (
           <View pointerEvents="none" style={styles.startPanel}>
-            <Text style={styles.startTitle}>Toca para arrancar</Text>
-            <Text style={styles.startSub}>Izquierda gira ‹    ·    derecha gira ›</Text>
+            <Text style={styles.startTitle}>{t('Toca para arrancar')}</Text>
+            <Text style={styles.startSub}>{t('Izquierda gira ‹    ·    derecha gira ›')}</Text>
             {/* Explicación LA PRIMERA VEZ que te toca correr contra alguien:
                 sin esto, un coche sólido que se cruza contigo y al que
                 atraviesas parece un bug de colisión. Después de la primera
                 vez basta con el nombre flotando sobre el coche. */}
             {leaderRun && explicarLider && (
               <Text style={styles.startLeaderNote}>
-                Hoy corres contra la vuelta de {leaderRun.nickname}, el tiempo
-                más rápido en pista. Es una repetición: podéis atravesaros.
+                {t('Hoy corres contra la vuelta de {name}, el tiempo más rápido en pista. Es una repetición: podéis atravesaros.', { name: leaderRun.nickname })}
               </Text>
             )}
             <View style={styles.startMeta}>
               {Number.isFinite(attemptsLeft) && (
                 <View style={styles.startTag}>
                   <Text style={styles.startTagText}>
-                    {attemptsLeft > 0 ? `${attemptsLeft} ${attemptsLeft === 1 ? 'intento' : 'intentos'}` : 'Sin intentos'}
+                    {attemptsLeft > 0 ? intentosTxt(attemptsLeft) : t('Sin intentos')}
                   </Text>
                 </View>
               )}
               {wx.id !== 'clear' && (
                 <View style={[styles.startTag, styles.startTagWx]}>
-                  <Text style={styles.startTagWxText}>{wx.icon} {wx.hint}</Text>
+                  <Text style={styles.startTagWxText}>{wx.icon} {t(wx.hint)}</Text>
                 </View>
               )}
             </View>
@@ -958,7 +963,7 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
           <View style={rd.hudSide}>
             {view.phase !== 'finished' && (
               <Pressable onPress={handleExitPress} hitSlop={10}>
-                <Text style={rd.exitText}>‹ SALIR</Text>
+                <Text style={rd.exitText}>{t('‹ SALIR')}</Text>
               </Pressable>
             )}
           </View>
@@ -967,7 +972,7 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
           </Text>
           <View style={[rd.hudSide, { justifyContent: 'flex-end', gap: 8 }]}>
             <View style={rd.wxBadge}>
-              <Text style={rd.wxBadgeText}>{wx.label.toUpperCase()}</Text>
+              <Text style={rd.wxBadgeText}>{t(wx.label).toUpperCase()}</Text>
             </View>
             {/* Marcar anomalía — solo con CONFIG.DIAG. */}
             {CONFIG.DIAG && (
@@ -999,19 +1004,19 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
           </View>
           <View style={rd.sectorLabelRow}>
             <Text style={rd.sectorLabel}>
-              {track.laps > 1 ? `VUELTA ${Math.min((view.lapsDone || 0) + 1, track.laps)}/${track.laps} · ` : ''}
-              SECTOR {Math.min(view.sector + 1, SECTOR_COUNT)}/{SECTOR_COUNT}
+              {track.laps > 1 ? t('VUELTA {n}/{total} · ', { n: Math.min((view.lapsDone || 0) + 1, track.laps), total: track.laps }) : ''}
+              {t('SECTOR {n}/{total}', { n: Math.min(view.sector + 1, SECTOR_COUNT), total: SECTOR_COUNT })}
             </Text>
             {view.phase !== 'ready' && view.ghostDeltaMs != null && (
               <Text style={[rd.sectorDelta, { color: view.ghostDeltaMs <= 0 ? RD.successGreen : RD.danger }]}>
-                {view.ghostDeltaMs <= 0 ? 'FANTASMA −' : 'FANTASMA +'}{Math.abs(view.ghostDeltaMs / 1000).toFixed(2)}
+                {view.ghostDeltaMs <= 0 ? t('FANTASMA −') : t('FANTASMA +')}{Math.abs(view.ghostDeltaMs / 1000).toFixed(2)}
               </Text>
             )}
             {/* Sin esto, el coche del líder parece un rival inventado. Con el
                 nombre delante, adelantarlo (o comértelo) tiene destinatario. */}
             {view.phase === 'ready' && leaderRun && (
               <Text style={rd.leaderTag} numberOfLines={1}>
-                EN PISTA · {leaderRun.nickname.toUpperCase()} {fmt(leaderRun.ms)}
+                {t('EN PISTA · {name} {time}', { name: leaderRun.nickname.toUpperCase(), time: fmt(leaderRun.ms) })}
               </Text>
             )}
           </View>
@@ -1034,7 +1039,7 @@ const rd = StyleSheet.create({
   hud: {
     position: 'absolute', top: 0, left: 0, right: 0,
     backgroundColor: RD.bg, borderBottomWidth: 1, borderBottomColor: RD.gridLine,
-    paddingHorizontal: 16, paddingBottom: 14,
+    paddingHorizontal: 16, paddingBottom: 10,
     justifyContent: 'space-between', // reparte el hueco sobrante entre crono y sectores
   },
   hudTopRow: { flexDirection: 'row', alignItems: 'center', height: 42 },

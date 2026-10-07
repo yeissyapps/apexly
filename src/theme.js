@@ -99,6 +99,11 @@ export const RD_FONT = {
   mono: 'IBMPlexMono_500Medium',
   monoSemibold: 'IBMPlexMono_600SemiBold',
   monoBold: 'IBMPlexMono_700Bold',
+  // Texto corrido (párrafos de más de una línea): la fuente del sistema. La
+  // monoespaciada queda para números, tiempos y etiquetas — en párrafos
+  // largos (tour, novedades, descripciones) cansaba leerla (auditoría,
+  // 2026-10-05).
+  body: Platform.select({ ios: 'System', android: 'sans-serif', default: undefined }),
 };
 
 // Pares claro/oscuro para el "identicon" de avatar (versión lite: solo el

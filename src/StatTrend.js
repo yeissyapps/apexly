@@ -19,6 +19,7 @@
 
 import { View, Text, StyleSheet } from 'react-native';
 import { RD, RD_FONT } from './theme';
+import { t } from './i18n';
 
 // Suelo y techo del eje, en % del objetivo del día. Se recorta a esta ventana
 // porque una vuelta desastrosa (250% del objetivo tras varios choques)
@@ -48,7 +49,7 @@ function barColor(pct) {
 export default function StatTrend({ points, title, own = true }) {
   // points: [{ day, ms, targetMs }] de más antiguo a más reciente
   const usable = (points || []).filter((p) => p.targetMs > 0);
-  const heading = title ?? (own ? 'TUS VUELTAS' : 'SUS VUELTAS');
+  const heading = title ?? (own ? t('TUS VUELTAS') : t('SUS VUELTAS'));
 
   if (usable.length < 2) {
     return (
@@ -56,8 +57,8 @@ export default function StatTrend({ points, title, own = true }) {
         <Text style={s.title}>{heading}</Text>
         <Text style={s.empty}>
           {usable.length === 0
-            ? (own ? 'Corre un par de días y aquí verás tu evolución.' : 'Todavía no ha corrido lo bastante para ver su evolución.')
-            : (own ? 'Un día más y podrás comparar tu evolución.' : 'Un día más y se podrá comparar su evolución.')}
+            ? (own ? t('Corre un par de días y aquí verás tu evolución.') : t('Todavía no ha corrido lo bastante para ver su evolución.'))
+            : (own ? t('Un día más y podrás comparar tu evolución.') : t('Un día más y se podrá comparar su evolución.'))}
         </Text>
       </View>
     );
@@ -93,10 +94,10 @@ export default function StatTrend({ points, title, own = true }) {
       </View>
       <Text style={s.subtitle}>
         {canCompare
-          ? `vs. el objetivo de cada circuito · ${usable.length} días`
-          : `vs. el objetivo de cada circuito · ${MIN_DAYS_FOR_DELTA - usable.length} ${
-              MIN_DAYS_FOR_DELTA - usable.length === 1 ? 'día' : 'días'
-            } más para ver tu tendencia`}
+          ? t('vs. el objetivo de cada circuito · {n} días', { n: usable.length })
+          : MIN_DAYS_FOR_DELTA - usable.length === 1
+            ? t('vs. el objetivo de cada circuito · 1 día más para ver tu tendencia')
+            : t('vs. el objetivo de cada circuito · {n} días más para ver tu tendencia', { n: MIN_DAYS_FOR_DELTA - usable.length })}
       </Text>
 
       <View style={s.chart}>
@@ -134,7 +135,7 @@ export default function StatTrend({ points, title, own = true }) {
 
       <View style={s.legend}>
         <Text style={s.legendText}>{usable[0].day.slice(5)}</Text>
-        <Text style={s.legendTarget}>— objetivo del día —</Text>
+        <Text style={s.legendTarget}>{t('— objetivo del día —')}</Text>
         <Text style={s.legendText}>{usable[usable.length - 1].day.slice(5)}</Text>
       </View>
     </View>

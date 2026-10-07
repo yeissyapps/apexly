@@ -1,5 +1,7 @@
 // Formato de tiempos.
 
+import { t } from './i18n';
+
 // Crono EN VIVO (HUD): mm:ss.cc o ss.cc, sin sufijo (cambia cada frame).
 export function fmt(ms) {
   const total = Math.max(0, ms) / 1000;
@@ -33,7 +35,7 @@ export function fmtSecs(ms) {
 // Gap al líder, estilo pantalla de tiempos F1 ("+1.284"). Líder (o sin gap
 // todavía) -> "Líder", nunca un "+0.000" raro.
 export function fmtGap(ms) {
-  if (ms == null || ms <= 0) return 'Líder';
+  if (ms == null || ms <= 0) return t('Líder');
   return `+${fmtSecs(ms)}`;
 }
 
