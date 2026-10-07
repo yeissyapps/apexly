@@ -30,6 +30,7 @@ import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RD, RD_FONT } from './theme';
+import { t } from './i18n';
 
 // Sube la versión para volver a lanzar el tour a TODO el mundo (p. ej. si
 // entra un modo nuevo que merece explicación). Los que ya lo vieron con la
@@ -203,14 +204,14 @@ export default function Tour({ steps, onDone }) {
           <Text style={s.stepCount}>{i + 1}/{steps.length}</Text>
           <View style={s.actions}>
             <Pressable onPress={finish} hitSlop={10}>
-              <Text style={s.skip}>{isLast ? ' ' : 'Saltar'}</Text>
+              <Text style={s.skip}>{isLast ? ' ' : t('Saltar')}</Text>
             </Pressable>
             <Pressable
               style={s.nextBtn}
               onPress={() => (isLast ? finish() : setI((n) => n + 1))}
               hitSlop={6}
             >
-              <Text style={s.nextBtnText}>{isLast ? 'EMPEZAR' : 'SIGUIENTE'}</Text>
+              <Text style={s.nextBtnText}>{isLast ? t('EMPEZAR') : t('SIGUIENTE')}</Text>
             </Pressable>
           </View>
         </View>
@@ -257,7 +258,7 @@ const s = StyleSheet.create({
     color: RD.textPrimary, fontSize: 24, fontFamily: RD_FONT.displayBlack,
     textTransform: 'uppercase', letterSpacing: 0.5,
   },
-  body: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.mono, lineHeight: 21 },
+  body: { color: RD.textSecondary, fontSize: 15, fontFamily: RD_FONT.body, lineHeight: 22 },
   demo: {
     borderWidth: 1, borderColor: RD.gridLine, borderRadius: 2,
     paddingVertical: 14, paddingHorizontal: 10,

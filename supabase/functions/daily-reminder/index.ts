@@ -6,16 +6,32 @@
 //  supabase/daily-reminder-cron.sql) — no hay JWT de usuario, se usa
 //  service_role para leerlo todo.
 //
-//  A las ~20:00 (hora de España), avisa a TODO el que tenga push registrado
-//  y NO haya jugado hoy. "Hoy" se compara contra la fecha del servidor
-//  (UTC) — el `day` que guarda cada intento es la fecha LOCAL del jugador en
-//  el momento de jugar (mismo criterio que usa el circuito diario), así que
-//  cerca de medianoche puede haber algún desfase de una franja horaria; para
-//  el tamaño de grupo de esta app es una simplificación aceptable, igual que
-//  ya se aceptó para el cambio de circuito.
+//  A las 20:00 HORA DE ESPAÑA, avisa a TODO el que tenga push registrado y
+//  NO haya jugado hoy. "Hoy" es la fecha de España, que es la que guarda
+//  `attempts.day` para casi todos los jugadores (fecha LOCAL del móvil).
+//
+//  Cambio de hora (auditoría, 2026-10-05): pg_cron va en UTC y no sabe de
+//  horario de verano, así que con '0 18 * * *' fijo el aviso pasaba a llegar
+//  a las 19:00 en invierno. Ahora el cron la llama a las 18:00 Y a las 19:00
+//  UTC (daily-reminder-dst.sql) y la función solo actúa en la llamada que cae
+//  en las 20:00 de Madrid — sirve todo el año sin tocar nada.
+//
+//  Una sola vez al día: la función se puede invocar con la clave pública
+//  (como cualquier Edge Function de este proyecto), así que sin un cerrojo
+//  cualquiera podía dispararla en bucle y mandar el aviso a todo el mundo
+//  una y otra vez. `reminder_runs` (clave = día) lo impide.
 // ============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { pushText } from '../_shared/push.ts';
+
+const TZ = 'Europe/Madrid';
+
+function madridParts(d: Date) {
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hour12: false }).format(d));
+  return { day, hour };
+}
 
 Deno.serve(async (_req) => {
   try {
@@ -23,7 +39,17 @@ Deno.serve(async (_req) => {
     const service = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const admin = createClient(url, service);
 
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+    const now = new Date();
+    const { day: today, hour } = madridParts(now);
+    if (hour !== 20) return json({ skipped: 'no son las 20:00 en Madrid', hour });
+
+    // Cerrojo de una vez al día (ver cabecera). Clave primaria: el segundo
+    // intento del mismo día choca con 23505 y se sale sin mandar nada.
+    const { error: lockErr } = await admin.from('reminder_runs').insert({ day: today });
+    // Cualquier otro fallo del cerrojo (p. ej. la tabla aún no existe porque
+    // daily-reminder-dst.sql no se ha corrido) NO frena el envío: mejor un
+    // aviso repetido que ninguno.
+    if (lockErr && lockErr.code === '23505') return json({ skipped: 'ya enviado hoy' });
 
     // Las dos lecturas van PAGINADAS: PostgREST corta la respuesta en el tope
     // de filas del proyecto (1000 por defecto en Supabase), y aqui truncar es
@@ -35,16 +61,18 @@ Deno.serve(async (_req) => {
     // una fila huerfana pegada al mismo movil (ver mas abajo), asi que la
     // tabla puede tener varias veces mas filas que jugadores reales.
     let played: { user_id: string }[];
-    let toks: { user_id: string; token: string }[];
+    let toks: { user_id: string; token: string; lang?: string }[];
+    const tokensWith = (cols: string) => fetchAll((from, to) =>
+      admin.from('push_tokens').select(cols, { count: 'exact' })
+        .order('user_id', { ascending: true }).range(from, to)
+    );
     try {
       played = await fetchAll((from, to) =>
         admin.from('attempts').select('user_id', { count: 'exact' })
           .eq('day', today).order('user_id', { ascending: true }).range(from, to)
       );
-      toks = await fetchAll((from, to) =>
-        admin.from('push_tokens').select('user_id, token', { count: 'exact' })
-          .order('user_id', { ascending: true }).range(from, to)
-      );
+      // Con idioma si ya existe la columna (push_lang.sql); si no, como antes.
+      try { toks = await tokensWith('user_id, token, lang'); } catch (_) { toks = await tokensWith('user_id, token'); }
     } catch (e) {
       return json({ error: String(e) }, 500);
     }
@@ -79,12 +107,39 @@ Deno.serve(async (_req) => {
     });
     if (pending.length === 0) return json({ sent: 0, debug: { tokens: toks.length, played: playedIds.size } });
 
-    const messages = pending.map((t) => ({
-      to: t.token,
-      title: 'Apexly',
-      body: 'Hoy no has pisado el asfalto. Tu grupo no te va a esperar.',
-      sound: 'default',
-    }));
+    // Racha en juego: quien corrió AYER y tiene racha >= 2 la pierde esta
+    // noche si no corre. `last_played` lo escribe bump_streak con la fecha
+    // UTC; a las 20:00 de Madrid (18-19 UTC) el día UTC y el de Madrid son
+    // el mismo, así que "ayer" vale para los dos.
+    const yesterday = new Date(Date.UTC(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10) - 1))
+      .toISOString().slice(0, 10);
+    let streakRows: { id: string; current_streak: number }[] = [];
+    try {
+      streakRows = await fetchAll((from, to) =>
+        admin.from('users').select('id, current_streak', { count: 'exact' })
+          .gte('current_streak', 2).eq('last_played', yesterday)
+          .order('id', { ascending: true }).range(from, to)
+      );
+    } catch (_) { /* sin racha personalizada: se manda el texto general */ }
+    const streakOf = new Map(streakRows.map((u) => [u.id, u.current_streak]));
+    // Un móvil puede tener varias identidades (ver arriba): vale la mayor racha.
+    const tokenStreak = new Map<string, number>();
+    for (const t of toks) {
+      const s = streakOf.get(t.user_id);
+      if (s && t.token && s > (tokenStreak.get(t.token) ?? 0)) tokenStreak.set(t.token, s);
+    }
+
+    // Antes era "Tu grupo no te va a esperar" para todos, también para quien
+    // no tiene ningún grupo. Ahora habla de lo que de verdad se pierde.
+    const messages = pending.map((t) => {
+      const s = tokenStreak.get(t.token);
+      return {
+        to: t.token,
+        title: 'Apexly',
+        body: s ? pushText(t.lang, 'reminderStreak', { n: s }) : pushText(t.lang, 'reminder'),
+        sound: 'default',
+      };
+    });
 
     // La API de Expo admite 100 notificaciones por peticion. Esta funcion es
     // la unica que escribe a TODO el mundo a la vez, asi que es la primera que

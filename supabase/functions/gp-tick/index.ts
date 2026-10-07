@@ -15,6 +15,7 @@
 // ============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { pushText, tokensFor } from '../_shared/push.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LAST_CHANCE_WINDOW_MS = 2 * 60 * 60 * 1000; // últimas 2h de la ronda
@@ -68,7 +69,7 @@ Deno.serve(async (_req) => {
               admin.rpc('credit_wallet', { p_user_id: s.userId, p_amount: rewardAmounts[i], p_day: today, p_reason: 'gp' })
             )
           );
-          return pushToUsers(admin, memberIds, 'Apexly · Grand Prix', `¡Terminado! ${podium || 'Sin resultados esta vez.'}`);
+          return pushToUsers(admin, memberIds, 'Apexly · Grand Prix', (l) => pushText(l, 'gpFinished', { podium: podium || pushText(l, 'gpNoResults') }));
         });
         if (sent) finishedSent++;
       }
@@ -80,7 +81,7 @@ Deno.serve(async (_req) => {
       const roundOpenAt = startedAt + (roundIdx - 1) * DAY_MS;
       if (now - roundOpenAt < 20 * 60 * 1000) { // se acaba de abrir (margen para el intervalo del cron)
         const sent = await notifyIfNew(admin, gp.id, 'round_open', roundIdx, () =>
-          pushToUsers(admin, memberIds, 'Apexly · Grand Prix', `Circuito ${roundIdx}/${gp.circuit_count} ya disponible.`)
+          pushToUsers(admin, memberIds, 'Apexly · Grand Prix', (l) => pushText(l, 'gpRoundOpen', { n: roundIdx, total: gp.circuit_count }))
         );
         if (sent) roundOpenSent++;
       }
@@ -94,7 +95,7 @@ Deno.serve(async (_req) => {
       const pendingIds = memberIds.filter((id) => !doneIds.has(id));
       if (pendingIds.length > 0) {
         const sent = await notifyIfNew(admin, gp.id, 'last_chance', roundIdx, () =>
-          pushToUsers(admin, pendingIds, 'Apexly · Grand Prix', `Últimas horas para clasificar en el circuito de hoy.`)
+          pushToUsers(admin, pendingIds, 'Apexly · Grand Prix', (l) => pushText(l, 'gpLastChance'))
         );
         if (sent) lastChanceSent++;
       }
@@ -114,12 +115,10 @@ async function notifyIfNew(admin: any, gpId: string, kind: string, dayIndex: num
   return true;
 }
 
-async function pushToUsers(admin: any, userIds: string[], title: string, body: string) {
-  const { data: toks } = await admin.from('push_tokens').select('token').in('user_id', userIds);
-  const seen = new Set<string>();
-  const messages = (toks ?? [])
-    .filter((t: any) => t.token && !seen.has(t.token) && seen.add(t.token))
-    .map((t: any) => ({ to: t.token, sound: 'default', title, body }));
+// `body` es una función del idioma: cada móvil recibe el aviso en el suyo.
+async function pushToUsers(admin: any, userIds: string[], title: string, body: (lang: string) => string) {
+  const toks = await tokensFor(admin, userIds);
+  const messages = toks.map((t) => ({ to: t.token, sound: 'default', title, body: body(t.lang) }));
   if (messages.length === 0) return;
   await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',

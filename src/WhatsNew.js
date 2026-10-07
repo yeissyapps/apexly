@@ -11,23 +11,34 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { t } from './i18n';
+
 const KEY = 'whatsnew:lastSeenVersion';
 
 // La versión que se cuenta aquí — sube esto a mano cuando haya algo que
 // contar de cara al jugador. Un parche sin cambios visibles no necesita
 // tocar esto (y así no le sale el pop-up a nadie por él).
-export const WHATS_NEW_VERSION = '2.4.6';
+export const WHATS_NEW_VERSION = '2.4.7';
 
-export const WHATS_NEW_TITLE = 'Un reto cada día';
+// Funciones y no constantes: los textos se traducen al pintar (src/i18n.js).
+export const whatsNewTitle = () => t('Un reto cada día');
 
-export const WHATS_NEW_ITEMS = [
+export const whatsNewItems = () => [
   {
-    title: 'Reto del día',
-    body: 'Cada día hay un reto nuevo, el mismo para todos, que vale 15 monedas: adelantar a alguien en el ranking, una vuelta récord sin tocar el muro, mejorar tus tres sectores… Lo tienes en Inicio, debajo del circuito.',
+    title: t('Reto del día'),
+    body: t('Cada día hay un reto nuevo, el mismo para todos, que vale 15 monedas: adelantar a alguien en el ranking, una vuelta récord sin tocar el muro, mejorar tus tres sectores… Lo tienes en Inicio, debajo del circuito.'),
   },
   {
-    title: 'Tu rival del mes',
-    body: 'Algunos días el reto tiene nombre: quien va justo por delante de ti en la clasificación del mes. Haz ese día mejor tiempo y las monedas son tuyas.',
+    title: t('Tu rival del mes'),
+    body: t('Algunos días el reto tiene nombre: quien va justo por delante de ti en la clasificación del mes. Haz ese día mejor tiempo y las monedas son tuyas.'),
+  },
+  {
+    title: t('Apexly en inglés'),
+    body: t('La app ya se puede usar en inglés. Cámbialo cuando quieras en tu Perfil, en IDIOMA.'),
+  },
+  {
+    title: t('1 VS 1: si no corres, pierdes'),
+    body: t('Si aceptas un reto y se acaban los 15 minutos sin que corras, el bote es para tu rival.'),
   },
 ];
 

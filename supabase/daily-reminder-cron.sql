@@ -2,10 +2,9 @@
 --  Tarea programada: lanza la Edge Function `daily-reminder` cada día a las
 --  ~20:00 hora de España (verano, CEST = UTC+2 -> 18:00 UTC).
 --
---  OJO horario de invierno: España cambia a CET (UTC+1) el último domingo de
---  octubre. Cuando llegue, hay que reprogramarlo a las 19:00 UTC (cron
---  '0 19 * * *') para que siga siendo las 20:00 en España. pg_cron no sabe de
---  zonas horarias con DST, así que esto no se ajusta solo.
+--  SUSTITUIDO por daily-reminder-dst.sql (2026-10-05), que programa 18:00 y
+--  19:00 UTC y deja que la función elija la que cae en las 20:00 de Madrid —
+--  ya no hay que reprogramar nada con el cambio de hora.
 --
 --  Pégalo entero en Supabase > SQL Editor > New query > Run, DESPUÉS de haber
 --  desplegado la función (`supabase functions deploy daily-reminder`).

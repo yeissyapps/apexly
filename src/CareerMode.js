@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 
 import { RD, RD_FONT } from './theme';
+import { t, tParts } from './i18n';
 import DangerStripe from './DangerStripe';
 import { fmtTime } from './format';
 import { getCareerProgress } from './api';
@@ -71,17 +72,17 @@ export default function CareerMode({ unlimited, result, onPlayLevel, onDismissRe
       <DangerStripe height={6} />
       <ScrollView contentContainerStyle={s.content}>
         <Pressable onPress={onBack} hitSlop={12}>
-          <Text style={s.backLink}>‹ INICIO</Text>
+          <Text style={s.backLink}>{t('‹ INICIO')}</Text>
         </Pressable>
 
-        <Text style={s.pageTitle}>Carrera</Text>
+        <Text style={s.pageTitle}>{t('Carrera')}</Text>
 
         {result && (
           <View style={[s.resultBanner, result.passed ? s.resultPass : s.resultFail]}>
             <Text style={s.resultText}>
               {result.passed
-                ? `Nivel ${result.level} superado — ${fmtTime(result.ms)} (objetivo ${fmtTime(result.gapMs)})`
-                : `No llegaste a tiempo — ${fmtTime(result.ms)} (objetivo ${fmtTime(result.gapMs)}). Inténtalo otra vez.`}
+                ? t('Nivel {n} superado — {time} (objetivo {target})', { n: result.level, time: fmtTime(result.ms), target: fmtTime(result.gapMs) })
+                : t('No llegaste a tiempo — {time} (objetivo {target}). Inténtalo otra vez.', { time: fmtTime(result.ms), target: fmtTime(result.gapMs) })}
             </Text>
             <Pressable onPress={onDismissResult} hitSlop={8}>
               <Text style={s.resultClose}>✕</Text>
@@ -106,8 +107,8 @@ export default function CareerMode({ unlimited, result, onPlayLevel, onDismissRe
                 <Text style={[s.levelNum, isCleared && s.levelNumCleared]}>{isCleared ? '✓' : n}</Text>
               </View>
               <View style={s.levelInfo}>
-                <Text style={s.levelLabel}>{spec.label}</Text>
-                <Text style={s.levelGap}>Objetivo: {fmtTime(gapMs)}</Text>
+                <Text style={s.levelLabel}>{tParts(spec.label)}</Text>
+                <Text style={s.levelGap}>{t('Objetivo: {time}', { time: fmtTime(gapMs) })}</Text>
               </View>
               {!isLocked && (
                 <Text style={s.levelAtt}>{unlimited ? '∞' : `${Math.max(0, attLeft)}/${attTotal}`}</Text>

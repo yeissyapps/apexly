@@ -46,6 +46,7 @@ function onlineOf(presence, userId) {
   return !!seen && Date.now() - seen.getTime() < ONLINE_WINDOW_MS;
 }
 import { RD, RD_FONT } from './theme';
+import { t } from './i18n';
 import { RankRow } from './MiniRanking';
 
 // Agrupa una lista YA ORDENADA en tramos consecutivos del mismo valor
@@ -65,7 +66,7 @@ function groupByBand(rows, valueOf) {
 
 function BandDivider({ value, unit, zeroLabel = 'NO PUNTÚA', formatLabel }) {
   const scores = value > 0;
-  const label = scores ? (formatLabel ? formatLabel(value) : `${value} ${unit}`) : zeroLabel;
+  const label = scores ? (formatLabel ? formatLabel(value) : `${value} ${t(unit)}`) : t(zeroLabel);
   return (
     <View style={styles.bandDivider}>
       <View style={[styles.bandDividerLine, scores && styles.bandDividerLineGold]} />
@@ -111,13 +112,13 @@ export default function RankingTab({ refreshKey = 0, onOpenPlayer }) {
   // de octubre se actualice" — new Date() se lee en cada render, así que
   // en cuanto alguien abra Ranking ya en octubre esto sale solo sin tocar
   // nada más (mismo cálculo que ya usaba MonthlyRanking para monthLabel).
-  const monthLabel = MONTH_NAMES[new Date().getMonth()].toUpperCase();
+  const monthLabel = t(MONTH_NAMES[new Date().getMonth()]).toUpperCase();
 
   return (
     <View style={styles.wrap}>
       <View style={styles.viewTabs}>
         <Pressable style={styles.viewTab} onPress={() => setView('hoy')} hitSlop={6}>
-          <Text style={[styles.viewTabText, view === 'hoy' && styles.viewTabTextActive]}>HOY</Text>
+          <Text style={[styles.viewTabText, view === 'hoy' && styles.viewTabTextActive]}>{t('HOY')}</Text>
           {view === 'hoy' && <View style={styles.viewTabIndicator} />}
         </Pressable>
         <Pressable style={styles.viewTab} onPress={() => setView('mes')} hitSlop={6}>
@@ -193,8 +194,8 @@ function DailyRanking({ refreshKey = 0, onOpenPlayer }) {
       <View style={styles.searchBox}>
         <TextInput
           value={query}
-          onChangeText={(t) => { setQuery(t); runSearch(t); }}
-          placeholder="Buscar jugador por nombre…"
+          onChangeText={(v) => { setQuery(v); runSearch(v); }}
+          placeholder={t('Buscar jugador por nombre…')}
           placeholderTextColor={RD.textTertiary}
           style={styles.searchInput}
           autoCapitalize="none"
@@ -211,7 +212,7 @@ function DailyRanking({ refreshKey = 0, onOpenPlayer }) {
         searchState === 'loading' ? (
           <View style={styles.center}><ActivityIndicator color={RD.brand} /></View>
         ) : searchResults.length === 0 ? (
-          <Text style={styles.muted}>Nadie con ese nombre ha corrido hoy.</Text>
+          <Text style={styles.muted}>{t('Nadie con ese nombre ha corrido hoy.')}</Text>
         ) : (
           <View style={styles.list}>
             {searchResults.map((r) => (
@@ -223,14 +224,14 @@ function DailyRanking({ refreshKey = 0, onOpenPlayer }) {
         <>
           {total != null && (
             <Text style={styles.totalLabel}>
-              {total} {total === 1 ? 'jugador ha corrido hoy' : 'jugadores han corrido hoy'}
+              {total === 1 ? t('{n} jugador ha corrido hoy', { n: total }) : t('{n} jugadores han corrido hoy', { n: total })}
             </Text>
           )}
 
           {error && rows.length === 0 ? (
-            <Text style={styles.muted}>No se pudo cargar el ranking.</Text>
+            <Text style={styles.muted}>{t('No se pudo cargar el ranking.')}</Text>
           ) : rows.length === 0 && !loadingMore ? (
-            <Text style={styles.muted}>Aún no hay tiempos. ¡Sé el primero!</Text>
+            <Text style={styles.muted}>{t('Aún no hay tiempos. ¡Sé el primero!')}</Text>
           ) : (
             <View style={styles.list}>
               <BandedRows
@@ -288,11 +289,13 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
   }, [refreshKey]);
 
   const now = new Date();
-  const monthLabel = MONTH_NAMES[now.getMonth()];
+  const monthLabel = t(MONTH_NAMES[now.getMonth()]);
   const daysLeft = daysUntilNextMonth(now);
   const countdown = daysLeft <= 0
-    ? `Hoy cierra ${monthLabel}`
-    : `Quedan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'} para que cierre ${monthLabel}`;
+    ? t('Hoy cierra {month}', { month: monthLabel })
+    : daysLeft === 1
+      ? t('Queda 1 día para que cierre {month}', { month: monthLabel })
+      : t('Quedan {n} días para que cierre {month}', { n: daysLeft, month: monthLabel });
 
   const showingSearch = query.trim().length > 0;
   const filteredRows = showingSearch && rows
@@ -303,15 +306,14 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
     <View style={styles.section}>
       <Text style={styles.monthCountdown}>{countdown}</Text>
       <Text style={styles.muted}>
-        Puntos por posición cada día (top 50%, como en la F1). Al cerrar el mes, el top 50%
-        se lleva monedas: cuanto más arriba, más premio.
+        {t('Puntos por posición cada día (top 50%, como en la F1). Al cerrar el mes, el top 50% se lleva monedas: cuanto más arriba, más premio.')}
       </Text>
 
       <View style={styles.searchBox}>
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="Buscar jugador por nombre…"
+          placeholder={t('Buscar jugador por nombre…')}
           placeholderTextColor={RD.textTertiary}
           style={styles.searchInput}
           autoCapitalize="none"
@@ -325,13 +327,13 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
       </View>
 
       {error && !rows ? (
-        <Text style={styles.muted}>No se pudo cargar el ranking del mes.</Text>
+        <Text style={styles.muted}>{t('No se pudo cargar el ranking del mes.')}</Text>
       ) : !rows ? (
         <View style={styles.center}><ActivityIndicator color={RD.brand} /></View>
       ) : rows.length === 0 ? (
-        <Text style={styles.muted}>Todavía nadie ha corrido este mes. ¡Sé el primero!</Text>
+        <Text style={styles.muted}>{t('Todavía nadie ha corrido este mes. ¡Sé el primero!')}</Text>
       ) : filteredRows.length === 0 ? (
-        <Text style={styles.muted}>Nadie con ese nombre ha corrido este mes.</Text>
+        <Text style={styles.muted}>{t('Nadie con ese nombre ha corrido este mes.')}</Text>
       ) : (
         <View style={styles.list}>
           <BandedRows
@@ -339,13 +341,13 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
             valueOf={(r) => r.coins}
             unit="MONEDAS"
             zeroLabel="SIN PREMIO"
-            formatLabel={(v) => `PREMIO: ${v} MONEDAS`}
+            formatLabel={(v) => t('PREMIO: {n} MONEDAS', { n: v })}
             wins={winCounts}
             onOpenPlayer={onOpenPlayer}
             extraRowProps={(r) => {
               return {
-                timeLabel: `${r.points} pts`,
-                sub: `${r.daysPlayed} ${r.daysPlayed === 1 ? 'día jugado' : 'días jugados'}`,
+                timeLabel: t('{n} pts', { n: r.points }),
+                sub: r.daysPlayed === 1 ? t('{n} día jugado', { n: r.daysPlayed }) : t('{n} días jugados', { n: r.daysPlayed }),
                 online: onlineOf(presence, r.userId),
               };
             }}

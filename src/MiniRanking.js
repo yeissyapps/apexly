@@ -17,6 +17,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { getGlobalBoard, getLeaderboard, listMyGroups, getWorldWinCounts } from './api';
 import { fmtTime } from './format';
 import { RD, RD_FONT } from './theme';
+import { t } from './i18n';
 import { frameById, frameStyle, frameGlyphColor } from './frames';
 import AvatarThumb from './AvatarThumb';
 
@@ -59,7 +60,7 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
 
   const tabs = showTabs ? (
     <View style={styles.tabsRow}>
-      <Tab label="GLOBAL" active={isGlobal} onPress={() => setScope('global')} />
+      <Tab label={t('GLOBAL')} active={isGlobal} onPress={() => setScope('global')} />
       {groups.map((g, i) => (
         <Tab
           key={g.id}
@@ -69,14 +70,14 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
           onPress={() => setScope(g.id)}
         />
       ))}
-      <Tab label="+ GRUPO" dashed onPress={onManageGroups} />
+      <Tab label={t('+ GRUPO')} dashed onPress={onManageGroups} />
     </View>
   ) : null;
 
   if (isGlobal) {
-    if (error) return <>{tabs}<Text style={styles.muted}>No se pudo cargar el ranking.</Text></>;
+    if (error) return <>{tabs}<Text style={styles.muted}>{t('No se pudo cargar el ranking.')}</Text></>;
     if (!board) return <>{tabs}<View style={styles.center}><ActivityIndicator color={RD.brand} /></View></>;
-    if (board.total === 0) return <>{tabs}<Text style={styles.muted}>Aún no hay tiempos. ¡Sé el primero!</Text></>;
+    if (board.total === 0) return <>{tabs}<Text style={styles.muted}>{t('Aún no hay tiempos. ¡Sé el primero!')}</Text></>;
 
     const { top, me, aboveRows, belowRows, total } = board;
     const podium = top.slice(0, 3);
@@ -98,7 +99,7 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
       <>
         {tabs}
         <Text style={styles.totalLabel}>
-          {total} {total === 1 ? 'jugador ha corrido hoy' : 'jugadores han corrido hoy'}
+          {total === 1 ? t('{n} jugador ha corrido hoy', { n: total }) : t('{n} jugadores han corrido hoy', { n: total })}
         </Text>
         {podium.length >= 3 ? (
           <Podium rows={podium} winCounts={winCounts} onOpenPlayer={onOpenPlayer} />
@@ -116,8 +117,8 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
           </View>
         ) : !me ? (
           <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>— · Juega para entrar</Text>
-            <Text style={styles.placeholderHint}>tu puesto aparecerá aquí</Text>
+            <Text style={styles.placeholderText}>{t('— · Juega para entrar')}</Text>
+            <Text style={styles.placeholderHint}>{t('tu puesto aparecerá aquí')}</Text>
           </View>
         ) : null}
       </>
@@ -125,9 +126,9 @@ export default function MiniRanking({ refreshKey = 0, showTabs = true, onManageG
   }
 
   // Ámbito de grupo: siempre pocos miembros, se listan todos sin ventana.
-  if (error) return <>{tabs}<Text style={styles.muted}>No se pudo cargar el ranking.</Text></>;
+  if (error) return <>{tabs}<Text style={styles.muted}>{t('No se pudo cargar el ranking.')}</Text></>;
   if (!rows) return <>{tabs}<View style={styles.center}><ActivityIndicator color={RD.brand} /></View></>;
-  if (rows.length === 0) return <>{tabs}<Text style={styles.muted}>Nadie de este grupo ha jugado hoy.</Text></>;
+  if (rows.length === 0) return <>{tabs}<Text style={styles.muted}>{t('Nadie de este grupo ha jugado hoy.')}</Text></>;
 
   const podium = rows.slice(0, 3);
   const rest = rows.slice(3);
@@ -191,25 +192,29 @@ export function RankRow({ r, wins, timeLabel, sub, onPress, online }) {
   const f = frameById(r.frame);
   const Wrap = onPress ? Pressable : View;
   return (
+    // El marco va alrededor del AVATAR, no de la fila (auditoría, 2026-10-05):
+    // en la fila, el dorado de la corona se confundía con las bandas de
+    // premio del ranking del mes y el magenta del marco "doble" con el de
+    // "esta fila eres tú". El borde de fila queda solo para "tú".
     <Wrap
-      style={[styles.row, r.isMe && styles.rowMe, frameStyle(f, RD)]}
+      style={[styles.row, r.isMe && styles.rowMe]}
       {...(onPress ? { onPress: () => onPress(r) } : null)}
     >
       <View style={styles.rowLeft}>
         <Text style={[styles.rowRank, r.isMe && styles.rowRankMe]}>{String(r.rank).padStart(2, '0')}</Text>
-        <AvatarThumb pilotAvatarId={r.pilotAvatarId} size={44} />
+        <View style={[styles.avatarFrame, frameStyle(f, RD)]}>
+          <AvatarThumb pilotAvatarId={r.pilotAvatarId} size={44} />
+        </View>
         <View style={styles.rowNameCol}>
           <View style={styles.rowNameLine}>
             {/* Presencia real (JC, 2026-09-17): "¿a quién puedo retar ahora
-                mismo?" de un vistazo, sin entrar en cada perfil. JC,
-                2026-09-19: verde si está conectado, rojo si no — antes solo
-                salía el verde y "sin punto" no se distinguía de "aún no
-                se sabe". `online` undefined = presencia sin cargar: sin punto. */}
-            {!r.isMe && online != null && (
-              <View style={[styles.presenceDot, online ? styles.presenceOn : styles.presenceOff]} />
-            )}
+                mismo?" de un vistazo. Solo el verde de "conectado": el punto
+                rojo de "desconectado" (2026-09-19) salía en casi todas las
+                filas y, siendo el rojo de la marca y del peligro, convertía el
+                ranking en una pared de alarmas (auditoría, 2026-10-05). */}
+            {!r.isMe && online === true && <View style={[styles.presenceDot, styles.presenceOn]} />}
             <Text style={[styles.rowName, r.isMe && styles.rowNameMe]} numberOfLines={1}>
-              {r.isMe ? `${r.nickname} (tú)` : r.nickname}
+              {r.isMe ? t('{name} (tú)', { name: r.nickname }) : r.nickname}
             </Text>
             {!!f.glyph && <Text style={[styles.rowGlyph, { color: frameGlyphColor(f, RD) }]}>{f.glyph}</Text>}
             {/* Cuántas veces ha sido 1.º del mundo, no solo si lo ha sido —
@@ -255,7 +260,7 @@ function Podium({ rows, winCounts = {}, onOpenPlayer }) {
           >
             <View style={styles.podiumNameRow}>
               <Text style={[styles.podiumName, big && styles.podiumNameBig]} numberOfLines={1}>
-                {r.isMe ? 'Tú' : r.nickname}
+                {r.isMe ? t('Tú') : r.nickname}
               </Text>
               {wins > 0 && <Text style={[styles.rowWins, { color: RD.gold1st }]}>×{wins}</Text>}
             </View>
@@ -317,7 +322,7 @@ const styles = StyleSheet.create({
   rowNameLine: { flexDirection: 'row', alignItems: 'center' },
   presenceDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
   presenceOn: { backgroundColor: RD.successGreen },
-  presenceOff: { backgroundColor: RD.brand },
+  avatarFrame: { padding: 2, borderRadius: 3 },
   rowName: { color: RD.textPrimary, fontSize: 13, fontWeight: '700', flexShrink: 1 },
   rowGlyph: { fontSize: 13, marginLeft: 5 },
   rowWins: { fontSize: 10, fontFamily: RD_FONT.monoBold, marginLeft: 3 },
@@ -325,8 +330,9 @@ const styles = StyleSheet.create({
   rowSub: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono, marginTop: 1 },
   rowTime: { color: RD.cream, fontSize: 12, fontFamily: RD_FONT.mono },
 
+  // 9 px en gris "deshabilitado" no se leía (auditoría, 2026-10-05).
   totalLabel: {
-    color: RD.textDisabled, fontSize: 9, fontFamily: RD_FONT.mono,
+    color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono,
     letterSpacing: 1, marginTop: 2, marginBottom: 2,
   },
   placeholder: {

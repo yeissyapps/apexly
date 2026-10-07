@@ -18,6 +18,7 @@ import AvatarThumb from './AvatarThumb';
 import CoinIcon from './CoinIcon';
 import { getDuelMatchup } from './api';
 import { fmtTime } from './format';
+import { t } from './i18n';
 import { RD, RD_FONT } from './theme';
 
 const STAGE_W = Dimensions.get('window').width - 36;
@@ -36,7 +37,9 @@ function buildRows(me, rival) {
     { label: 'DÍAS CORRIDOS', a: String(me.days), b: String(rival.days), win: better(me.days, rival.days, false) },
     { label: 'RACHA', a: String(me.streak), b: String(rival.streak), win: better(me.streak, rival.streak, false) },
     { label: '1.º DEL MUNDO', a: `×${me.wins}`, b: `×${rival.wins}`, win: better(me.wins, rival.wins, false) },
-  ];
+  // Una fila "×0 … ×0" no compara nada: se quita cuando los dos están a cero
+  // (auditoría, 2026-10-05).
+  ].filter((r) => r.label !== '1.º DEL MUNDO' || me.wins > 0 || rival.wins > 0);
 }
 
 export default function DuelIntro({ duelId, onBack, onStart }) {
@@ -93,9 +96,9 @@ export default function DuelIntro({ duelId, onBack, onStart }) {
         <DangerStripe height={6} />
         <View style={s.centerMsg}>
           <Text style={s.centerMsgText}>
-            {data ? 'Este 1 vs 1 ya no está en juego.' : 'No se pudo cargar el 1 vs 1.'}
+            {data ? t('Este 1 vs 1 ya no está en juego.') : t('No se pudo cargar el 1 vs 1.')}
           </Text>
-          <Pressable onPress={onBack} hitSlop={12}><Text style={s.backLink}>‹ VOLVER</Text></Pressable>
+          <Pressable onPress={onBack} hitSlop={12}><Text style={s.backLink}>{t('‹ VOLVER')}</Text></Pressable>
         </View>
       </View>
     );
@@ -121,13 +124,13 @@ export default function DuelIntro({ duelId, onBack, onStart }) {
   return (
     <View style={s.screen}>
       <DangerStripe height={6} />
-      <Pressable onPress={onBack} hitSlop={12}><Text style={s.backLink}>‹ INICIO</Text></Pressable>
+      <Pressable onPress={onBack} hitSlop={12}><Text style={s.backLink}>{t('‹ INICIO')}</Text></Pressable>
 
       <View style={s.content}>
         <View style={s.wagerCard}>
           <CoinIcon size={18} />
           <Text style={s.wagerAmount}>{duel.wager}</Text>
-          <Text style={s.wagerLabel}>cada uno · gana el mejor tiempo</Text>
+          <Text style={s.wagerLabel}>{t('cada uno · gana el mejor tiempo')}</Text>
         </View>
 
         <View style={s.stage}>
@@ -138,13 +141,13 @@ export default function DuelIntro({ duelId, onBack, onStart }) {
           <Animated.View style={[s.fighter, s.fighterMe, slide(enterMe, -STAGE_W * 0.8, -80)]}>
             <AvatarThumb pilotAvatarId={me.avatarId} size={AVATAR} />
             <Text style={s.name} numberOfLines={1}>{me.nickname}</Text>
-            <Text style={s.tag}>TÚ</Text>
+            <Text style={s.tag}>{t('TÚ')}</Text>
           </Animated.View>
 
           <Animated.View style={[s.fighter, s.fighterRival, slide(enterRival, STAGE_W * 0.8, 80)]}>
             <AvatarThumb pilotAvatarId={rival.avatarId} size={AVATAR} />
             <Text style={s.name} numberOfLines={1}>{rival.nickname}</Text>
-            <Text style={s.tag}>RIVAL</Text>
+            <Text style={s.tag}>{t('RIVAL')}</Text>
           </Animated.View>
 
           <Animated.View style={[s.vsBadge, { opacity: vs, transform: [{ scale: vs }] }]}>
@@ -165,16 +168,18 @@ export default function DuelIntro({ duelId, onBack, onStart }) {
               ]}
             >
               <Text style={[s.statVal, s.statValLeft, r.win === 'a' && s.statWin]}>{r.a}</Text>
-              <Text style={s.statLabel}>{r.label}</Text>
+              <Text style={s.statLabel}>{t(r.label)}</Text>
               <Text style={[s.statVal, s.statValRight, r.win === 'b' && s.statWin]}>{r.b}</Text>
             </Animated.View>
           ))}
         </View>
 
         <Animated.View style={[s.ctaWrap, { opacity: cta }]}>
-          {mins != null && <Text style={s.deadline}>Te quedan {mins} min para correr</Text>}
+          {mins != null && (
+            <Text style={s.deadline}>{t('Te quedan {n} min para correr · si no corres y tu rival sí, el bote es suyo', { n: mins })}</Text>
+          )}
           <Pressable style={s.ctaBtn} onPress={onStart} disabled={!ctaReady}>
-            <Text style={s.ctaBtnText}>CORRER</Text>
+            <Text style={s.ctaBtnText}>{t('CORRER')}</Text>
           </Pressable>
         </Animated.View>
       </View>
@@ -203,7 +208,8 @@ const s = StyleSheet.create({
   fighter: { position: 'absolute', width: AVATAR, alignItems: 'center', gap: 2 },
   fighterMe: { left: 0, top: 0 },
   fighterRival: { right: 0, bottom: 0 },
-  name: { color: RD.textPrimary, fontSize: 17, fontFamily: RD_FONT.displayBlack, textTransform: 'uppercase', maxWidth: AVATAR + 24 },
+  // Sin forzar mayúsculas: el nombre es del jugador y se escribe como lo eligió.
+  name: { color: RD.textPrimary, fontSize: 19, fontFamily: RD_FONT.displayBlack, maxWidth: AVATAR + 24 },
   tag: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.monoBold, letterSpacing: 1.4 },
   vsBadge: {
     position: 'absolute', left: STAGE_W / 2 - 25, top: STAGE_H / 2 - 25, width: 50, height: 50,

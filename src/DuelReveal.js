@@ -22,6 +22,7 @@ import { TrackLayer, trackPalette, ghostPoseAt } from './Game';
 import { tieredCircuit } from './generator';
 import { getDuelReveal } from './api';
 import { fmtTime } from './format';
+import { t } from './i18n';
 import { RD, RD_FONT } from './theme';
 
 const { width: winW } = Dimensions.get('window');
@@ -72,15 +73,15 @@ export default function DuelReveal({ duelId, myId, onBack, onRematch }) {
     // sí volvía a renderizar 60 veces/segundo sin fin mientras esta
     // pantalla estuviera montada). 400ms de margen tras el más lento para
     // que se le vea cruzar meta y asentarse antes de parar del todo.
-    const durationA = data.challenger.trace[data.challenger.trace.length - 1]?.[0] ?? 0;
-    const durationB = data.opponent.trace[data.opponent.trace.length - 1]?.[0] ?? 0;
-    const stopAt = Math.max(durationA, durationB) + 400;
+    // Con incomparecencia solo hay una traza: el otro coche no sale a pista.
+    const lastT = (tr) => (tr ? tr[tr.length - 1]?.[0] ?? 0 : 0);
+    const stopAt = Math.max(lastT(data.challenger.trace), lastT(data.opponent.trace)) + 400;
     function frame(t) {
       if (startRef.current == null) startRef.current = t;
       const elapsed = t - startRef.current;
       setPoses({
-        a: ghostPoseAt(data.challenger.trace, elapsed, aIdxRef),
-        b: ghostPoseAt(data.opponent.trace, elapsed, bIdxRef),
+        a: data.challenger.trace ? ghostPoseAt(data.challenger.trace, elapsed, aIdxRef) : null,
+        b: data.opponent.trace ? ghostPoseAt(data.opponent.trace, elapsed, bIdxRef) : null,
       });
       if (elapsed >= stopAt) return; // ya cruzaron los dos — no se reprograma más
       rafRef.current = requestAnimationFrame(frame);
@@ -94,9 +95,9 @@ export default function DuelReveal({ duelId, myId, onBack, onRematch }) {
       <View style={s.screen}>
         <DangerStripe height={6} />
         <View style={s.centerMsg}>
-          <Text style={s.centerMsgText}>Este duelo todavía no tiene las dos vueltas.</Text>
+          <Text style={s.centerMsgText}>{t('Este duelo todavía no tiene las dos vueltas.')}</Text>
           <Pressable onPress={onBack} hitSlop={12}>
-            <Text style={s.backLink}>‹ VOLVER</Text>
+            <Text style={s.backLink}>{t('‹ VOLVER')}</Text>
           </Pressable>
         </View>
       </View>
@@ -118,17 +119,19 @@ export default function DuelReveal({ duelId, myId, onBack, onRematch }) {
   // ya se cobró al aceptar, así que el bote de 2x son tu apuesta devuelta más
   // la del rival. Igual que el historial de la pestaña 1 VS 1.
   const resultLabel = tie
-    ? 'EMPATE — SE DEVUELVE LA APUESTA'
-    : iWon ? `GANAS · +${data.wager}` : `PIERDES · −${data.wager}`;
+    ? t('EMPATE — SE DEVUELVE LA APUESTA')
+    : data.forfeit
+      ? (iWon ? t('GANAS SIN RIVAL · +{n}', { n: data.wager }) : t('NO CORRISTE A TIEMPO · −{n}', { n: data.wager }))
+      : iWon ? t('GANAS · +{n}', { n: data.wager }) : t('PIERDES · −{n}', { n: data.wager });
   const rival = data.challenger.userId === myId ? data.opponent : data.challenger;
 
   return (
     <View style={s.screen}>
       <DangerStripe height={6} />
       <Pressable onPress={onBack} hitSlop={12}>
-        <Text style={s.backLink}>‹ INICIO</Text>
+        <Text style={s.backLink}>{t('‹ INICIO')}</Text>
       </Pressable>
-      <Text style={s.pageTitle}>Duelo</Text>
+      <Text style={s.pageTitle}>{t('Duelo')}</Text>
 
       <View style={s.stage}>
         <Svg width={winW} height={STAGE_H} viewBox={`0 0 ${winW} ${STAGE_H}`}>
@@ -149,20 +152,20 @@ export default function DuelReveal({ duelId, myId, onBack, onRematch }) {
         <View style={s.sideRow}>
           <View style={s.side}>
             <Text style={s.sideName} numberOfLines={1}>{data.challenger.nickname}</Text>
-            <Text style={s.sideTime}>{fmtTime(data.challenger.ms)}</Text>
+            <Text style={s.sideTime}>{data.challenger.ms != null ? fmtTime(data.challenger.ms) : t('No corrió')}</Text>
           </View>
           <Text style={s.vs}>VS</Text>
           <View style={s.side}>
             <Text style={s.sideName} numberOfLines={1}>{data.opponent.nickname}</Text>
-            <Text style={s.sideTime}>{fmtTime(data.opponent.ms)}</Text>
+            <Text style={s.sideTime}>{data.opponent.ms != null ? fmtTime(data.opponent.ms) : t('No corrió')}</Text>
           </View>
         </View>
         <View style={s.wagerRow}>
           <CoinIcon size={16} />
-          <Text style={s.wagerText}>{data.wager} en juego</Text>
+          <Text style={s.wagerText}>{t('{n} en juego', { n: data.wager })}</Text>
         </View>
         <Pressable style={s.rematchBtn} onPress={() => onRematch(rival)}>
-          <Text style={s.rematchBtnText}>REVANCHA</Text>
+          <Text style={s.rematchBtnText}>{t('REVANCHA')}</Text>
         </Pressable>
       </View>
     </View>

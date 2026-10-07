@@ -20,6 +20,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Polygon } from 'react-native-svg';
 
 import { RD, RD_FONT, SECTOR_RESULT_COLORS } from './theme';
+import { t } from './i18n';
 
 export const CARD_W = 1080;
 export const CARD_H = 1350;
@@ -62,7 +63,7 @@ const ShareCard = forwardRef(function ShareCard(
       <View>
         <View style={styles.head}>
           <Text style={styles.brand}>APEXLY</Text>
-          <Text style={styles.day}>{day}{wx.icon ? `  ·  ${wx.icon} ${wx.label}` : ''}</Text>
+          <Text style={styles.day}>{day}{wx.icon ? `  ·  ${wx.icon} ${t(wx.label)}` : ''}</Text>
         </View>
         {/* Regla de cabecera partida: el tramo rojo es la marca, el resto
             estructura. Un filete entero de un solo color se lee como borde;
@@ -93,7 +94,7 @@ const ShareCard = forwardRef(function ShareCard(
       )}
 
       <View style={styles.timeBlock}>
-        <Text style={styles.timeK}>TIEMPO</Text>
+        <Text style={styles.timeK}>{t('TIEMPO')}</Text>
         <Text style={[styles.time, { color: accent }]}>{time}</Text>
         {!!rankText && <Text style={styles.rank}>{rankText}</Text>}
       </View>

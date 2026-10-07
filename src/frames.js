@@ -4,13 +4,12 @@
 //  POR QUÉ EXISTE ESTA CATEGORÍA: las otras 22 piezas (chasis, pintura,
 //  alerón, librea) solo se aprecian en tu propio garaje; en carrera el coche
 //  se ve pequeño y de lejos. O sea, coleccionabas para ti solo. El marco se
-//  pinta en TU FILA del ranking, que es lo que mira todo el mundo — es lo que
-//  convierte la colección en algo que se puede presumir.
+//  pinta alrededor de tu AVATAR en el ranking, que es lo que mira todo el
+//  mundo — es lo que convierte la colección en algo que se puede presumir.
 //
-//  Se aplica ENCIMA del estilo de "tú" que ya existe (fondo magenta), no en
-//  su lugar: el magenta sigue significando "esta fila eres tú" y el marco
-//  añade el acabado. Si el marco sustituyera al magenta, la gente perdería
-//  la referencia de dónde está.
+//  Va en el avatar y no en la fila entera desde la auditoría de 2026-10-05:
+//  en la fila, el dorado de la corona se confundía con las bandas de premio
+//  del ranking del mes y el magenta de "doble" con el de "esta fila eres tú".
 //
 //  LA CORONA MUNDIAL NO SE COMPRA. No está en catalog_pieces, así que nunca
 //  sale de un sobre: se concede la primera vez que acabas 1.º del mundo en un

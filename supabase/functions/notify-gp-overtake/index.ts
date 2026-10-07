@@ -9,6 +9,7 @@
 // ============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { pushText, tokensFor } from '../_shared/push.ts';
 
 Deno.serve(async (req) => {
   try {
@@ -35,7 +36,7 @@ Deno.serve(async (req) => {
     if (memberIds.length === 0) return json({ sent: 0, debug: { members: 0, emem: emem?.message ?? null } });
 
     const { data: me } = await asUser.from('users').select('nickname').eq('id', uid).single();
-    const myName = me?.nickname ?? 'Alguien';
+    const myName = me?.nickname ?? null;
 
     // A quién he adelantado en ESTA ronda del GP: su tiempo era peor que mi
     // nuevo tiempo (gt) y, si ya tenía uno antes, mejor que el anterior (lt).
@@ -52,16 +53,14 @@ Deno.serve(async (req) => {
     if (passedIds.length === 0) return json({ sent: 0, debug: { members: memberIds.length, passed: 0 } });
 
     const admin = createClient(url, service);
-    const { data: toks, error: etok } = await admin.from('push_tokens').select('token').in('user_id', passedIds);
-    const seenTokens = new Set<string>();
-    const messages = (toks ?? [])
-      .filter((t) => t.token && !seenTokens.has(t.token) && seenTokens.add(t.token))
-      .map((t) => ({
-        to: t.token, sound: 'default', title: 'Apexly · Grand Prix',
-        body: `${myName} te ha superado en la ronda ${dayIndex}. ¿Lo vas a permitir?`,
-      }));
+    // Cada aviso en el idioma del móvil que lo recibe (_shared/push.ts).
+    const toks = await tokensFor(admin, passedIds);
+    const messages = toks.map((t) => ({
+      to: t.token, sound: 'default', title: 'Apexly · Grand Prix',
+      body: pushText(t.lang, 'gpOvertake', { name: myName ?? pushText(t.lang, 'someone'), n: dayIndex }),
+    }));
     if (messages.length === 0) {
-      return json({ sent: 0, debug: { members: memberIds.length, passed: passedIds.length, tokens: 0, hasService: service.length > 0, etok: etok?.message ?? null } });
+      return json({ sent: 0, debug: { members: memberIds.length, passed: passedIds.length, tokens: 0, hasService: service.length > 0 } });
     }
 
     await fetch('https://exp.host/--/api/v2/push/send', {

@@ -33,6 +33,7 @@ import {
   createDuel, cancelDuel, getMyActiveDuels, getPresenceMap,
 } from './api';
 import { LEVEL_COUNT } from './career';
+import { t, getLang, setLang } from './i18n';
 
 // "En línea" es una aproximación por sondeo (touchPresence cada ~60s desde
 // App.js, sin tiempo real) — 3 minutos de margen para no parpadear a
@@ -52,10 +53,10 @@ function DuelStatusRow({ d, onOpen, onCancel, cancelling }) {
     return (
       <View style={s.duelBanner}>
         <Text style={s.duelBannerText}>
-          Esperando a {d.otherName} · {d.wager} monedas · caduca en {mins} min
+          {t('Esperando a {name} · {n} monedas · caduca en {mins} min', { name: d.otherName, n: d.wager, mins })}
         </Text>
         <Pressable onPress={() => onCancel(d.id)} disabled={cancelling} hitSlop={10}>
-          <Text style={[s.duelBannerLink, s.duelBannerCancel]}>{cancelling ? '…' : 'CANCELAR'}</Text>
+          <Text style={[s.duelBannerLink, s.duelBannerCancel]}>{cancelling ? '…' : t('CANCELAR')}</Text>
         </Pressable>
       </View>
     );
@@ -64,14 +65,14 @@ function DuelStatusRow({ d, onOpen, onCancel, cancelling }) {
   let text;
   let action;
   if (d.status === 'pending') {
-    text = `${d.otherName} te reta por ${d.wager} monedas`;
-    action = 'VER ›';
+    text = t('{name} te reta por {n} monedas', { name: d.otherName, n: d.wager });
+    action = t('VER ›');
   } else if (!d.myRunDone) {
-    text = `1 vs 1 con ${d.otherName} · ${d.wager} monedas · te quedan ${mins} min para correr`;
-    action = 'CORRER ›';
+    text = t('1 vs 1 con {name} · {n} monedas · te quedan {mins} min para correr', { name: d.otherName, n: d.wager, mins });
+    action = t('CORRER ›');
   } else {
-    text = `1 vs 1 con ${d.otherName} · ya has corrido, falta su vuelta`;
-    action = 'VER ›';
+    text = t('1 vs 1 con {name} · ya has corrido, falta su vuelta', { name: d.otherName });
+    action = t('VER ›');
   }
   return (
     <Pressable style={s.duelBanner} onPress={() => onOpen(d.id)}>
@@ -147,6 +148,29 @@ const PROFILE_TABS = [
   { id: 'piloto', label: 'PILOTO' },
   { id: 'stats', label: 'STATS' },
 ];
+
+// Selector de idioma (src/i18n.js) — solo en tu propio perfil. Cambiarlo
+// vuelve a montar la app entera con el idioma nuevo (ver index.js).
+function LangSwitch() {
+  const lang = getLang();
+  return (
+    <View style={s.langRow}>
+      <Text style={s.langLabel}>{t('IDIOMA')}</Text>
+      <View style={s.langOpts}>
+        {[['es', 'Español'], ['en', 'English']].map(([code, name]) => (
+          <Pressable
+            key={code}
+            style={[s.langOpt, lang === code && s.langOptActive]}
+            onPress={() => setLang(code)}
+            hitSlop={6}
+          >
+            <Text style={[s.langOptText, lang === code && s.langOptTextActive]}>{name}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 function StatCard({ value, label, hint, tone }) {
   return (
@@ -269,7 +293,7 @@ export default function Profile({
     // viaje y da el mensaje al momento. Si el saldo aún no ha llegado, se
     // deja pasar y decide el servidor.
     if (wallet?.balance != null && wager > wallet.balance) {
-      setChallengeMsg({ type: 'err', text: `No tienes tantas monedas: tienes ${wallet.balance}.` });
+      setChallengeMsg({ type: 'err', text: t('No tienes tantas monedas: tienes {n}.', { n: wallet.balance }) });
       return;
     }
     setChallengeBusy(true);
@@ -279,10 +303,10 @@ export default function Profile({
       await reloadDuels(); // el reto recién enviado sale ya abajo, con su cuenta atrás y su botón de cancelar
     } catch (e) {
       const code = String(e?.message || e);
-      const text = code.includes('DUEL_ALREADY_PENDING') ? 'Ya tenéis un 1 vs 1 en marcha.'
-        : code.includes('INSUFFICIENT_FUNDS') ? 'No te quedan monedas libres para esa apuesta (cuentan tus retos pendientes).'
-        : code.includes('INVALID_WAGER') ? 'Pon una apuesta válida.'
-        : 'No se pudo enviar el reto. Inténtalo otra vez.';
+      const text = code.includes('DUEL_ALREADY_PENDING') ? t('Ya tenéis un 1 vs 1 en marcha.')
+        : code.includes('INSUFFICIENT_FUNDS') ? t('No te quedan monedas libres para esa apuesta (cuentan tus retos pendientes).')
+        : code.includes('INVALID_WAGER') ? t('Pon una apuesta válida.')
+        : t('No se pudo enviar el reto. Inténtalo otra vez.');
       setChallengeMsg({ type: 'err', text });
       if (code.includes('DUEL_ALREADY_PENDING')) reloadDuels();
     } finally {
@@ -307,8 +331,8 @@ export default function Profile({
   const waitingOnThem = duelWithThem?.status === 'pending' && duelWithThem?.role === 'outgoing';
   useEffect(() => {
     if (!waitingOnThem) return undefined;
-    const t = setInterval(reloadDuels, 5000);
-    return () => clearInterval(t);
+    const id = setInterval(reloadDuels, 5000);
+    return () => clearInterval(id);
   }, [waitingOnThem, reloadDuels]);
 
   const daysRaced = trend ? trend.length : null;
@@ -335,7 +359,7 @@ export default function Profile({
       <DangerStripe height={6} />
       <ScrollView contentContainerStyle={s.content}>
         <Pressable onPress={onBack} hitSlop={12}>
-          <Text style={s.backLink}>‹ INICIO</Text>
+          <Text style={s.backLink}>{t('‹ INICIO')}</Text>
         </Pressable>
 
         <View style={s.identity}>
@@ -345,13 +369,13 @@ export default function Profile({
               {!isOwnProfile && online && (
                 <View style={s.onlinePill}>
                   <View style={s.onlineDot} />
-                  <Text style={s.onlinePillText}>EN LÍNEA</Text>
+                  <Text style={s.onlinePillText}>{t('EN LÍNEA')}</Text>
                 </View>
               )}
             </View>
             <Text style={s.identitySub}>
-              {daysRaced != null ? `${daysRaced} ${daysRaced === 1 ? 'día corrido' : 'días corridos'}` : '···'}
-              {stats?.bestMs ? ` · mejor ${fmtTime(stats.bestMs)}` : ''}
+              {daysRaced != null ? (daysRaced === 1 ? t('{n} día corrido', { n: daysRaced }) : t('{n} días corridos', { n: daysRaced })) : '···'}
+              {stats?.bestMs ? t(' · mejor {time}', { time: fmtTime(stats.bestMs) }) : ''}
             </Text>
           </View>
         </View>
@@ -359,13 +383,13 @@ export default function Profile({
         {/* Dos pestañas (JC, 2026-09-16: "muchísima info en el perfil") en
             vez de un único scroll largo — ver PROFILE_TABS arriba. */}
         <View style={s.tabsRow}>
-          {PROFILE_TABS.map((t) => (
+          {PROFILE_TABS.map((pt) => (
             <Pressable
-              key={t.id}
-              style={[s.tab, tab === t.id && s.tabActive]}
-              onPress={() => setTab(t.id)}
+              key={pt.id}
+              style={[s.tab, tab === pt.id && s.tabActive]}
+              onPress={() => setTab(pt.id)}
             >
-              <Text style={[s.tabText, tab === t.id && s.tabTextActive]}>{t.label}</Text>
+              <Text style={[s.tabText, tab === pt.id && s.tabTextActive]}>{t(pt.label)}</Text>
             </Pressable>
           ))}
         </View>
@@ -387,23 +411,25 @@ export default function Profile({
                     resto de la app (ver theme.js): trackBlue es "coche",
                     gold1st es "moneda/récord", successGreen es "progreso". */}
                 <Pressable style={[s.actionBtn, s.actionBtnGaraje]} onPress={onOpenGarage}>
-                  <Text style={[s.actionBtnText, s.actionBtnTextGaraje]}>GARAJE</Text>
+                  <Text style={[s.actionBtnText, s.actionBtnTextGaraje]}>{t('GARAJE')}</Text>
                 </Pressable>
                 <Pressable style={[s.actionBtn, s.actionBtnTienda]} onPress={onOpenTienda}>
-                  <Text style={[s.actionBtnText, s.actionBtnTextTienda]}>TIENDA</Text>
+                  <Text style={[s.actionBtnText, s.actionBtnTextTienda]}>{t('TIENDA')}</Text>
                 </Pressable>
                 <Pressable style={[s.actionBtn, s.actionBtnCarrera]} onPress={onOpenCareer}>
-                  <Text style={[s.actionBtnText, s.actionBtnTextCarrera]}>CARRERA</Text>
+                  <Text style={[s.actionBtnText, s.actionBtnTextCarrera]}>{t('CARRERA')}</Text>
                 </Pressable>
                 {/* Selector real de avatar (JC, 2026-09-16) — youMagenta
                     porque ya es el color de "épica" en el resto de la app
                     (RARITY_COLOR), y este botón lleva justo a la pantalla
                     de rarezas. */}
                 <Pressable style={[s.actionBtn, s.actionBtnAvatar]} onPress={onOpenAvatarPicker}>
-                  <Text style={[s.actionBtnText, s.actionBtnTextAvatar]}>AVATAR</Text>
+                  <Text style={[s.actionBtnText, s.actionBtnTextAvatar]}>{t('AVATAR')}</Text>
                 </Pressable>
               </View>
             )}
+
+            {isOwnProfile && <LangSwitch />}
 
             {/* RETAR (JC, 2026-09-17: duelos 1vs1) — perfil de OTRO jugador
                 solamente, mismo hueco donde se ocultan Garaje/Tienda/Carrera
@@ -412,7 +438,7 @@ export default function Profile({
                 todavía, solo se manda. */}
             {!isOwnProfile && duelWithThem && (
               <View style={s.duelCard}>
-                <Text style={s.duelCardTitle}>1 VS 1 EN CURSO</Text>
+                <Text style={s.duelCardTitle}>{t('1 VS 1 EN CURSO')}</Text>
                 <DuelStatusRow
                   d={duelWithThem}
                   onOpen={onOpenDuel}
@@ -420,25 +446,25 @@ export default function Profile({
                   cancelling={cancelBusy === duelWithThem.id}
                 />
                 <Text style={s.duelMsgHint}>
-                  Todos tus 1 vs 1 están en la pestaña 1 VS 1 de Inicio. Hasta que este se resuelva no podéis abrir otro.
+                  {t('Todos tus 1 vs 1 están en la pestaña 1 VS 1 de Inicio. Hasta que este se resuelva no podéis abrir otro.')}
                 </Text>
               </View>
             )}
 
             {!isOwnProfile && !duelWithThem && (
               <View style={s.duelCard}>
-                <Text style={s.duelCardTitle}>RETAR A UN 1 VS 1</Text>
+                <Text style={s.duelCardTitle}>{t('RETAR A UN 1 VS 1')}</Text>
                 <View style={s.duelWagerRow}>
                   <CoinIcon size={16} />
                   <TextInput
                     style={s.duelWagerInput}
                     value={wagerInput}
-                    onChangeText={(t) => setWagerInput(t.replace(/[^0-9]/g, ''))}
+                    onChangeText={(v) => setWagerInput(v.replace(/[^0-9]/g, ''))}
                     keyboardType="number-pad"
                     maxLength={5}
                   />
                   {wallet?.balance != null && (
-                    <Text style={s.duelWagerHint}>tienes {wallet.balance}</Text>
+                    <Text style={s.duelWagerHint}>{t('tienes {n}', { n: wallet.balance })}</Text>
                   )}
                 </View>
                 {!!challengeMsg && (
@@ -449,7 +475,7 @@ export default function Profile({
                   onPress={handleChallenge}
                   disabled={challengeBusy}
                 >
-                  <Text style={s.retarBtnText}>{challengeBusy ? 'ENVIANDO…' : 'RETAR'}</Text>
+                  <Text style={s.retarBtnText}>{challengeBusy ? t('ENVIANDO…') : t('RETAR')}</Text>
                 </Pressable>
               </View>
             )}
@@ -496,13 +522,13 @@ export default function Profile({
                     forma de myStreak (la tuya, cargada aparte en Inicio).
                     Pedirle `.current` a un número da undefined siempre. */}
                 <Text style={s.heroValue}>{(isOwnProfile ? myStreak?.current : viewStreak) ?? 0}</Text>
-                <Text style={s.heroLabel}>RACHA</Text>
+                <Text style={s.heroLabel}>{t('RACHA')}</Text>
                 {/* La racha MÁXIMA solo la tienes tú misma cargada (viene
                     por prop desde Inicio) — el ranking no manda
                     longest_streak de otros jugadores, así que en un perfil
                     ajeno se omite en vez de enseñar un "máx. 0" que sería
                     mentira. */}
-                {isOwnProfile && <Text style={s.heroHint}>máx. {myStreak?.longest ?? 0}</Text>}
+                {isOwnProfile && <Text style={s.heroHint}>{t('máx. {n}', { n: myStreak?.longest ?? 0 })}</Text>}
               </View>
               <View style={s.heroCard}>
                 {/* El dorado SOLO si de verdad vas primero. Antes lo
@@ -512,44 +538,44 @@ export default function Profile({
                 <Text style={[s.heroValue, todayRank === 1 && s.heroValueGold]}>
                   {todayRank ? `#${todayRank}` : todayRank === null ? '—' : '···'}
                 </Text>
-                <Text style={s.heroLabel}>HOY</Text>
+                <Text style={s.heroLabel}>{t('HOY')}</Text>
                 <Text style={s.heroHint}>
-                  {purple ? `${purple.mine}/3 morados` : ' '}
+                  {purple ? t('{n}/3 morados', { n: purple.mine }) : ' '}
                 </Text>
               </View>
             </View>
 
             <StatTrend points={trend || []} own={isOwnProfile} />
 
-            <Text style={s.sectionLabel}>EN PISTA</Text>
+            <Text style={s.sectionLabel}>{t('EN PISTA')}</Text>
             <View style={s.statsRow}>
               <StatCard
                 value={stats ? stats.laps : '—'}
-                label="VUELTAS"
+                label={t('VUELTAS')}
                 tone={stats ? null : 'dim'}
               />
               <StatCard
                 value={stats ? fmtDuration(stats.raceMs) : '—'}
-                label="AL VOLANTE"
+                label={t('AL VOLANTE')}
                 tone={stats ? null : 'dim'}
               />
               <StatCard
                 value={stats ? stats.crashes : '—'}
-                label="CHOQUES"
-                hint={crashRate ? `${crashRate}/vuelta` : null}
+                label={t('CHOQUES')}
+                hint={crashRate ? t('{n}/vuelta', { n: crashRate }) : null}
                 tone={stats ? null : 'dim'}
               />
             </View>
 
-            <Text style={s.sectionLabel}>COLECCIÓN</Text>
+            <Text style={s.sectionLabel}>{t('COLECCIÓN')}</Text>
             <View style={s.statsRow}>
               <StatCard
                 value={career != null ? `${career}/${LEVEL_COUNT}` : '—'}
-                label="NIVELES"
+                label={t('NIVELES')}
               />
               <StatCard
                 value={piecesOwned != null ? `${piecesOwned}/${TOTAL_COLLECTIBLES}` : '—'}
-                label="PIEZAS"
+                label={t('PIEZAS')}
               />
               {/* Las monedas se quedan fuera del perfil público (JC,
                   2026-09-15: "público su avatar y sus stats" — el saldo no
@@ -557,15 +583,15 @@ export default function Profile({
               {isOwnProfile && (
                 <StatCard
                   value={lifetimeCoins != null ? lifetimeCoins : (wallet?.balance ?? 0)}
-                  label={lifetimeCoins != null ? 'MONEDAS GANADAS' : 'MONEDAS'}
-                  hint={lifetimeCoins != null ? `${wallet?.balance ?? 0} ahora` : null}
+                  label={lifetimeCoins != null ? t('MONEDAS GANADAS') : t('MONEDAS')}
+                  hint={lifetimeCoins != null ? t('{n} ahora', { n: wallet?.balance ?? 0 }) : null}
                 />
               )}
             </View>
 
             {stats === null && (
               <Text style={s.statsMissing}>
-                Los contadores de pista se activan al correr supabase/stats.sql.
+                {t('Los contadores de pista se activan al correr supabase/stats.sql.')}
               </Text>
             )}
           </>
@@ -577,6 +603,13 @@ export default function Profile({
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: RD.bg },
+  langRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  langLabel: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 1.2 },
+  langOpts: { flexDirection: 'row', gap: 6 },
+  langOpt: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, paddingHorizontal: 12, paddingVertical: 6 },
+  langOptActive: { borderColor: RD.cream },
+  langOptText: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.mono },
+  langOptTextActive: { color: RD.textPrimary, fontFamily: RD_FONT.monoBold },
   content: { paddingHorizontal: 18, paddingTop: 50, paddingBottom: 40, gap: 14 },
   backLink: { color: RD.textSecondary, fontSize: 12, fontFamily: RD_FONT.mono, marginBottom: 4 },
 

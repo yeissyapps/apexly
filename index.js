@@ -2,7 +2,10 @@ import { registerRootComponent } from 'expo';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Sentry from '@sentry/react-native';
 
+import { useEffect } from 'react';
+
 import App from './App';
+import { loadSavedLang, useLang } from './src/i18n';
 
 // Experimento del volantazo fantasma en iOS (ver historial de src/Game.js y
 // src/config.js): sabemos que el timestamp NATIVO de pulsar/soltar y lo que
@@ -23,9 +26,15 @@ Sentry.init({
 });
 
 function Root() {
+  // Idioma (src/i18n.js): `key` = idioma, así que al cambiarlo se vuelve a
+  // montar la app entera con los textos nuevos — vuelve a Inicio, igual que
+  // al abrirla. Cambiar de idioma es raro; no compensa que cada pantalla
+  // tenga que escuchar el cambio por su cuenta.
+  const lang = useLang();
+  useEffect(() => { loadSavedLang(); }, []);
   return (
     <SafeAreaProvider>
-      <App />
+      <App key={lang} />
     </SafeAreaProvider>
   );
 }

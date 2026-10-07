@@ -25,6 +25,7 @@ import DangerStripe from './DangerStripe';
 import AvatarViewer from './AvatarViewer';
 import { AVATARS, isFreeAvatar, avatarDisplayLabel } from './avatarCatalog';
 import { RD, RD_FONT, RARITY_COLOR } from './theme';
+import { t } from './i18n';
 import { getInventory, getPilotAvatarId, savePilotAvatar } from './api';
 
 const GROUP_ORDER = [null, 'comun', 'rara', 'epica', 'legendaria'];
@@ -95,7 +96,7 @@ export default function AvatarPicker({ onBack, onOpenTienda }) {
       setEquipped(a.key);
       setPreview(null);
     } catch (e) {
-      setError('No se pudo guardar tu avatar — inténtalo otra vez.');
+      setError(t('No se pudo guardar tu avatar — inténtalo otra vez.'));
     } finally {
       setSaving(false);
     }
@@ -107,20 +108,20 @@ export default function AvatarPicker({ onBack, onOpenTienda }) {
       <DangerStripe height={6} />
       <ScrollView contentContainerStyle={s.content}>
         <Pressable onPress={onBack} hitSlop={12}>
-          <Text style={s.backLink}>‹ PERFIL</Text>
+          <Text style={s.backLink}>{t('‹ PERFIL')}</Text>
         </Pressable>
 
-        <Text style={s.pageTitle}>Avatar</Text>
-        <Text style={s.disclaimer}>Elige tu muñeco — los sobres reparten los más raros.</Text>
+        <Text style={s.pageTitle}>{t('Avatar')}</Text>
+        <Text style={s.disclaimer}>{t('Elige tu muñeco — los sobres reparten los más raros.')}</Text>
         {!!error && <Text style={s.saveError}>{error}</Text>}
 
         <View style={s.preview}>
           <AvatarViewer key={shownAvatar.key} source={shownAvatar.glb} cacheKey={shownAvatar.key} />
           {preview && (
             <View style={s.previewBadge}>
-              <Text style={s.previewBadgeText}>SOLO ESTÁS MIRANDO — NO ES TUYO</Text>
+              <Text style={s.previewBadgeText}>{t('SOLO ESTÁS MIRANDO — NO ES TUYO')}</Text>
               <Pressable onPress={onOpenTienda} hitSlop={8}>
-                <Text style={s.previewBadgeLink}>CONSEGUIR ›</Text>
+                <Text style={s.previewBadgeLink}>{t('CONSEGUIR ›')}</Text>
               </Pressable>
             </View>
           )}
@@ -133,7 +134,7 @@ export default function AvatarPicker({ onBack, onOpenTienda }) {
             return (
               <View key={String(rarity)} style={{ gap: 10 }}>
                 <View style={s.groupHeader}>
-                  <Text style={[s.groupLabel, { color: rc }]}>{GROUP_LABEL[String(rarity)]}</Text>
+                  <Text style={[s.groupLabel, { color: rc }]}>{t(GROUP_LABEL[String(rarity)])}</Text>
                   <View style={[s.groupRule, { backgroundColor: rc, opacity: 0.25 }]} />
                   <Text style={s.groupCount}>{rarity ? `${have}/${items.length}` : items.length}</Text>
                 </View>
@@ -178,7 +179,7 @@ export default function AvatarPicker({ onBack, onOpenTienda }) {
                           ]}
                           numberOfLines={1}
                         >
-                          {isPreviewing ? 'Mirando' : avatarDisplayLabel(a)}
+                          {avatarDisplayLabel(a)}
                         </Text>
                       </Pressable>
                     );

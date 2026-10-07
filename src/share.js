@@ -18,6 +18,7 @@
 // ============================================================================
 
 import { Share } from 'react-native';
+import { t } from './i18n';
 
 let ViewShot = null;
 let RNShare = null;
@@ -57,7 +58,7 @@ export async function shareCardImage(cardRef, text) {
     if (ViewShot && Sharing && cardRef?.current) {
       const uri = await ViewShot.captureRef(cardRef, { format: 'png', quality: 1 });
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Comparte tu tiempo' });
+        await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: t('Comparte tu tiempo') });
         return true;
       }
     }
