@@ -13,6 +13,11 @@ workflows:
         bundle_identifier: com.yeissyapps.circuitodiario
       vars:
         BUNDLE_ID: "com.yeissyapps.circuitodiario"
+        # El altool de Xcode 26 no encuentra la app por su bundle id en cuentas
+        # con varios proveedores ("Cannot determine the Apple ID from Bundle
+        # ID", build 2.4.7, 2026-10-07). Solución de Codemagic: subir con el
+        # altool antiguo. Ver help.codemagic.io, artículo 7154824641.
+        APP_STORE_CONNECT_ALTOOL_ADDITIONAL_ARGUMENTS: "--use-old-altool"
         # El paso "Bundle React Native code and images" queda envuelto por
         # sentry-cli (ver sentry-xcode.sh en @sentry/react-native), que
         # intenta crear un release en Sentry vía API antes de bundlear. Si
