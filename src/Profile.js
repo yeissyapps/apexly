@@ -22,18 +22,21 @@ import { Dimensions, Pressable, ScrollView, StyleSheet, Text, TextInput, View } 
 import DangerStripe from './DangerStripe';
 import StatTrend from './StatTrend';
 import AvatarViewer from './AvatarViewer';
+import PodiumStage, { podiumFraming } from './PodiumStage';
+import Svg, { Path, Rect } from 'react-native-svg';
 import CoinIcon from './CoinIcon';
 import { AVATARS, TOTAL_COLLECTIBLES } from './avatarCatalog';
-import { RD, RD_FONT } from './theme';
+import { RD, RD_FONT, RARITY_COLOR } from './theme';
 import { fmtTime } from './format';
 import { dailyTimeEstimate } from './generator';
 import {
   getCareerProgress, getInventory, getGlobalBoard, getMyId, getPlayerRankToday,
   getPlayerStats, getMyDailyHistory, getMyPurpleSectors, getLifetimeCoins, getPilotAvatarId,
   createDuel, cancelDuel, getMyActiveDuels, getPresenceMap,
+  getMonthlyRanking, getWorldWinCounts, getPurpleTotal, getLongestStreak,
 } from './api';
 import { LEVEL_COUNT } from './career';
-import { t, getLang, setLang } from './i18n';
+import { t, getLang, setLang, ord } from './i18n';
 
 // "En línea" es una aproximación por sondeo (touchPresence cada ~60s desde
 // App.js, sin tiempo real) — 3 minutos de margen para no parpadear a
@@ -86,7 +89,15 @@ function DuelStatusRow({ d, onOpen, onCancel, cancelling }) {
 // (ahí "50%" no significa nada sin un padre de altura fija) — se mide
 // directo contra la ventana. JC, 2026-09-15: "vea en media pantalla de
 // arriba su avatar".
-const AVATAR_HEIGHT = Dimensions.get('window').height * 0.5;
+const AVATAR_HEIGHT = Dimensions.get('window').height * 0.46;
+const STAGE_W = Dimensions.get('window').width;
+// Cuánto se espera al puesto del mes antes de montar el muñeco igualmente.
+const STAGE_WAIT_MS = 2500; // a sangre: marginHorizontal -18 anula el padding
+
+// Fondo de tarjeta: un paso por encima del negro de la pantalla, el mismo
+// del escenario del avatar. Sin él las tarjetas eran solo un borde
+// flotando en negro.
+const RD_SURFACE = '#111113';
 
 // TOTAL_PIECES vive en car.js (una sola fuente, calculada del catálogo del
 // coche) — antes se calculaba aquí y estaba escrito a mano en Tienda.js, así
@@ -172,19 +183,93 @@ function LangSwitch() {
   );
 }
 
-function StatCard({ value, label, hint, tone }) {
+// Fila de telemetría: etiqueta a la izquierda, número a la derecha. Antes
+// eran seis tarjetas idénticas en rejilla — todas pesaban lo mismo y la
+// pantalla se leía como un muro de cajas (JC, 2026-10-14: "mejora el diseño
+// del perfil"). En lista se escanean de arriba abajo como una hoja de datos.
+function StatRow({ label, value, hint, dim, last }) {
   return (
-    <View style={s.statCard}>
-      <Text style={[s.statValue, tone === 'dim' && s.statValueDim]}>{value}</Text>
-      <Text style={s.statLabel}>{label}</Text>
-      {!!hint && <Text style={s.statHint}>{hint}</Text>}
+    <View style={[s.statRow, last && s.statRowLast]}>
+      <Text style={s.statRowLabel}>{label}</Text>
+      <View style={s.statRowRight}>
+        {!!hint && <Text style={s.statRowHint}>{hint}</Text>}
+        <Text style={[s.statRowValue, dim && s.statValueDim]}>{value}</Text>
+      </View>
     </View>
+  );
+}
+
+// Vitrina: cuatro logros con su emblema. El emblema y el número se apagan a
+// gris mientras valen 0 — un "0 victorias" en oro presumiría de nada.
+const PURPLE = '#b884ff'; // el morado de los sectores (SECTOR_COLORS en Game.js)
+
+function TrophyIcon({ icon, color }) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 20 20">
+      {icon === 'crown' && (
+        <>
+          <Path d="M3 14 L2 5 L7 9 L10 3 L13 9 L18 5 L17 14 Z" fill={color} />
+          <Rect x={3} y={15.5} width={14} height={2} fill={color} />
+        </>
+      )}
+      {icon === 'podium' && (
+        <>
+          <Rect x={7} y={4} width={6} height={14} fill={color} />
+          <Rect x={1} y={8} width={5.5} height={10} fill={color} fillOpacity={0.7} />
+          <Rect x={13.5} y={11} width={5.5} height={7} fill={color} fillOpacity={0.5} />
+        </>
+      )}
+      {icon === 'sectors' && (
+        <>
+          <Rect x={1} y={8} width={5.3} height={4} fill={color} fillOpacity={0.5} />
+          <Rect x={7.35} y={8} width={5.3} height={4} fill={color} />
+          <Rect x={13.7} y={8} width={5.3} height={4} fill={color} fillOpacity={0.5} />
+        </>
+      )}
+      {icon === 'flame' && (
+        <Path d="M10 1.5 C12.5 5.5 16 8 16 12.5 A6 6 0 0 1 4 12.5 C4 9.5 5.8 7.6 7 5.8 C7.6 8 8.6 9.2 10 9.6 C10.3 6.8 9.4 4.2 10 1.5 Z" fill={color} />
+      )}
+    </Svg>
+  );
+}
+
+function Trophy({ icon, color, value, label }) {
+  const has = value > 0;
+  return (
+    <View style={s.trophy}>
+      <TrophyIcon icon={icon} color={has ? color : RD.textDisabled} />
+      <Text style={[s.trophyValue, !has && s.trophyValueDim]}>
+        {value === undefined ? '···' : value === null ? '—' : value}
+      </Text>
+      <Text style={s.trophyLabel} numberOfLines={2}>{label}</Text>
+    </View>
+  );
+}
+
+// Acceso a Garaje / Tienda / Carrera. Cada uno conserva su color (JC,
+// 2026-09-16: tres destinos distintos, no una pieza de tres partes), pero
+// ahora el color va solo en el nombre y la tarjeta enseña un dato de verdad
+// — cuántas piezas, cuántas monedas, en qué nivel vas — en vez de ser un
+// botón vacío.
+function ActionTile({ label, color, value, caption, coin, onPress }) {
+  return (
+    <Pressable style={({ pressed }) => [s.tile, pressed && s.tilePressed]} onPress={onPress}>
+      <View style={s.tileHead}>
+        <Text style={[s.tileLabel, { color }]}>{label}</Text>
+        <Text style={s.tileArrow}>›</Text>
+      </View>
+      <View style={s.tileValueRow}>
+        {coin && <CoinIcon size={15} />}
+        <Text style={s.tileValue} numberOfLines={1}>{value}</Text>
+      </View>
+      <Text style={s.tileCaption}>{caption}</Text>
+    </Pressable>
   );
 }
 
 export default function Profile({
   nickname, myStreak, wallet, onBack, onOpenGarage, onOpenTienda, onOpenCareer, onOpenAvatarPicker,
-  onOpenPilotTest, onOpenAvatarTest, onOpenDuel,
+  onOpenPilotTest, onOpenAvatarTest, onOpenDuel, onOpenLoopTest,
   viewUserId, viewNickname, viewStreak,
 }) {
   const [career, setCareer] = useState(null);
@@ -198,6 +283,13 @@ export default function Profile({
   const [tab, setTab] = useState('piloto');
   const [pilotAvatarId, setPilotAvatarId] = useState(null); // null = todavía sin elegir uno (o cargando) -> hash de siempre
   const [online, setOnline] = useState(false);      // presencia real del jugador que se está viendo
+  // Podio y vitrina (JC, 2026-10-14). undefined = cargando, null = sin dato.
+  const [monthRank, setMonthRank] = useState(undefined);   // puesto en el ranking del mes (null = no ha corrido este mes)
+  const [monthPodiums, setMonthPodiums] = useState(undefined);
+  const [wins, setWins] = useState(undefined);             // días ganados (1.º del mundo), de siempre
+  const [purpleTotal, setPurpleTotal] = useState(undefined);
+  const [otherLongest, setOtherLongest] = useState(undefined); // mejor racha de OTRO jugador (la tuya llega por myStreak)
+  const [stageWaited, setStageWaited] = useState(false);
   const [activeDuels, setActiveDuels] = useState([]); // mis duelos vivos, recibidos o enviados (ver getMyActiveDuels)
   const [cancelBusy, setCancelBusy] = useState(null); // id del reto que se está cancelando
   const [wagerInput, setWagerInput] = useState('50');
@@ -242,6 +334,25 @@ export default function Profile({
     // ese caso se sigue cayendo al hash determinista de siempre (ver
     // `avatar` más abajo), no a un "sin avatar".
     getPilotAvatarId(viewUserId).then((id) => alive && setPilotAvatarId(id)).catch(() => {});
+
+    // Podio (puesto del mes) y vitrina. El ranking del mes es el mismo que
+    // enseña la pestaña RANKING (puntos por día, ver getMonthlyRanking).
+    const wait = setTimeout(() => alive && setStageWaited(true), STAGE_WAIT_MS);
+    Promise.all([viewUserId ? Promise.resolve(viewUserId) : getMyId(), getMonthlyRanking()])
+      .then(([uid, { rows }]) => {
+        if (!alive) return;
+        const row = rows.find((r) => r.userId === uid);
+        setMonthRank(row ? row.rank : null);
+        setMonthPodiums(row ? row.podiums : 0);
+      })
+      .catch(() => { if (alive) { setMonthRank(null); setMonthPodiums(null); } });
+    (viewUserId ? Promise.resolve(viewUserId) : getMyId())
+      .then((uid) => getWorldWinCounts([uid]).then((m) => alive && setWins(m[uid] || 0)))
+      .catch(() => alive && setWins(null));
+    getPurpleTotal(viewUserId).then((n) => alive && setPurpleTotal(n)).catch(() => alive && setPurpleTotal(null));
+    if (viewUserId) {
+      getLongestStreak(viewUserId).then((n) => alive && setOtherLongest(n)).catch(() => alive && setOtherLongest(null));
+    }
     // Las monedas son privadas (JC: público el avatar y las stats, no el
     // saldo) — ni se piden para el perfil de otro jugador.
     if (!viewUserId) {
@@ -260,7 +371,7 @@ export default function Profile({
       })
       .catch(() => alive && setTrend([]));
 
-    return () => { alive = false; };
+    return () => { alive = false; clearTimeout(wait); };
   }, [viewUserId]);
 
   // Duelos 1vs1 (JC, 2026-09-17): se cargan MIS duelos vivos tanto en tu
@@ -339,7 +450,15 @@ export default function Profile({
   // Choques por vuelta es más honesto que el total: 400 choques en 500
   // vueltas es un dato distinto a 400 en 50, y el total solo premia a quien
   // más ha jugado.
-  const crashRate = stats && stats.laps > 0 ? (stats.crashes / stats.laps).toFixed(1) : null;
+  // Coma decimal en español ("1,0/vuelta"), punto en inglés.
+  const crashRate = stats && stats.laps > 0
+    ? (stats.crashes / stats.laps).toFixed(1).replace('.', getLang() === 'en' ? '.' : ',')
+    : null;
+
+  // Escalón del podio = puesto del mes si es 1-3; si no, al suelo.
+  const podiumPlace = monthRank >= 1 && monthRank <= 3 ? monthRank : null;
+  const stageReady = monthRank !== undefined || stageWaited;
+  const bestStreak = isOwnProfile ? (myStreak?.longest ?? undefined) : otherLongest;
 
   // Si ya eligió un avatar de verdad (selector real, JC 2026-09-16, ver
   // AvatarPicker.js) se usa ESE; si no (nunca lo tocó, o el dato aún no ha
@@ -396,46 +515,75 @@ export default function Profile({
 
         {tab === 'piloto' && (
           <>
-            {/* Garaje, Tienda y Carrera actúan sobre TU cuenta — solo tienen
-                sentido en tu propio perfil, no en el de otro jugador (JC,
-                2026-09-15: perfiles públicos). Carrera se sumó aquí el
-                2026-09-09: tenía poca acogida como pestaña propia y no es
-                de lo principal del juego — vive junto a Garaje/Tienda, no
-                en la barra de abajo. */}
+            {/* El avatar arriba, a media pantalla — es lo primero que pidió
+                JC (2026-09-15: "vea en media pantalla de arriba su avatar")
+                y lo que hace de esta pantalla TU perfil. Antes quedaba por
+                debajo de botones, idioma y pruebas, casi fuera de la vista.
+                El cambio de avatar vive encima del propio muñeco: es el
+                sitio donde se entiende sin explicación. */}
+            <View style={s.avatarStage}>
+              <PodiumStage width={STAGE_W} height={AVATAR_HEIGHT} accent={RARITY_COLOR[avatar.rarity] || RD.cream} place={podiumPlace} />
+              {/* El muñeco no se monta hasta saber su escalón (o tras
+                  STAGE_WAIT_MS): si no, aparecería en el del 1 y luego
+                  "bajaría" a su sitio. */}
+              {stageReady && (
+                <AvatarViewer key={avatar.key} source={avatar.glb} cacheKey={avatar.key} framing={podiumFraming(podiumPlace)} />
+              )}
+              <View pointerEvents="none" style={s.placeChip}>
+                <Text style={[s.placeChipText, podiumPlace === 1 && s.placeChipGold]}>
+                  {monthRank === undefined ? '···'
+                    : monthRank ? t('{pos} DEL MES', { pos: ord(monthRank) })
+                    : t('SIN CORRER ESTE MES')}
+                </Text>
+              </View>
+              {isOwnProfile && (
+                <Pressable style={({ pressed }) => [s.stageChip, pressed && s.stageChipPressed]} onPress={onOpenAvatarPicker} hitSlop={8}>
+                  <Text style={s.stageChipText}>{t('CAMBIAR AVATAR')}</Text>
+                </Pressable>
+              )}
+            </View>
+
+            {/* Vitrina (JC, 2026-10-14): lo que se presume, justo bajo el
+                podio — es lo primero que miras en el perfil de otro. */}
+            <View style={s.trophies}>
+              <Trophy icon="crown" color={RD.gold1st} value={wins} label={t('VICTORIAS')} />
+              <Trophy icon="podium" color={RD.silver2nd} value={monthPodiums} label={t('PODIOS · MES')} />
+              <Trophy icon="sectors" color={PURPLE} value={purpleTotal} label={t('MORADOS')} />
+              <Trophy icon="flame" color={RD.danger} value={bestStreak} label={t('MEJOR RACHA')} />
+            </View>
+
+            {/* Garaje, Tienda y Carrera actúan sobre TU cuenta — solo en tu
+                propio perfil (JC, 2026-09-15: perfiles públicos). */}
             {isOwnProfile && (
-              <View style={s.actionsRow}>
-                {/* Colores distintos por botón (JC, 2026-09-16) — antes los
-                    3 llevaban el mismo trackBlue y se leían como una sola
-                    pieza de 3 partes en vez de 3 destinos distintos. Cada
-                    color reutiliza un token que YA significa algo en el
-                    resto de la app (ver theme.js): trackBlue es "coche",
-                    gold1st es "moneda/récord", successGreen es "progreso". */}
-                <Pressable style={[s.actionBtn, s.actionBtnGaraje]} onPress={onOpenGarage}>
-                  <Text style={[s.actionBtnText, s.actionBtnTextGaraje]}>{t('GARAJE')}</Text>
-                </Pressable>
-                <Pressable style={[s.actionBtn, s.actionBtnTienda]} onPress={onOpenTienda}>
-                  <Text style={[s.actionBtnText, s.actionBtnTextTienda]}>{t('TIENDA')}</Text>
-                </Pressable>
-                <Pressable style={[s.actionBtn, s.actionBtnCarrera]} onPress={onOpenCareer}>
-                  <Text style={[s.actionBtnText, s.actionBtnTextCarrera]}>{t('CARRERA')}</Text>
-                </Pressable>
-                {/* Selector real de avatar (JC, 2026-09-16) — youMagenta
-                    porque ya es el color de "épica" en el resto de la app
-                    (RARITY_COLOR), y este botón lleva justo a la pantalla
-                    de rarezas. */}
-                <Pressable style={[s.actionBtn, s.actionBtnAvatar]} onPress={onOpenAvatarPicker}>
-                  <Text style={[s.actionBtnText, s.actionBtnTextAvatar]}>{t('AVATAR')}</Text>
-                </Pressable>
+              <View style={s.tiles}>
+                <ActionTile
+                  label={t('GARAJE')}
+                  color={RD.trackBlue}
+                  value={piecesOwned != null ? `${piecesOwned}/${TOTAL_COLLECTIBLES}` : '—'}
+                  caption={t('PIEZAS')}
+                  onPress={onOpenGarage}
+                />
+                <ActionTile
+                  label={t('TIENDA')}
+                  color={RD.gold1st}
+                  value={wallet?.balance ?? '—'}
+                  caption={t('MONEDAS')}
+                  coin
+                  onPress={onOpenTienda}
+                />
+                <ActionTile
+                  label={t('CARRERA')}
+                  color={RD.successGreen}
+                  value={career != null ? `${career}/${LEVEL_COUNT}` : '—'}
+                  caption={t('NIVELES')}
+                  onPress={onOpenCareer}
+                />
               </View>
             )}
 
-            {isOwnProfile && <LangSwitch />}
-
             {/* RETAR (JC, 2026-09-17: duelos 1vs1) — perfil de OTRO jugador
-                solamente, mismo hueco donde se ocultan Garaje/Tienda/Carrera
-                por ser "tu cuenta". La apuesta se cobra a los dos al
-                ACEPTAR, no al enviar el reto — aquí no se mueve nada
-                todavía, solo se manda. */}
+                solamente. La apuesta se cobra a los dos al ACEPTAR, no al
+                enviar el reto — aquí no se mueve nada todavía, solo se manda. */}
             {!isOwnProfile && duelWithThem && (
               <View style={s.duelCard}>
                 <Text style={s.duelCardTitle}>{t('1 VS 1 EN CURSO')}</Text>
@@ -480,30 +628,35 @@ export default function Profile({
               </View>
             )}
 
-            {/* Botón de prueba SOLO en dev — desaparece solo en cualquier
-                build de release, no hace falta acordarse de quitarlo. Sirve
-                para ver el PilotViewer (Fase 1 de avatares) mientras se
-                construye. */}
+            {/* Ajustes al final: el idioma se toca una vez y no debe
+                competir con el avatar ni con los accesos. */}
+            {isOwnProfile && (
+              <View style={s.settings}>
+                <Text style={s.sectionLabel}>{t('AJUSTES')}</Text>
+                <LangSwitch />
+              </View>
+            )}
+
+            {/* Banco de pruebas de circuitos cerrados — testers (ver
+                isLoopTester en features.js), también en builds normales. */}
+            {isOwnProfile && !!onOpenLoopTest && (
+              <Pressable style={s.devBtn} onPress={onOpenLoopTest}>
+                <Text style={s.devBtnText}>{t('PROBAR CIRCUITO CERRADO')}</Text>
+              </Pressable>
+            )}
+
+            {/* Botones de prueba SOLO en dev — desaparecen solos en cualquier
+                build de release. */}
             {isOwnProfile && __DEV__ && !!onOpenPilotTest && (
               <Pressable style={s.devBtn} onPress={onOpenPilotTest}>
                 <Text style={s.devBtnText}>[DEV] PILOTO 3D</Text>
               </Pressable>
             )}
-
-            {/* Fase 4 (JC, 2026-09-15): muñecos enteros desbloqueables por
-                rareza, con textura real en vez de tinte por piezas. */}
             {isOwnProfile && __DEV__ && !!onOpenAvatarTest && (
               <Pressable style={s.devBtn} onPress={onOpenAvatarTest}>
                 <Text style={s.devBtnText}>[DEV] AVATARES</Text>
               </Pressable>
             )}
-
-            {/* El avatar a media pantalla, tal como se pidió — ahora el
-                muñeco entero de verdad (Fase 4, avatarCatalog.js), no el
-                configurador viejo por piezas. */}
-            <View style={s.avatarStage}>
-              <AvatarViewer key={avatar.key} source={avatar.glb} cacheKey={avatar.key} />
-            </View>
           </>
         )}
 
@@ -513,8 +666,8 @@ export default function Profile({
                 el avatar por protagonismo — JC, 2026-09-16: "quitaría
                 racha y hoy de ahí". Aquí es lo primero que se lee, que es
                 donde encaja: STATS es la pantalla de leer números. */}
-            <View style={s.heroRow}>
-              <View style={s.heroCard}>
+            <View style={s.heroPanel}>
+              <View style={s.heroCell}>
                 {/* viewStreak (JC, 2026-09-16: "no se ve la racha en los
                     perfiles de la gente") llega como número plano desde las
                     filas de ranking (`r.streak = users.current_streak`,
@@ -530,61 +683,72 @@ export default function Profile({
                     mentira. */}
                 {isOwnProfile && <Text style={s.heroHint}>{t('máx. {n}', { n: myStreak?.longest ?? 0 })}</Text>}
               </View>
-              <View style={s.heroCard}>
+              <View style={s.heroDivider} />
+              <View style={s.heroCell}>
                 {/* El dorado SOLO si de verdad vas primero. Antes lo
                     llevaban todos los números de la pantalla, así que no
                     distinguía nada; apareciendo solo aquí, vuelve a
                     significar "podio". */}
-                <Text style={[s.heroValue, todayRank === 1 && s.heroValueGold]}>
-                  {todayRank ? `#${todayRank}` : todayRank === null ? '—' : '···'}
-                </Text>
-                <Text style={s.heroLabel}>{t('HOY')}</Text>
-                <Text style={s.heroHint}>
-                  {purple ? t('{n}/3 morados', { n: purple.mine }) : ' '}
-                </Text>
+                {/* Sin correr hoy: antes un "—" que no decía nada. Ahora lo
+                    dice, y en tu perfil te lleva a Inicio a correr (no
+                    arranca la carrera desde aquí: Inicio es quien gestiona
+                    intentos y avisos previos). */}
+                {todayRank === null ? (
+                  <>
+                    <Text style={s.heroValueNone}>{t('SIN CORRER')}</Text>
+                    <Text style={s.heroLabel}>{t('HOY')}</Text>
+                    {isOwnProfile ? (
+                      <Pressable onPress={onBack} hitSlop={10}>
+                        <Text style={s.heroLink}>{t('IR A JUGAR ›')}</Text>
+                      </Pressable>
+                    ) : <Text style={s.heroHint}> </Text>}
+                  </>
+                ) : (
+                  <>
+                    <Text style={[s.heroValue, todayRank === 1 && s.heroValueGold]}>
+                      {todayRank ? `#${todayRank}` : '···'}
+                    </Text>
+                    <Text style={s.heroLabel}>{t('HOY')}</Text>
+                    <Text style={s.heroHint}>
+                      {purple ? t('{n}/3 morados', { n: purple.mine }) : ' '}
+                    </Text>
+                  </>
+                )}
               </View>
             </View>
 
             <StatTrend points={trend || []} own={isOwnProfile} />
 
             <Text style={s.sectionLabel}>{t('EN PISTA')}</Text>
-            <View style={s.statsRow}>
-              <StatCard
-                value={stats ? stats.laps : '—'}
-                label={t('VUELTAS')}
-                tone={stats ? null : 'dim'}
-              />
-              <StatCard
-                value={stats ? fmtDuration(stats.raceMs) : '—'}
-                label={t('AL VOLANTE')}
-                tone={stats ? null : 'dim'}
-              />
-              <StatCard
-                value={stats ? stats.crashes : '—'}
+            <View style={s.statPanel}>
+              <StatRow label={t('VUELTAS')} value={stats ? stats.laps : '—'} dim={!stats} />
+              <StatRow label={t('AL VOLANTE')} value={stats ? fmtDuration(stats.raceMs) : '—'} dim={!stats} />
+              <StatRow
                 label={t('CHOQUES')}
+                value={stats ? stats.crashes : '—'}
                 hint={crashRate ? t('{n}/vuelta', { n: crashRate }) : null}
-                tone={stats ? null : 'dim'}
+                dim={!stats}
+                last
               />
             </View>
 
             <Text style={s.sectionLabel}>{t('COLECCIÓN')}</Text>
-            <View style={s.statsRow}>
-              <StatCard
-                value={career != null ? `${career}/${LEVEL_COUNT}` : '—'}
-                label={t('NIVELES')}
-              />
-              <StatCard
-                value={piecesOwned != null ? `${piecesOwned}/${TOTAL_COLLECTIBLES}` : '—'}
+            <View style={s.statPanel}>
+              <StatRow label={t('NIVELES')} value={career != null ? `${career}/${LEVEL_COUNT}` : '—'} />
+              <StatRow
                 label={t('PIEZAS')}
+                value={piecesOwned != null ? `${piecesOwned}/${TOTAL_COLLECTIBLES}` : '—'}
+                last={!isOwnProfile}
               />
               {/* Las monedas se quedan fuera del perfil público (JC,
                   2026-09-15: "público su avatar y sus stats" — el saldo no
                   es una stat de pista/colección, es dinero). */}
               {isOwnProfile && (
-                <StatCard
-                  value={lifetimeCoins != null ? lifetimeCoins : (wallet?.balance ?? 0)}
+                <StatRow
                   label={lifetimeCoins != null ? t('MONEDAS GANADAS') : t('MONEDAS')}
+                  value={lifetimeCoins != null ? lifetimeCoins : (wallet?.balance ?? 0)}
                   hint={lifetimeCoins != null ? t('{n} ahora', { n: wallet?.balance ?? 0 }) : null}
+                  last
                 />
               )}
             </View>
@@ -603,8 +767,12 @@ export default function Profile({
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: RD.bg },
-  langRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  langLabel: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 1.2 },
+  langRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, backgroundColor: RD_SURFACE,
+    paddingVertical: 10, paddingHorizontal: 14,
+  },
+  langLabel: { color: RD.textSecondary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 1.2 },
   langOpts: { flexDirection: 'row', gap: 6 },
   langOpt: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, paddingHorizontal: 12, paddingVertical: 6 },
   langOptActive: { borderColor: RD.cream },
@@ -617,7 +785,7 @@ const s = StyleSheet.create({
   identityText: { flex: 1, minWidth: 0, gap: 3 },
   nicknameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   nickname: {
-    color: RD.textPrimary, fontSize: 30, fontFamily: RD_FONT.displayBlack,
+    color: RD.textPrimary, fontSize: 38, lineHeight: 40, fontFamily: RD_FONT.displayBlack,
     textTransform: 'uppercase',
   },
   identitySub: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.mono },
@@ -629,69 +797,112 @@ const s = StyleSheet.create({
   onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: RD.successGreen },
   onlinePillText: { color: RD.successGreen, fontSize: 9, fontFamily: RD_FONT.monoBold, letterSpacing: 0.8 },
 
-  tabsRow: { flexDirection: 'row', gap: 6 },
+  // Pestañas como subrayado, no como dos botones con borde: así no compiten
+  // con las tarjetas de debajo y se leen como navegación, no como acciones.
+  tabsRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: RD.panelBorder },
   tab: {
-    flex: 1, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
-    paddingVertical: 9, alignItems: 'center', justifyContent: 'center',
+    flex: 1, paddingVertical: 10, alignItems: 'center', justifyContent: 'center',
+    borderBottomWidth: 2, borderBottomColor: 'transparent', marginBottom: -1,
   },
-  tabActive: { borderColor: RD.brand },
-  tabText: { color: RD.textTertiary, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 1 },
+  tabActive: { borderBottomColor: RD.brand },
+  tabText: { color: RD.textTertiary, fontSize: 12, fontFamily: RD_FONT.monoBold, letterSpacing: 1.2 },
   tabTextActive: { color: RD.textPrimary },
 
-  heroRow: { flexDirection: 'row', gap: 10 },
-  heroCard: {
-    flex: 1, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
-    paddingVertical: 16, alignItems: 'center', gap: 2,
+  // Racha y puesto de hoy en UN panel partido por una línea: son la misma
+  // idea (cómo vas) y dos cajas sueltas las separaban.
+  heroPanel: {
+    flexDirection: 'row', borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    backgroundColor: RD_SURFACE,
   },
+  heroCell: { flex: 1, paddingVertical: 18, alignItems: 'center', gap: 2 },
+  heroDivider: { width: 1, backgroundColor: RD.panelBorder, marginVertical: 14 },
   // Neutro por defecto. El color se reserva para cuando dice algo (ver
   // heroValueGold); un número grande ya destaca por tamaño, no necesita
   // además un acento para que lo mires.
   heroValue: {
-    color: RD.textPrimary, fontSize: 40, fontFamily: RD_FONT.displayBlack,
-    fontVariant: ['tabular-nums'], lineHeight: 42,
+    color: RD.textPrimary, fontSize: 44, fontFamily: RD_FONT.displayBlack,
+    fontVariant: ['tabular-nums'], lineHeight: 46,
   },
   heroValueGold: { color: RD.gold1st },
+  // 'SIN CORRER' ocupa el alto de un número grande para que las dos mitades
+  // del panel no queden descuadradas.
+  heroValueNone: {
+    color: RD.textDisabled, fontSize: 24, lineHeight: 46, fontFamily: RD_FONT.displayBlack,
+  },
+  heroLink: { color: RD.brand, fontSize: 10, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
   heroLabel: { color: RD.textSecondary, fontSize: 10, fontFamily: RD_FONT.monoBold, letterSpacing: 1.2 },
   heroHint: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono },
 
   sectionLabel: {
     color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono,
-    letterSpacing: 1.4, marginTop: 4, marginBottom: -6,
+    letterSpacing: 1.4, marginTop: 6, marginBottom: -6,
   },
-  statsRow: { flexDirection: 'row', gap: 10 },
-  statCard: {
-    flex: 1, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
-    paddingVertical: 13, paddingHorizontal: 6, alignItems: 'center', gap: 3,
+  statPanel: {
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    backgroundColor: RD_SURFACE, paddingHorizontal: 14,
   },
-  statValue: {
-    color: RD.textPrimary, fontSize: 19, fontFamily: RD_FONT.displayBlack,
+  statRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: RD.gridLine,
+  },
+  statRowLast: { borderBottomWidth: 0 },
+  statRowLabel: { color: RD.textSecondary, fontSize: 11, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
+  statRowRight: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
+  statRowHint: { color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono },
+  statRowValue: {
+    color: RD.textPrimary, fontSize: 22, fontFamily: RD_FONT.displayBlack,
     fontVariant: ['tabular-nums'],
   },
   statValueDim: { color: RD.textDisabled },
-  statLabel: {
-    color: RD.textTertiary, fontSize: 9, fontFamily: RD_FONT.mono,
-    letterSpacing: 0.6, textAlign: 'center',
-  },
-  statHint: { color: RD.textDisabled, fontSize: 9, fontFamily: RD_FONT.mono },
   statsMissing: {
     color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono,
     textAlign: 'center', marginTop: -4,
   },
 
-  actionsRow: { flexDirection: 'row', gap: 10, marginBottom: 2 },
-  actionBtn: {
-    flex: 1, borderWidth: 1, borderRadius: 2,
-    paddingVertical: 14, alignItems: 'center',
+  tiles: { flexDirection: 'row', gap: 8 },
+  tile: {
+    flex: 1, borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    backgroundColor: RD_SURFACE, paddingHorizontal: 11, paddingTop: 10, paddingBottom: 11,
+    gap: 4,
   },
-  actionBtnText: { fontSize: 14, fontFamily: RD_FONT.monoBold },
-  actionBtnGaraje: { borderColor: RD.trackBlue },
-  actionBtnTextGaraje: { color: RD.trackBlue },
-  actionBtnTienda: { borderColor: RD.gold1st },
-  actionBtnTextTienda: { color: RD.gold1st },
-  actionBtnCarrera: { borderColor: RD.successGreen },
-  actionBtnTextCarrera: { color: RD.successGreen },
-  actionBtnAvatar: { borderColor: RD.youMagenta },
-  actionBtnTextAvatar: { color: RD.youMagenta },
+  tilePressed: { backgroundColor: '#1a1a1d', borderColor: '#3a3a3d' },
+  tileHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  tileLabel: { fontSize: 12, fontFamily: RD_FONT.monoBold, letterSpacing: 0.6 },
+  tileArrow: { color: RD.textDisabled, fontSize: 16, fontFamily: RD_FONT.mono, lineHeight: 18 },
+  tileValueRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
+  tileValue: {
+    color: RD.textPrimary, fontSize: 26, fontFamily: RD_FONT.displayBlack,
+    fontVariant: ['tabular-nums'], lineHeight: 28,
+  },
+  tileCaption: { color: RD.textTertiary, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 0.8 },
+
+  settings: { gap: 8, marginTop: 4 },
+
+  // Puesto del mes, arriba a la izquierda del escenario (CAMBIAR AVATAR va a
+  // la derecha).
+  placeChip: {
+    position: 'absolute', left: 14, top: 14,
+    borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    backgroundColor: 'rgba(11,11,12,0.82)',
+    paddingHorizontal: 10, paddingVertical: 8,
+  },
+  placeChipText: { color: RD.textSecondary, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.8 },
+  placeChipGold: { color: RD.gold1st },
+
+  trophies: {
+    flexDirection: 'row', borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2,
+    backgroundColor: RD_SURFACE, paddingVertical: 12,
+  },
+  trophy: { flex: 1, alignItems: 'center', gap: 4, paddingHorizontal: 2 },
+  trophyValue: {
+    color: RD.textPrimary, fontSize: 24, lineHeight: 26, fontFamily: RD_FONT.displayBlack,
+    fontVariant: ['tabular-nums'], marginTop: 2,
+  },
+  trophyValueDim: { color: RD.textDisabled },
+  trophyLabel: {
+    color: RD.textTertiary, fontSize: 9, fontFamily: RD_FONT.mono, letterSpacing: 0.6,
+    textAlign: 'center',
+  },
 
   devBtn: {
     borderWidth: 1, borderColor: '#665', borderStyle: 'dashed', borderRadius: 2,
@@ -730,17 +941,23 @@ const s = StyleSheet.create({
   retarBtnDisabled: { opacity: 0.5 },
   retarBtnText: { color: RD.bg, fontSize: 14, fontFamily: RD_FONT.displayBlack, letterSpacing: 0.6 },
 
-  // El escenario del piloto: JC, 2026-09-15, "reducir márgenes... se ve
-  // apagado" — el margen negativo recorta el hueco que dejaba el `gap` del
-  // ScrollView por encima/debajo (antes 14+14 de vacío, ahora la mitad), y
-  // el fondo ligeramente más claro que el negro puro de la pantalla + las
-  // dos líneas finas lo enmarcan como un panel propio en vez de negro
-  // fundiéndose con negro.
+  // El escenario del piloto: a sangre (de borde a borde) y pegado a la
+  // línea de las pestañas, con el fondo un paso más claro que la pantalla
+  // para que se lea como un escenario propio (JC, 2026-09-15: "se ve
+  // apagado" con negro sobre negro).
   avatarStage: {
     height: AVATAR_HEIGHT,
     marginHorizontal: -18,
-    marginVertical: -8,
-    backgroundColor: '#111113',
-    borderTopWidth: 1, borderBottomWidth: 1, borderColor: RD.panelBorder,
+    marginTop: -14, // anula el `gap` del ScrollView: sin hueco bajo las pestañas
+    backgroundColor: RD_SURFACE,
+    borderBottomWidth: 1, borderColor: RD.panelBorder,
   },
+  stageChip: {
+    position: 'absolute', right: 14, top: 14, // arriba: abajo están los escalones
+    borderWidth: 1, borderColor: RD.youMagenta, borderRadius: 2,
+    backgroundColor: 'rgba(11,11,12,0.82)',
+    paddingHorizontal: 12, paddingVertical: 8,
+  },
+  stageChipPressed: { backgroundColor: RD.youMagentaBg },
+  stageChipText: { color: RD.youMagenta, fontSize: 11, fontFamily: RD_FONT.monoBold, letterSpacing: 0.8 },
 });

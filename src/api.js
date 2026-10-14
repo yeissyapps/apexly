@@ -739,6 +739,29 @@ export async function getMyPurpleSectors(day = todayKey(), userId) {
   return { mine: rows.filter((r) => r.holder_id === uid).length, total: rows.length };
 }
 
+// Vitrina del Perfil (JC, 2026-10-14): cuántos sectores morados conserva
+// un jugador en TODOS los días (sector_bests guarda el dueño actual de cada
+// sector de cada día — es público, ya lo lee el ranking). null si falla.
+export async function getPurpleTotal(userId) {
+  const user = await ensureSession();
+  const { count, error } = await supabase
+    .from('sector_bests')
+    .select('sector', { count: 'exact', head: true })
+    .eq('holder_id', userId || user.id);
+  if (error) return null;
+  return count ?? 0;
+}
+
+// Mejor racha de cualquier jugador (users es legible por todos: la tuya ya
+// llega por getMyStreak, esto es para el perfil de otro). null si falla.
+export async function getLongestStreak(userId) {
+  await ensureSession();
+  const { data, error } = await supabase
+    .from('users').select('longest_streak').eq('id', userId).maybeSingle();
+  if (error || !data) return null;
+  return data.longest_streak || 0;
+}
+
 // Monedas ganadas en total (solo ingresos: los gastos van en negativo y no
 // cuentan para "cuánto has ganado jugando").
 export async function getLifetimeCoins() {
@@ -1174,11 +1197,13 @@ export async function getMonthlyRanking(ref = new Date()) {
           frame: r.users?.car_frame || 'sin_marco',
           points: 0,
           daysPlayed: 0,
+          podiums: 0, // días del mes en el top 3 (vitrina del Perfil)
         };
         byUser.set(r.user_id, e);
       }
       e.points += pointsForDailyRank(i + 1, n);
       e.daysPlayed += 1;
+      if (i < 3) e.podiums += 1;
     });
   }
 
