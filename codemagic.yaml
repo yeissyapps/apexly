@@ -103,5 +103,8 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
-        submit_to_app_store: true
+        # false = solo TestFlight: JC prueba en el iPhone antes de mandar a revisión
+        # (2.4.8). Para publicar, volver a true o enviar la build a mano desde
+        # App Store Connect.
+        submit_to_app_store: false
         release_type: AFTER_APPROVAL # se publica solo en cuanto Apple apruebe, sin paso manual

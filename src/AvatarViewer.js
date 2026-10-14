@@ -36,6 +36,24 @@ import { toByteArray, fromByteArray } from 'base64-js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+// Encuadre de la cámara. Sin framing, el de siempre. Con framing (ver
+// PodiumStage.js): zoom = cámara más lejos; lift = el muñeco sube en el
+// cuadro (fracción del alto de la vista); panX = se desplaza a un lado
+// (fracción del ancho, negativo = izquierda). Así se pone de pie sobre un
+// escalón dibujado detrás, sin tocar la escena.
+const FOV = 45;
+function framingTarget(radius, aspect, framing) {
+  const zoom = framing?.zoom ?? 1;
+  const dist = radius * 2.85 * zoom;
+  const halfH = Math.tan((FOV / 2) * Math.PI / 180) * dist;
+  const ty = -(framing?.lift ?? 0) * 2 * halfH;
+  const tx = -(framing?.panX ?? 0) * 2 * halfH * aspect;
+  return {
+    pos: new THREE.Vector3(tx, radius * 0.15 * zoom + ty, dist),
+    look: new THREE.Vector3(tx, ty, 0),
+  };
+}
+
 function bytesToAsciiString(bytes) {
   let str = '';
   for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
@@ -188,7 +206,7 @@ function loadTextureFromFile(gl, renderer, localUri) {
   return texture;
 }
 
-const AvatarViewer = forwardRef(function AvatarViewer({ source, cacheKey, onReady, autoRotate = false }, ref) {
+const AvatarViewer = forwardRef(function AvatarViewer({ source, cacheKey, onReady, autoRotate = false, framing = null }, ref) {
   const groupRef = useRef(null);
   const dragRef = useRef(0);
   const draggingRef = useRef(false);
@@ -205,6 +223,11 @@ const AvatarViewer = forwardRef(function AvatarViewer({ source, cacheKey, onRead
   // nunca (decenas de errores en segundos). aliveRef corta el bucle en
   // cuanto el componente se desmonta.
   const aliveRef = useRef(true);
+  // El encuadre puede cambiar con el visor ya montado (en el Perfil, el
+  // escalón del podio depende del puesto del mes, que llega después): se
+  // lee de una ref en cada fotograma y la cámara se desliza hasta él.
+  const framingRef = useRef(framing);
+  framingRef.current = framing;
 
   useImperativeHandle(ref, () => ({
     capture: async () => {
@@ -295,13 +318,17 @@ const AvatarViewer = forwardRef(function AvatarViewer({ source, cacheKey, onRead
       group.position.sub(center);
 
       const camera = new THREE.PerspectiveCamera(
-        45,
+        FOV,
         gl.drawingBufferWidth / gl.drawingBufferHeight,
         radius / 100,
         radius * 20
       );
-      camera.position.set(0, radius * 0.15, radius * 2.85);
-      camera.lookAt(0, 0, 0);
+      const aspect = gl.drawingBufferWidth / gl.drawingBufferHeight;
+      let shownFraming = framingRef.current;
+      const first = framingTarget(radius, aspect, shownFraming);
+      camera.position.copy(first.pos);
+      const look = first.look.clone();
+      camera.lookAt(look);
 
       // Antes: requestAnimationFrame(render) iba ANTES de renderer.render(),
       // así que si render() lanzaba, el siguiente fotograma YA estaba
@@ -319,6 +346,19 @@ const AvatarViewer = forwardRef(function AvatarViewer({ source, cacheKey, onRead
         if (autoRotate && groupRef.current && !draggingRef.current) {
           dragRef.current += 0.006;
           groupRef.current.rotation.y = dragRef.current;
+        }
+        // Encuadre nuevo: deslizar la cámara (no saltar) hasta él.
+        if (framingRef.current !== shownFraming) {
+          const tgt = framingTarget(radius, aspect, framingRef.current);
+          camera.position.lerp(tgt.pos, 0.12);
+          look.lerp(tgt.look, 0.12);
+          camera.lookAt(look);
+          if (camera.position.distanceTo(tgt.pos) < radius * 0.002) {
+            camera.position.copy(tgt.pos);
+            look.copy(tgt.look);
+            camera.lookAt(look);
+            shownFraming = framingRef.current;
+          }
         }
         try {
           renderer.render(scene, camera);

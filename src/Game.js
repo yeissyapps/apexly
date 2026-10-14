@@ -24,6 +24,7 @@ import CarSprite from './CarSprite';
 import { CAR_DEFAULTS } from './car';
 import { t } from './i18n';
 import { intentosTxt } from './features';
+import { buildTrackDecor } from './trackDecor';
 
 const now = () => Date.now();
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -193,11 +194,9 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
   // prop nueva por App.js — funciona igual en Diario, Carrera y GP). JC:
   // "todos los días es el mismo circuito... ese fondo negro, es como meh".
   const palette = useMemo(() => trackPalette(track), [track]);
-  // Curvas del trazado, precalculadas una vez (ver buildCornerData). El
-  // indicador en sí (nextTurn) se resuelve cada frame más abajo, junto a
-  // `view.trackIdx` — barrido corto, no otro useMemo (memoizar algo que
-  // depende de un valor que cambia cada frame no ahorra nada).
-  const cornerData = useMemo(() => buildCornerData(track), [track]);
+  // Minimapa: la traza proyectada se calcula UNA vez por circuito (ver
+  // buildLiveMap); en cada frame solo se proyectan los puntos de los coches.
+  const liveMap = useMemo(() => buildLiveMap(track), [track]);
 
   const g = useRef(null);
   const pressLeft = useRef(false);
@@ -698,7 +697,6 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
 
   if (!view) return <View style={[styles.root, { backgroundColor: palette.bg }]}><StatusBar hidden /></View>;
 
-  const turn = nextTurn(cornerData, view.trackIdx);
 
   // Salir A MEDIA CARRERA, pedido por jugadores: "si te has chocado mucho,
   // que te saque a Inicio y cuente como intento". El intento ya se gastó al
@@ -803,18 +801,14 @@ export default function Game({ track, ghost, leaderRun, weather, sectorBests, re
           </G>
         </Svg>
 
-        {/* Siguiente curva: flecha, no minimapa. JC probó el minimapa de
-            conjunto y no ayudaba a leer qué curva viene — un vistazo a la
-            traza entera no dice nada sobre AHORA. Primera versión con
-            chevrons (‹‹‹/›››) como severidad: JC no los vio claros y pidió
-            simplificar a solo dirección. Tres estados nada más: recto
-            (↑, sin curva a menos de TURN_LOOKAHEAD_UNITS), izquierda (←)
-            o derecha (→). Siempre visible — "recto" es tan informativo
-            como una curva, no un estado vacío que haya que ocultar.
-            pointerEvents="none": no debe robar NUNCA un toque del volante,
-            aunque esté fuera de la zona inferior donde viven. */}
-        <View pointerEvents="none" style={styles.turnWrap}>
-          <Text style={styles.turnGlyph}>{turn ? (turn.dir === 'L' ? '←' : '→') : '↑'}</Text>
+        {/* Minimapa (JC, 2026-10-14: "añade un minimapa durante la carrera
+            y quita las flechas"). Vuelve el de agosto, que se cambió por la
+            flecha de siguiente curva; con circuitos cerrados la vista de
+            conjunto tiene más sentido. Tu coche en rojo, tu fantasma en
+            blanco y el líder en dorado. pointerEvents="none": nunca roba un
+            toque del volante. */}
+        <View pointerEvents="none" style={styles.mapWrap}>
+          <LiveMap map={liveMap} car={view} ghost={view.ghost} leader={view.leader} />
         </View>
 
         {/* Volante: dos zonas invisibles, no botones. Solo cambia la GEOMETRIA
@@ -1070,7 +1064,8 @@ const ROAD = {
   asphalt:    '#23282f',
   kerbWhite:  '#eef0f4',
   kerbRed:    '#ff5a3c',
-  lane:       '#5d646e',
+  edgeLine:   '#e6e9ee', // línea blanca de borde en las rectas
+  tyre:       '#16181c',
   start:      '#ffb84d',
   checkLight: '#f2f2f2',
   checkDark:  '#15171c',
@@ -1085,13 +1080,19 @@ const ROAD = {
 // cambia el sesgo de tono — ver el principio de "elegir el neutro, no
 // heredarlo" en vez de variar el brillo, que sí podría chocar con el piano
 // blanco/rojo o el HUD.
+//
+// verge = hierba/tierra junto a la pista, runoff = escapatoria pegada al
+// borde (algo más clara que el asfalto, como el asfalto viejo o la grava de
+// las escapatorias). Mismo sesgo de tono que el fondo de cada paleta.
 const TRACK_PALETTES = [
-  { bg: '#0d0f13', asphalt: '#23282f' }, // medianoche — el de siempre
-  { bg: '#12100c', asphalt: '#2b2620' }, // desierto nocturno
-  { bg: '#0a1216', asphalt: '#1c2e33' }, // costero
-  { bg: '#0d120e', asphalt: '#232b25' }, // bosque
-  { bg: '#100c14', asphalt: '#28212f' }, // urbano
+  { bg: '#0d0f13', asphalt: '#23282f', verge: '#131b17', runoff: '#2e333a' }, // medianoche — el de siempre
+  { bg: '#12100c', asphalt: '#2b2620', verge: '#1c1912', runoff: '#3a3328' }, // desierto nocturno
+  { bg: '#0a1216', asphalt: '#1c2e33', verge: '#0f1f1d', runoff: '#2a3b3f' }, // costero
+  { bg: '#0d120e', asphalt: '#232b25', verge: '#15231a', runoff: '#313a33' }, // bosque
+  { bg: '#100c14', asphalt: '#28212f', verge: '#19141f', runoff: '#352d3c' }, // urbano
 ];
+const RUNOFF_W = 22; // escapatoria: ancho más allá del borde de la pista
+const VERGE_W = 75;  // hierba: ancho más allá del borde de la pista
 
 // Hash barato de unos pocos puntos del trazado (no hace falta recorrer los
 // ~160 — esto vive en un useMemo por render, tampoco puede ser caro). FNV-1a
@@ -1110,190 +1111,72 @@ export function trackPalette(track) {
   return TRACK_PALETTES[(h >>> 0) % TRACK_PALETTES.length];
 }
 
-// --- Indicador de "siguiente curva" -----------------------------------------
-// JC: el minimapa de conjunto "no ayuda a saber qué curva viene". Primera
-// versión con chevrons repetidos (‹‹‹/›››) como severidad — JC: "no se ven
-// muy bien... no hace falta indicar el tipo de curva, si no simplemente la
-// dirección". Se queda solo con tres estados: recto, izquierda, derecha.
+// --- Minimapa en carrera -----------------------------------------------------
+// Sustituye al indicador de "siguiente curva" (flecha ↑ ← →) que a su vez
+// había sustituido al primer minimapa (agosto). JC, 2026-10-14: "añade un
+// minimapa durante la carrera y quita las flechas".
 //
-// Metros (unidades de mundo) de antelación antes de avisar de la curva —
-// a MAX_SPEED (250 u/s) son ~3.5s de aviso, similar a un aviso de copiloto
-// real. Más lejos que esto se muestra "recto": no es accionable todavía.
-const TURN_LOOKAHEAD_UNITS = 900;
+// Se dibuja UNA vuelta (en un circuito cerrado de varias vueltas la línea
+// central repite la misma vuelta: basta con la primera) en la orientación
+// del mundo, sin girar con la cámara: es un plano fijo, y lo que se mueve
+// son los puntos. Lo caro (bbox, escala y la cadena de la polilínea) se
+// calcula una vez por circuito en buildLiveMap; en cada frame solo se
+// proyectan tres puntos.
+const MAP_BOX = 104; // lado del recuadro (dp)
+const MAP_PAD = 9;
 
-// Precalcula, UNA vez por trazado, la lista de curvas (dónde empiezan y hacia
-// qué lado) más la distancia acumulada punto a punto — todo lo que necesita
-// el indicador en cada frame es una búsqueda lineal corta sobre esta lista
-// (hay ~10-20 curvas por circuito) más una resta, nada que recalcular sobre
-// los ~160 puntos del trazado en el hilo de render.
-function buildCornerData(track) {
+function buildLiveMap(track) {
   const c = track.center;
-  const n = c.length;
-  const heading = new Array(n);
-  const cumDist = new Array(n);
-  cumDist[0] = 0;
-  for (let i = 0; i < n; i++) {
-    const a = c[Math.max(0, i - 1)];
-    const b = c[Math.min(n - 1, i + 1)];
-    heading[i] = Math.atan2(b.y - a.y, b.x - a.x);
-    if (i > 0) cumDist[i] = cumDist[i - 1] + Math.hypot(c[i].x - c[i - 1].x, c[i].y - c[i - 1].y);
+  const n = track.laps > 1 ? Math.round((c.length - 1) / track.laps) + 1 : c.length;
+  const pts = c.slice(0, n);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of pts) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
   }
-
-  const corners = [];
-  let i = 1;
-  while (i < n) {
-    if (c[i].type === 'recta') { i++; continue; }
-    let sign = 0;
-    while (i < n && c[i].type !== 'recta') {
-      let d = heading[i] - heading[i - 1];
-      while (d > Math.PI) d -= 2 * Math.PI;
-      while (d < -Math.PI) d += 2 * Math.PI;
-      const s = Math.sign(d);
-      if (sign === 0) sign = s;
-      // Cambia de sentido dentro de la misma racha (una chicane, izq-der):
-      // se corta aquí, sin avanzar `i`, para que la siguiente vuelta del
-      // bucle la lea como una curva NUEVA — "primero cierras a la
-      // izquierda, luego a la derecha" es más útil que un "neto casi cero".
-      else if (s !== 0 && s !== sign) break;
-      i++;
-    }
-    // dir: heading creciente = derecha (mismo signo que `entrada` +1 en
-    // resolveEntrada — der(+1) mueve s.steer positivo, que suma a heading).
-    corners.push({ startIdx: Math.min(i - 1, n - 1), dir: sign >= 0 ? 'R' : 'L' });
-  }
-  return { corners, cumDist };
+  const bw = maxX - minX || 1;
+  const bh = maxY - minY || 1;
+  const s = (MAP_BOX - MAP_PAD * 2) / Math.max(bw, bh);
+  const offX = (MAP_BOX - bw * s) / 2;
+  const offY = (MAP_BOX - bh * s) / 2;
+  const proj = (x, y) => ({ x: (x - minX) * s + offX, y: (y - minY) * s + offY });
+  const line = pts.map((p) => { const q = proj(p.x, p.y); return `${q.x.toFixed(1)},${q.y.toFixed(1)}`; }).join(' ');
+  return { proj, line, start: proj(pts[0].x, pts[0].y), closed: !!track.closed };
 }
 
-// Curva que toca ahora avisar, o null si no hay ninguna a la vista (recta
-// larga, o ya no quedan curvas hasta meta). Barrido lineal corto sobre la
-// lista precalculada — nada de esto toca los ~160 puntos del trazado.
-function nextTurn(cornerData, trackIdx) {
-  if (!cornerData) return null;
-  const { corners, cumDist } = cornerData;
-  const c = corners.find((c) => c.startIdx > trackIdx);
-  if (!c) return null;
-  const dist = cumDist[c.startIdx] - cumDist[trackIdx];
-  if (dist > TURN_LOOKAHEAD_UNITS) return null;
-  return c;
+// El trazado va en su propia capa memorizada: el juego vuelve a pintar en
+// cada fotograma (se mueve el coche), y sin esto la polilínea entera se
+// redibujaría 60 veces por segundo. Solo la capa de los puntos cambia.
+const LiveMapTrack = memo(function LiveMapTrack({ line, start }) {
+  return (
+    <Svg width={MAP_BOX} height={MAP_BOX} style={StyleSheet.absoluteFill}>
+      <Polyline points={line} fill="none" stroke={RD.cream} strokeOpacity={0.85} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+      <Rect x={start.x - 3} y={start.y - 3} width={6} height={6} fill={RD.successGreen} />
+    </Svg>
+  );
+});
+
+function LiveMap({ map, car, ghost, leader }) {
+  const dot = (pose, r, fill) => {
+    if (!pose) return null;
+    const q = map.proj(pose.x, pose.y);
+    return <Circle cx={q.x} cy={q.y} r={r} fill={fill} stroke="rgba(13,15,19,0.9)" strokeWidth={1.2} />;
+  };
+  return (
+    <>
+      <LiveMapTrack line={map.line} start={map.start} />
+      <Svg width={MAP_BOX} height={MAP_BOX} style={StyleSheet.absoluteFill}>
+        {dot(ghost, 3, 'rgba(255,255,255,0.75)')}
+        {dot(leader, 3.2, RD.gold1st)}
+        {dot(car, 4.2, RD.brand)}
+      </Svg>
+    </>
+  );
 }
 
-const KERB_W = 9;    // ancho del piano (centrado en el borde)
-const KERB_BLOCK = 11; // largo objetivo de cada tramo rojo/blanco del piano
 const CHECK_SQ = 11; // lado de cada cuadro de la meta
-
-// Tramos ROJOS del piano como geometría explícita, recorriendo el borde por
-// longitud de arco. Devuelve UN solo path (`d`) con un subtrazado por bloque.
-//
-// Antes esto se hacía con `strokeDasharray` sobre el contorno de la pista, pero
-// el patrón discontinuo se rasteriza de forma distinta en iOS (bloques de
-// anchos desiguales, sobre todo en curva). Generando los bloques a mano el
-// resultado es idéntico en ambas plataformas, igual que ya se hace con el
-// damero de meta. Además encaja un nº ENTERO de bloques para que el patrón
-// cierre sin un trozo corto al final.
-//
-// OJO: son ~450 bloques por borde. Van todos en un único <Path> (no un nodo por
-// bloque) porque el <G> de cámara cambia de transform en CADA frame y arrastra
-// consigo el redibujado de todo lo que cuelgue de él.
-function kerbPath(pts, blockLen, halfW) {
-  const n = pts.length;
-  if (n < 2) return '';
-
-  // Longitud acumulada por vértice.
-  const cum = [0];
-  for (let i = 1; i < n; i++) {
-    cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
-  }
-  const total = cum[n - 1];
-  if (total <= 0) return '';
-
-  // Normal por vértice (perpendicular a la tangente promediada).
-  const nor = [];
-  for (let i = 0; i < n; i++) {
-    const p0 = pts[Math.max(0, i - 1)];
-    const p1 = pts[Math.min(n - 1, i + 1)];
-    const tx = p1.x - p0.x;
-    const ty = p1.y - p0.y;
-    const L = Math.hypot(tx, ty) || 1;
-    nor.push({ x: -ty / L, y: tx / L });
-  }
-
-  const count = Math.max(2, Math.round(total / blockLen));
-  const len = total / count;
-
-  // Muestreo a longitud de arco `s`. `seg` solo avanza (s es monótona).
-  let seg = 0;
-  const at = (s) => {
-    while (seg < n - 2 && cum[seg + 1] < s) seg++;
-    const a = cum[seg];
-    const b = cum[seg + 1];
-    const f = b > a ? (s - a) / (b - a) : 0;
-    return {
-      x: pts[seg].x + (pts[seg + 1].x - pts[seg].x) * f,
-      y: pts[seg].y + (pts[seg + 1].y - pts[seg].y) * f,
-      nx: nor[seg].x + (nor[seg + 1].x - nor[seg].x) * f,
-      ny: nor[seg].y + (nor[seg + 1].y - nor[seg].y) * f,
-    };
-  };
-
-  const SUB = 3; // sub-muestras por bloque (para que siga la curva)
-  const out = [];
-  for (let k = 0; k < count; k += 2) {
-    const s0 = k * len;
-    const s1 = Math.min(total, (k + 1) * len);
-    const inner = [];
-    const outer = [];
-    for (let m = 0; m <= SUB; m++) {
-      const p = at(s0 + ((s1 - s0) * m) / SUB);
-      const nl = Math.hypot(p.nx, p.ny) || 1;
-      const ux = (p.nx / nl) * halfW;
-      const uy = (p.ny / nl) * halfW;
-      inner.push(`${p.x - ux},${p.y - uy}`);
-      outer.push(`${p.x + ux},${p.y + uy}`);
-    }
-    const ring = inner.concat(outer.reverse());
-    out.push(`M${ring[0]}L${ring.slice(1).join('L')}Z`);
-  }
-  return out.join('');
-}
-
-// Línea de carril discontinua como geometría explícita (mismo motivo que
-// kerbPath: `strokeDasharray` se rasteriza distinto en iOS, con bloques de
-// tamaño desigual sobre todo en curva y al cerrar el patrón). Nº ENTERO de
-// periodos dash+hueco para que cierre limpio sin trozo corto al final.
-function dashedPath(pts, dashLen, gapLen) {
-  const n = pts.length;
-  if (n < 2) return '';
-  const cum = [0];
-  for (let i = 1; i < n; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
-  const total = cum[n - 1];
-  if (total <= 0) return '';
-
-  let seg = 0;
-  const at = (s) => {
-    while (seg < n - 2 && cum[seg + 1] < s) seg++;
-    const a = cum[seg], b = cum[seg + 1];
-    const f = b > a ? (s - a) / (b - a) : 0;
-    return { x: pts[seg].x + (pts[seg + 1].x - pts[seg].x) * f, y: pts[seg].y + (pts[seg + 1].y - pts[seg].y) * f };
-  };
-
-  const period = dashLen + gapLen;
-  const count = Math.max(1, Math.round(total / period));
-  const p = total / count; // periodo ajustado para encajar un nº entero exacto
-  const dash = p * (dashLen / period);
-  const SUB = 4; // sub-muestras por raya (para que siga la curva)
-  const out = [];
-  for (let k = 0; k < count; k++) {
-    const s0 = k * p;
-    const s1 = Math.min(total, s0 + dash);
-    const raya = [];
-    for (let m = 0; m <= SUB; m++) {
-      const pt = at(s0 + ((s1 - s0) * m) / SUB);
-      raya.push(`${pt.x},${pt.y}`);
-    }
-    out.push(`M${raya[0]}L${raya.slice(1).join('L')}`);
-  }
-  return out.join('');
-}
 
 // Cuadros del damero de meta, alineados a la línea a→b y al sentido de marcha.
 function checkeredQuads(finish) {
@@ -1325,6 +1208,12 @@ function checkeredQuads(finish) {
 // memo + useMemo: la geometría de la pista es fija durante toda la vuelta, pero
 // el componente se re-renderizaba en CADA frame (al moverse el coche) y volvía
 // a construir todas las cadenas de puntos. Ahora se calcula una sola vez.
+//
+// Capas, de abajo arriba (JC, 2026-10-14, "paquete 1" de estética): hierba ->
+// escapatoria -> asfalto -> línea blanca de borde -> pianos (solo en curvas)
+// -> muros de neumáticos -> salida y meta. La geometría decorativa
+// sale de trackDecor.js. Fuera la línea discontinua central: un circuito de
+// verdad no la tiene, y con los bordes y los pianos ya se lee la pista.
 export const TrackLayer = memo(function TrackLayer({ track, showDebug, wet, palette }) {
   // La lluvia sigue siendo un aviso fijo por encima de la paleta del día —
   // "hoy moja" tiene que leerse igual sea cual sea el tono de fondo.
@@ -1333,28 +1222,29 @@ export const TrackLayer = memo(function TrackLayer({ track, showDebug, wet, pale
   const geom = useMemo(() => ({
     road: track.roadPolygon.map((p) => `${p.x},${p.y}`).join(' '),
     lane: track.center.map((p) => `${p.x},${p.y}`).join(' '),
-    lanePath: dashedPath(track.center, 10, 16),
-    edgeL: track.left.map((p) => `${p.x},${p.y}`).join(' '),
-    edgeR: track.right.map((p) => `${p.x},${p.y}`).join(' '),
-    kerbL: kerbPath(track.left, KERB_BLOCK, KERB_W / 2),
-    kerbR: kerbPath(track.right, KERB_BLOCK, KERB_W / 2),
+    decor: buildTrackDecor(track),
     checks: checkeredQuads(track.finish),
   }), [track]);
+  const d = geom.decor;
 
   return (
     <G>
+      {/* Hierba y escapatoria: la propia línea central con un trazo ancho.
+          Con extremos redondos para que en un trazado abierto no acaben en
+          un corte seco. */}
+      <Polyline points={d.center} fill="none" stroke={palette.verge} strokeWidth={2 * (d.maxW + VERGE_W)} strokeLinejoin="round" strokeLinecap="round" />
+      <Polyline points={d.center} fill="none" stroke={palette.runoff} strokeWidth={2 * (d.maxW + RUNOFF_W)} strokeLinejoin="round" strokeLinecap="round" />
       {/* Asfalto */}
       <Polygon points={geom.road} fill={asphalt} />
-      {/* Piano rojo/blanco: base blanca por BORDE (no por el contorno cerrado,
-          que cruzaba la pista por salida y meta) + tramos rojos explícitos. */}
-      <Polyline points={geom.edgeL} fill="none" stroke={ROAD.kerbWhite} strokeWidth={KERB_W} strokeLinejoin="round" />
-      <Polyline points={geom.edgeR} fill="none" stroke={ROAD.kerbWhite} strokeWidth={KERB_W} strokeLinejoin="round" />
-      <Path d={geom.kerbL} fill={ROAD.kerbRed} />
-      <Path d={geom.kerbR} fill={ROAD.kerbRed} />
-      {/* Línea de carril discontinua (geometría explícita, no strokeDasharray:
-          en iOS se rasterizaba con rayas de tamaño desigual, sobre todo cerca
-          de meta — mismo motivo que el piano). */}
-      <Path d={geom.lanePath} fill="none" stroke={ROAD.lane} strokeWidth={2} strokeLinecap="round" opacity={0.7} />
+      {/* Línea blanca de borde (en curva queda debajo del piano) */}
+      <Polyline points={d.edgeL} fill="none" stroke={ROAD.edgeLine} strokeWidth={2.2} strokeOpacity={0.8} />
+      <Polyline points={d.edgeR} fill="none" stroke={ROAD.edgeLine} strokeWidth={2.2} strokeOpacity={0.8} />
+      {/* Pianos rojo/blanco, solo en las curvas */}
+      <Path d={d.kerbWhite} fill={ROAD.kerbWhite} />
+      <Path d={d.kerbRed} fill={ROAD.kerbRed} />
+      {/* Muros de neumáticos por fuera de las curvas cerradas */}
+      <Path d={d.tyres.a} fill={ROAD.tyre} stroke={ROAD.kerbRed} strokeWidth={1.6} />
+      <Path d={d.tyres.b} fill={ROAD.tyre} stroke={ROAD.kerbWhite} strokeWidth={1.6} />
       {/* Salida (sutil, dorada) */}
       <Line
         x1={track.startLine.a.x} y1={track.startLine.a.y}
@@ -1367,8 +1257,8 @@ export const TrackLayer = memo(function TrackLayer({ track, showDebug, wet, pale
       ))}
       {showDebug && (
         <G>
-          <Polyline points={geom.edgeL} fill="none" stroke="#ff5a3c" strokeWidth={1} />
-          <Polyline points={geom.edgeR} fill="none" stroke="#ff5a3c" strokeWidth={1} />
+          <Polyline points={d.edgeL} fill="none" stroke="#ff5a3c" strokeWidth={1} />
+          <Polyline points={d.edgeR} fill="none" stroke="#ff5a3c" strokeWidth={1} />
           <Polyline points={geom.lane} fill="none" stroke="#4ad6ff" strokeWidth={1} />
         </G>
       )}
@@ -1427,7 +1317,7 @@ function toView(s, flash, ghost, leader) {
     x: s.x, y: s.y, heading: s.heading, camAngle: s.camAngle, elapsed: s.elapsed, phase: s.phase, flash, ghost, leader, fps: s.fps,
     sector: s.sector, sectorColors: s.sectorColors, ghostDeltaMs: s.ghostDeltaMs, impacts: s.impacts,
     lapsDone: s.lapsDone,
-    trackIdx: s.trackIdx, // para el indicador de "siguiente curva" — ya se calculaba cada paso para sectores/fantasma
+    trackIdx: s.trackIdx,
   };
 }
 
@@ -1715,17 +1605,13 @@ const styles = StyleSheet.create({
   // y no en el centro: el coche va a 250 u/s y taparle la pista sería
   // castigar al jugador justo por hacerlo bien.
   moradoWrap: { position: 'absolute', top: 12, left: 0, right: 0, alignItems: 'center' },
-  // Siguiente curva: esquina, no centro, por el mismo motivo que moradoWrap
-  // de arriba — nunca tapar la pista que sí importa. Fondo semitransparente
+  // Minimapa: esquina, no centro, por el mismo motivo que moradoWrap de
+  // arriba — nunca tapar la pista que sí importa. Fondo semitransparente
   // para que se lea encima de cualquier tramo, claro u oscuro.
-  // Tamaño fijo (no se ajusta al contenido): los tres estados — ↑ ← → —
-  // ocupan lo mismo, así el HUD no da un salto al cambiar de uno a otro.
-  turnWrap: {
-    position: 'absolute', top: 10, right: 10, width: 52, height: 48, borderRadius: 10,
+  mapWrap: {
+    position: 'absolute', top: 10, right: 10, width: MAP_BOX, height: MAP_BOX, borderRadius: 10,
     backgroundColor: 'rgba(13,15,19,0.7)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)',
-    alignItems: 'center', justifyContent: 'center',
   },
-  turnGlyph: { color: RD.textPrimary, fontSize: 32, fontFamily: RD_FONT.displayBlack },
   // Etiqueta con el nombre del líder, anclada sobre su coche. Ancho fijo +
   // centrado para poder posicionarla restando la mitad, sin medir el texto.
   leaderNameWrap: { position: 'absolute', width: 140, alignItems: 'center' },

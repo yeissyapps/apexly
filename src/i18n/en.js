@@ -126,18 +126,20 @@ export default {
     'Here you see your stats and get to the Garage to customise your car, the Shop where coins buy packs, and Career Mode: 30 solo levels of rising difficulty, each with a target time that unlocks the next.',
 
   // ---- Novedades ------------------------------------------------------------
-  'Un reto cada día': 'A challenge every day',
-  'Reto del día': 'Daily challenge',
-  'Cada día hay un reto nuevo, el mismo para todos, que vale 15 monedas: adelantar a alguien en el ranking, una vuelta récord sin tocar el muro, mejorar tus tres sectores… Lo tienes en Inicio, debajo del circuito.':
-    "Every day there's a new challenge, the same for everyone, worth 15 coins: overtake someone on the leaderboard, a personal best without touching the wall, improve all three sectors… You'll find it on Home, under the circuit.",
-  'Tu rival del mes': 'Your rival of the month',
-  'Algunos días el reto tiene nombre: quien va justo por delante de ti en la clasificación del mes. Haz ese día mejor tiempo y las monedas son tuyas.':
-    'Some days the challenge has a name: the player right above you in the monthly standings. Set a better time that day and the coins are yours.',
+  'Sube al podio': 'Step onto the podium',
+  'Tu perfil, en el podio': 'Your profile, on the podium',
+  'Tu piloto se sube al escalón de tu puesto en la clasificación del mes. Si no estás entre los tres primeros, te toca mirar el podio desde abajo.':
+    "Your driver stands on the step of your place in the monthly standings. Not in the top three? You'll be looking up at the podium.",
+  'Vitrina': 'Trophy case',
+  'Victorias, podios del mes, sectores morados y tu mejor racha, a la vista de cualquiera que entre en tu perfil.':
+    'Wins, podiums this month, purple sectors and your best streak, for anyone who visits your profile to see.',
+  'Circuitos con más vida': 'Livelier circuits',
+  'Escapatorias, pianos solo en las curvas y muros de neumáticos en las curvas cerradas.':
+    'Run-off areas, kerbs only on the corners and tyre walls on the tight ones.',
+  'Minimapa': 'Minimap',
+  'Durante la carrera ves el circuito entero arriba a la derecha: tú en rojo, tu fantasma en blanco y el líder en dorado.':
+    "During the race you see the whole circuit top right: you in red, your ghost in white and the leader in gold.",
 
-  'Apexly en inglés': 'Apexly in English',
-  'La app ya se puede usar en inglés. Cámbialo cuando quieras en tu Perfil, en IDIOMA.': 'The app now speaks English. Switch any time from your Profile, under LANGUAGE.',
-  '1 VS 1: si no corres, pierdes': "1 VS 1: don't race, you lose",
-  'Si aceptas un reto y se acaban los 15 minutos sin que corras, el bote es para tu rival.': "If you accept a challenge and the 15 minutes run out without you racing, the pot goes to your rival.",
 
   // ---- Resultado ------------------------------------------------------------
   '{rank} de {total} en el mundo': '{rank} of {total} worldwide',
@@ -416,6 +418,16 @@ export default {
   'CORRER ›': 'RACE ›',
   '1 vs 1 con {name} · ya has corrido, falta su vuelta': "1 vs 1 with {name} · you've raced, waiting for their lap",
   'IDIOMA': 'LANGUAGE',
+  'AJUSTES': 'SETTINGS',
+  'CAMBIAR AVATAR': 'CHANGE AVATAR',
+  '{pos} DEL MES': '{pos} THIS MONTH',
+  'SIN CORRER ESTE MES': 'NO RACES THIS MONTH',
+  'VICTORIAS': 'WINS',
+  'PODIOS · MES': 'PODIUMS · MONTH',
+  'MORADOS': 'PURPLES',
+  'MEJOR RACHA': 'BEST STREAK',
+  'SIN CORRER': 'NOT RACED',
+  'IR A JUGAR ›': 'GO RACE ›',
   'No tienes tantas monedas: tienes {n}.': "You don't have that many coins: you have {n}.",
   'Ya tenéis un 1 vs 1 en marcha.': 'You already have a 1 vs 1 going with this player.',
   'No te quedan monedas libres para esa apuesta (cuentan tus retos pendientes).': "You don't have enough free coins for that bet (your pending challenges count).",
@@ -428,7 +440,6 @@ export default {
   'GARAJE': 'GARAGE',
   'TIENDA': 'SHOP',
   'CARRERA': 'CAREER',
-  'AVATAR': 'AVATAR',
   '1 VS 1 EN CURSO': '1 VS 1 IN PROGRESS',
   'Todos tus 1 vs 1 están en la pestaña 1 VS 1 de Inicio. Hasta que este se resuelva no podéis abrir otro.':
     "All your 1 vs 1s are in the 1 VS 1 tab on Home. You can't start another one with this player until this one is settled.",
@@ -461,6 +472,14 @@ export default {
   'vs. el objetivo de cada circuito · 1 día más para ver tu tendencia': "vs. each circuit's target · 1 more day to see your trend",
   'vs. el objetivo de cada circuito · {n} días más para ver tu tendencia': "vs. each circuit's target · {n} more days to see your trend",
   '— objetivo del día —': "— day's target —",
+
+  // ---- Banco de pruebas: circuito cerrado ---------------------------------------
+  'Circuito cerrado': 'Closed circuit',
+  'En pruebas: no cuenta para el ranking, la racha ni los intentos.': "Testing only: doesn't count for rankings, streaks or attempts.",
+  '{laps} vueltas · objetivo ~{s}s': '{laps} laps · target ~{s}s',
+  'Tu mejor: {time}': 'Your best: {time}',
+  'Última vuelta: {time}': 'Last lap: {time}',
+  'PROBAR CIRCUITO CERRADO': 'TRY CLOSED CIRCUIT',
 
   // ---- DATOS ----------------------------------------------------------------------
   //  Textos que se traducen desde una variable (t(pieza.label), t(clima.hint),

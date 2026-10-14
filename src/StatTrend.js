@@ -143,7 +143,7 @@ export default function StatTrend({ points, title, own = true }) {
 }
 
 const s = StyleSheet.create({
-  wrap: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, padding: 14, gap: 6 },
+  wrap: { borderWidth: 1, borderColor: RD.panelBorder, borderRadius: 2, backgroundColor: '#111113', padding: 14, gap: 6 },
   header: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
   title: { color: RD.textPrimary, fontSize: 13, fontFamily: RD_FONT.monoBold, letterSpacing: 0.5 },
   subtitle: { color: RD.textTertiary, fontSize: 10, fontFamily: RD_FONT.mono },

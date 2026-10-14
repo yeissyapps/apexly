@@ -49,6 +49,7 @@ import DuelIntro from './src/DuelIntro';
 import DuelsTab from './src/DuelsTab';
 import DuelReveal from './src/DuelReveal';
 import CareerMode from './src/CareerMode';
+import LoopTest from './src/LoopTest';
 import { levelSpec, gapMsFor, weatherForLevel, CAREER_AD_BATCH } from './src/career';
 import { GroupHome, GrandPrixStandings, RoundStart } from './src/GrandPrix';
 import { gpCircuitSpec, gpWeather, GP_AD_BATCH, GP_FREE_ATTEMPTS, currentRoundIndex, gpFinished } from './src/gpData';
@@ -73,7 +74,7 @@ import {
 import { registerPushToken, shouldOfferPush, notePushOfferDismissed } from './src/push';
 import { loadGhost, saveGhostIfBest } from './src/ghost';
 import { loadAttempts, consumeAttempt, grantBatch, attemptsLeft as calcLeft, AD_BATCH, FREE_ATTEMPTS } from './src/attempts';
-import { PUSH_ENABLED, intentosTxt } from './src/features';
+import { PUSH_ENABLED, intentosTxt, isLoopTester } from './src/features';
 import { CONFIG } from './src/config';
 import { prepareConsent, showRewarded, isPrivacyOptionsRequired, showPrivacyOptions, getLastAdError, wasConsentDenied } from './src/ads';
 import { isUnlimitedCached, restoreUnlimited, buyUnlimited, getUnlimitedPrice, IAP_AVAILABLE } from './src/iap';
@@ -228,6 +229,12 @@ export default function App() {
   const [sectorBests, setSectorBests] = useState(null); // { [sector]: ms } mejor del mundo hoy
   const [leaderRun, setLeaderRun] = useState(null);     // { nickname, ms, trace, loadout } del 1.º de hoy
   const [loadout, setLoadout] = useState(CAR_DEFAULTS); // personalización del coche (garaje)
+  // Banco de pruebas de circuitos cerrados (src/LoopTest.js). Todo en memoria:
+  // nada de esto va al servidor ni se guarda en el móvil.
+  const [loopOffset, setLoopOffset] = useState(0);   // día elegido, relativo a hoy
+  const [loopRun, setLoopRun] = useState(null);      // { key, spec } que se está corriendo
+  const [loopBest, setLoopBest] = useState({});      // { [día]: { ms, trace } } mejor vuelta (fantasma)
+  const [loopLast, setLoopLast] = useState(null);    // { key, ms } última vuelta terminada
 
   const [att, setAtt] = useState({ used: 0, bonus: 0 }); // intentos del día (circuito diario)
   const [careerAtt, setCareerAtt] = useState({ used: 0, bonus: 0 }); // intentos del nivel de Carrera en juego — cupo PROPIO, no comparte con el diario
@@ -1081,6 +1088,7 @@ export default function App() {
         onOpenCareer={() => setScreen('career')}
         onOpenAvatarPicker={() => setScreen('avatar-picker')}
         onOpenPilotTest={__DEV__ ? () => setScreen('pilot-test') : undefined}
+        onOpenLoopTest={isLoopTester(nickname) ? () => setScreen('loop-test') : undefined}
         onOpenAvatarTest={__DEV__ ? () => setScreen('avatar-test') : undefined}
         onOpenDuel={openDuel}
       />
@@ -1177,6 +1185,37 @@ export default function App() {
   // por rareza (JC, 2026-09-15). Visor con textura real, sin tinte por
   // piezas — sustituye conceptualmente a pilot-test para el contenido
   // nuevo, pero convive con él hasta que se decida la migración completa.
+  if (screen === 'loop-test') {
+    return (
+      <LoopTest
+        offset={loopOffset}
+        onOffset={setLoopOffset}
+        best={loopBest}
+        lastResult={loopLast}
+        onPlay={(key, spec) => { setLoopRun({ key, spec }); setScreen('loop-playing'); }}
+        onBack={() => setScreen('perfil')}
+      />
+    );
+  }
+
+  if (screen === 'loop-playing' && loopRun) {
+    return (
+      <Game
+        track={loopRun.spec.track}
+        ghost={loopBest[loopRun.key]?.trace ?? null}
+        weather={dailyWeather(loopRun.key)}
+        sectorBests={null}
+        loadout={loadout}
+        onFinish={(ms, trace) => {
+          setLoopLast({ key: loopRun.key, ms });
+          setLoopBest((b) => (b[loopRun.key] && b[loopRun.key].ms <= ms ? b : { ...b, [loopRun.key]: { ms, trace } }));
+          setScreen('loop-test');
+        }}
+        onExit={() => setScreen('loop-test')}
+      />
+    );
+  }
+
   if (screen === 'avatar-test') {
     const AvatarTest = require('./src/AvatarTest').default;
     return <AvatarTest onBack={() => setScreen('perfil')} />;
@@ -1528,19 +1567,24 @@ function WhatsNewModal({ onClose }) {
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={rd.recapBackdrop}>
         <View style={rd.whatsNewCard}>
-          <Text style={rd.recapTitle}>{t('NOVEDADES · v{v}', { v: WHATS_NEW_VERSION })}</Text>
-          <View style={rd.whatsNewHero}>
-            <AvatarThumb pilotAvatarId="legendario" size={110} />
-          </View>
-          <Text style={rd.whatsNewTitle}>{whatsNewTitle()}</Text>
-          <View style={rd.whatsNewList}>
-            {whatsNewItems().map((item) => (
-              <View key={item.title} style={rd.whatsNewItem}>
-                <Text style={rd.whatsNewItemTitle}>{item.title}</Text>
-                <Text style={rd.whatsNewItemBody}>{item.body}</Text>
-              </View>
-            ))}
-          </View>
+          {/* El contenido se desplaza y el botón se queda fijo debajo: con 4
+              novedades (2.4.7) la tarjeta ya no cabía en un A53 y VAMOS
+              quedaba tapado por la barra de navegación. */}
+          <ScrollView style={rd.whatsNewScroll} contentContainerStyle={{ gap: 4 }}>
+            <Text style={rd.recapTitle}>{t('NOVEDADES · v{v}', { v: WHATS_NEW_VERSION })}</Text>
+            <View style={rd.whatsNewHero}>
+              <AvatarThumb pilotAvatarId="legendario" size={110} />
+            </View>
+            <Text style={rd.whatsNewTitle}>{whatsNewTitle()}</Text>
+            <View style={rd.whatsNewList}>
+              {whatsNewItems().map((item) => (
+                <View key={item.title} style={rd.whatsNewItem}>
+                  <Text style={rd.whatsNewItemTitle}>{item.title}</Text>
+                  <Text style={rd.whatsNewItemBody}>{item.body}</Text>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
           <Pressable style={rd.recapBtn} onPress={onClose}>
             <Text style={rd.recapBtnText}>{t('VAMOS')}</Text>
           </Pressable>
@@ -2106,9 +2150,10 @@ const rd = StyleSheet.create({
   // tope de alto: una lista de 4 novedades no cabe en el mismo formato
   // centrado y compacto de "premios de ayer".
   whatsNewCard: {
-    width: '100%', maxWidth: 340, backgroundColor: RD.bg, borderWidth: 1, borderColor: RD.gold1st,
-    borderRadius: 2, padding: 22, gap: 4,
+    width: '100%', maxWidth: 340, maxHeight: '88%', backgroundColor: RD.bg, borderWidth: 1, borderColor: RD.gold1st,
+    borderRadius: 2, padding: 22, gap: 10,
   },
+  whatsNewScroll: { flexGrow: 0, flexShrink: 1 },
   whatsNewHero: {
     alignSelf: 'center', width: 130, height: 130, borderRadius: 4,
     borderWidth: 1, borderColor: RARITY_COLOR.legendaria,
