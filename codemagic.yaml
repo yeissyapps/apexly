@@ -104,7 +104,8 @@ workflows:
         auth: integration
         submit_to_testflight: true
         # false = solo TestFlight: JC prueba en el iPhone antes de mandar a revisión
-        # (2.4.8). Para publicar, volver a true o enviar la build a mano desde
-        # App Store Connect.
+        # (2.4.8). Para publicar, volver a true Y descomentar release_type — Codemagic
+        # rechaza el yaml si hay release_type sin submit_to_app_store. O enviar la
+        # build a mano desde App Store Connect.
         submit_to_app_store: false
-        release_type: AFTER_APPROVAL # se publica solo en cuanto Apple apruebe, sin paso manual
+        # release_type: AFTER_APPROVAL # se publica solo en cuanto Apple apruebe, sin paso manual
