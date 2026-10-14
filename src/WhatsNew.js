@@ -25,7 +25,7 @@ export const whatsNewTitle = () => t('Sube al podio');
 export const whatsNewItems = () => [
   {
     title: t('Tu perfil, en el podio'),
-    body: t('Tu piloto se sube al escalón de tu puesto en la clasificación del mes. Si no estás entre los tres primeros, te toca mirar el podio desde abajo.'),
+    body: t('Tu piloto, en lo más alto del podio de tu perfil, con tu puesto del mes al lado. Y en RANKING, los tres primeros del día y del mes, cada uno en su escalón.'),
   },
   {
     title: t('Vitrina'),

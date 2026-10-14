@@ -90,9 +90,7 @@ function DuelStatusRow({ d, onOpen, onCancel, cancelling }) {
 // directo contra la ventana. JC, 2026-09-15: "vea en media pantalla de
 // arriba su avatar".
 const AVATAR_HEIGHT = Dimensions.get('window').height * 0.46;
-const STAGE_W = Dimensions.get('window').width;
-// Cuánto se espera al puesto del mes antes de montar el muñeco igualmente.
-const STAGE_WAIT_MS = 2500; // a sangre: marginHorizontal -18 anula el padding
+const STAGE_W = Dimensions.get('window').width; // a sangre: marginHorizontal -18 anula el padding
 
 // Fondo de tarjeta: un paso por encima del negro de la pantalla, el mismo
 // del escenario del avatar. Sin él las tarjetas eran solo un borde
@@ -289,7 +287,6 @@ export default function Profile({
   const [wins, setWins] = useState(undefined);             // días ganados (1.º del mundo), de siempre
   const [purpleTotal, setPurpleTotal] = useState(undefined);
   const [otherLongest, setOtherLongest] = useState(undefined); // mejor racha de OTRO jugador (la tuya llega por myStreak)
-  const [stageWaited, setStageWaited] = useState(false);
   const [activeDuels, setActiveDuels] = useState([]); // mis duelos vivos, recibidos o enviados (ver getMyActiveDuels)
   const [cancelBusy, setCancelBusy] = useState(null); // id del reto que se está cancelando
   const [wagerInput, setWagerInput] = useState('50');
@@ -337,7 +334,6 @@ export default function Profile({
 
     // Podio (puesto del mes) y vitrina. El ranking del mes es el mismo que
     // enseña la pestaña RANKING (puntos por día, ver getMonthlyRanking).
-    const wait = setTimeout(() => alive && setStageWaited(true), STAGE_WAIT_MS);
     Promise.all([viewUserId ? Promise.resolve(viewUserId) : getMyId(), getMonthlyRanking()])
       .then(([uid, { rows }]) => {
         if (!alive) return;
@@ -371,7 +367,7 @@ export default function Profile({
       })
       .catch(() => alive && setTrend([]));
 
-    return () => { alive = false; clearTimeout(wait); };
+    return () => { alive = false; };
   }, [viewUserId]);
 
   // Duelos 1vs1 (JC, 2026-09-17): se cargan MIS duelos vivos tanto en tu
@@ -456,8 +452,6 @@ export default function Profile({
     : null;
 
   // Escalón del podio = puesto del mes si es 1-3; si no, al suelo.
-  const podiumPlace = monthRank >= 1 && monthRank <= 3 ? monthRank : null;
-  const stageReady = monthRank !== undefined || stageWaited;
   const bestStreak = isOwnProfile ? (myStreak?.longest ?? undefined) : otherLongest;
 
   // Si ya eligió un avatar de verdad (selector real, JC 2026-09-16, ver
@@ -522,15 +516,14 @@ export default function Profile({
                 El cambio de avatar vive encima del propio muñeco: es el
                 sitio donde se entiende sin explicación. */}
             <View style={s.avatarStage}>
-              <PodiumStage width={STAGE_W} height={AVATAR_HEIGHT} accent={RARITY_COLOR[avatar.rarity] || RD.cream} place={podiumPlace} />
-              {/* El muñeco no se monta hasta saber su escalón (o tras
-                  STAGE_WAIT_MS): si no, aparecería en el del 1 y luego
-                  "bajaría" a su sitio. */}
-              {stageReady && (
-                <AvatarViewer key={avatar.key} source={avatar.glb} cacheKey={avatar.key} framing={podiumFraming(podiumPlace)} />
-              )}
+              {/* Siempre en el escalón del 1: es TU perfil (JC, 2026-10-14,
+                  tras probar a ponerlo en el escalón de su puesto del mes).
+                  El puesto real va en la etiqueta de la esquina, y el podio
+                  de los tres primeros, en el ranking del mes. */}
+              <PodiumStage width={STAGE_W} height={AVATAR_HEIGHT} accent={RARITY_COLOR[avatar.rarity] || RD.cream} place={1} />
+              <AvatarViewer key={avatar.key} source={avatar.glb} cacheKey={avatar.key} framing={podiumFraming(1)} />
               <View pointerEvents="none" style={s.placeChip}>
-                <Text style={[s.placeChipText, podiumPlace === 1 && s.placeChipGold]}>
+                <Text style={[s.placeChipText, monthRank === 1 && s.placeChipGold]}>
                   {monthRank === undefined ? '···'
                     : monthRank ? t('{pos} DEL MES', { pos: ord(monthRank) })
                     : t('SIN CORRER ESTE MES')}

@@ -242,7 +242,9 @@ const PODIUM_COLOR = [RD.gold1st, RD.silver2nd, RD.bronze3rd];
 const PODIUM_SHADE = [RD.gold1stShade, RD.silver2ndShade, RD.bronze3rdShade];
 const PODIUM_BLOCK_HEIGHT = [76, 54, 40]; // 1º, 2º, 3º
 
-function Podium({ rows, winCounts = {}, onOpenPlayer }) {
+// valueLabel: qué se pinta bajo el nombre (por defecto el tiempo del día; el
+// ranking del mes pasa los puntos). Exportado para la pestaña Ranking.
+export function Podium({ rows, winCounts = {}, onOpenPlayer, valueLabel }) {
   const order = [rows[1], rows[0], rows[2]]; // 2º - 1º - 3º
   const Wrap = onOpenPlayer ? Pressable : View;
   return (
@@ -264,7 +266,7 @@ function Podium({ rows, winCounts = {}, onOpenPlayer }) {
               </Text>
               {wins > 0 && <Text style={[styles.rowWins, { color: RD.gold1st }]}>×{wins}</Text>}
             </View>
-            <Text style={styles.podiumTime}>{fmtTime(r.bestMs)}</Text>
+            <Text style={styles.podiumTime}>{valueLabel ? valueLabel(r) : fmtTime(r.bestMs)}</Text>
             <AvatarThumb pilotAvatarId={r.pilotAvatarId} size={big ? 84 : 66} />
             <View
               style={[

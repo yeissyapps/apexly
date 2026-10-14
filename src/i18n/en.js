@@ -128,8 +128,8 @@ export default {
   // ---- Novedades ------------------------------------------------------------
   'Sube al podio': 'Step onto the podium',
   'Tu perfil, en el podio': 'Your profile, on the podium',
-  'Tu piloto se sube al escalón de tu puesto en la clasificación del mes. Si no estás entre los tres primeros, te toca mirar el podio desde abajo.':
-    "Your driver stands on the step of your place in the monthly standings. Not in the top three? You'll be looking up at the podium.",
+  'Tu piloto, en lo más alto del podio de tu perfil, con tu puesto del mes al lado. Y en RANKING, los tres primeros del día y del mes, cada uno en su escalón.':
+    'Your driver, on top of the podium in your profile, with your monthly place beside it. And in RANKINGS, the top three of the day and the month, each on their step.',
   'Vitrina': 'Trophy case',
   'Victorias, podios del mes, sectores morados y tu mejor racha, a la vista de cualquiera que entre en tu perfil.':
     'Wins, podiums this month, purple sectors and your best streak, for anyone who visits your profile to see.',

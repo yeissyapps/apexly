@@ -5,9 +5,11 @@
 //  chulo". El muñeco 3D (AvatarViewer, fondo transparente) va ENCIMA de esto
 //  y se encuadra con los pies sobre su sitio (ver podiumFraming).
 //
-//  El muñeco se sube al escalón de su PUESTO DEL MES: 1.º, 2.º o 3.º en su
-//  escalón; fuera del podio, de pie en el suelo delante, con el escalón del
-//  1 libre — dan ganas de subir. El foco apunta a donde está él.
+//  En el Perfil el muñeco va SIEMPRE en el escalón del 1 (JC, 2026-10-14:
+//  "en el perfil lo pondría siempre en el top 1"; se probó subirlo al
+//  escalón de su puesto del mes y en el suelo fuera del podio no cuadraba).
+//  `place` 2/3/null sigue soportado (escalón lateral / suelo sin podio) por
+//  si se quiere volver a usar.
 //
 //  Capas: pared de patrocinadores (el "photocall" de los podios de verdad,
 //  con APEXLY repetido casi invisible) -> haz de foco -> suelo -> escalones
@@ -27,7 +29,7 @@ import { RD, RD_FONT } from './theme';
 // encuadres de cámara de abajo salen de estos mismos números: si cambia uno,
 // cambia el otro.
 const TOP = { 1: 0.75, 2: 0.815, 3: 0.855 }; // cara de arriba de cada escalón
-const FLOOR_FEET = 0.95;                     // fuera del podio: pies en el suelo
+const FLOOR_FEET = 0.86;                     // fuera del podio: pies en el suelo, sin escalones
 const stepWidths = (W) => ({ w1: Math.min(W * 0.36, 170), w2: Math.min(W * 0.25, 120) });
 
 // El escenario va a sangre (todo el ancho de la pantalla) en el Perfil.
@@ -45,9 +47,7 @@ function framingFor(place) {
   if (place === 1) return { zoom: 1.12, lift: liftFor(1.12, TOP[1]), panX: 0 };
   if (place === 2) return { zoom: 1.55, lift: liftFor(1.55, TOP[2]), panX: -side };
   if (place === 3) return { zoom: 1.55, lift: liftFor(1.55, TOP[3]), panX: side };
-  // Fuera del podio: en el suelo, delante del escalón del 3 — sin tapar el
-  // del 1, que es justo lo que tiene que verse vacío.
-  return { zoom: 1.5, lift: liftFor(1.5, FLOOR_FEET), panX: side * 1.15 };
+  return { zoom: 1.12, lift: liftFor(1.12, FLOOR_FEET), panX: 0 };
 }
 // Objetos fijos: AvatarViewer compara por identidad para saber si cambió.
 const FRAMINGS = { 1: framingFor(1), 2: framingFor(2), 3: framingFor(3), floor: framingFor(null) };
@@ -63,14 +63,14 @@ function PodiumStage({ width: W, height: H, accent = RD.cream, place = null }) {
   const cx = W / 2;
   const { w1, w2 } = stepWidths(W);
   const x1 = cx - w1 / 2;
-  const floorY = H * (TOP[1] + 0.06);
+  const onStep = place === 1 || place === 2 || place === 3;
+  const floorY = onStep ? H * (TOP[1] + 0.06) : H * FLOOR_FEET;
   const lip = 7; // grosor de la cara de arriba de cada escalón
 
   // Dónde está el muñeco: el foco y la luz del suelo van ahí.
-  const onStep = place === 1 || place === 2 || place === 3;
-  const spotX = place === 2 ? x1 - w2 / 2 : place === 3 ? x1 + w1 + w2 / 2 : cx + ((w1 + w2) / 2) * 1.15;
+  const spotX = place === 2 ? x1 - w2 / 2 : place === 3 ? x1 + w1 + w2 / 2 : cx;
   const spotY = onStep ? H * TOP[place] : H * FLOOR_FEET;
-  const spotW = place === 1 ? w1 : w2;
+  const spotW = place === 2 || place === 3 ? w2 : w1;
 
   // Pared de patrocinadores: filas de APEXLY, cada una desplazada media
   // celda, como el photocall de detrás de un podio.
@@ -137,9 +137,9 @@ function PodiumStage({ width: W, height: H, accent = RD.cream, place = null }) {
       <Line x1={0} y1={floorY} x2={W} y2={floorY} stroke={RD.gridLine} strokeWidth={1} />
 
       {/* Escalones: 2 a la izquierda, 1 en el centro, 3 a la derecha */}
-      {step(x1 - w2, w2, H * TOP[2], '2', RD.silver2nd, 30)}
-      {step(x1 + w1, w2, H * TOP[3], '3', RD.bronze3rd, 28)}
-      {step(x1, w1, H * TOP[1], '1', RD.gold1st, 46)}
+      {onStep && step(x1 - w2, w2, H * TOP[2], '2', RD.silver2nd, 30)}
+      {onStep && step(x1 + w1, w2, H * TOP[3], '3', RD.bronze3rd, 28)}
+      {onStep && step(x1, w1, H * TOP[1], '1', RD.gold1st, 46)}
 
       {/* Luz del foco donde está el muñeco y sombra de los pies */}
       <Ellipse cx={spotX} cy={spotY + lip / 2} rx={spotW * 0.5} ry={lip * 0.9} fill="url(#pool)" />
