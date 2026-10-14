@@ -47,7 +47,7 @@ function onlineOf(presence, userId) {
 }
 import { RD, RD_FONT } from './theme';
 import { t } from './i18n';
-import { RankRow } from './MiniRanking';
+import { Podium, RankRow } from './MiniRanking';
 
 // Agrupa una lista YA ORDENADA en tramos consecutivos del mismo valor
 // (puntos o monedas) — para pintar una línea divisoria cada vez que cambia
@@ -233,6 +233,11 @@ function DailyRanking({ refreshKey = 0, onOpenPlayer }) {
           ) : rows.length === 0 && !loadingMore ? (
             <Text style={styles.muted}>{t('Aún no hay tiempos. ¡Sé el primero!')}</Text>
           ) : (
+            <>
+            {/* Podio de los tres primeros (JC, 2026-10-14) — el mismo de Inicio. */}
+            {rows.length >= 3 && (
+              <Podium rows={rows.slice(0, 3)} winCounts={winCounts} onOpenPlayer={onOpenPlayer} />
+            )}
             <View style={styles.list}>
               <BandedRows
                 rows={rows}
@@ -243,6 +248,7 @@ function DailyRanking({ refreshKey = 0, onOpenPlayer }) {
                 extraRowProps={(r) => ({ online: onlineOf(presence, r.userId) })}
               />
             </View>
+            </>
           )}
 
           {loadingMore ? (
@@ -335,6 +341,16 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
       ) : filteredRows.length === 0 ? (
         <Text style={styles.muted}>{t('Nadie con ese nombre ha corrido este mes.')}</Text>
       ) : (
+        <>
+        {/* Podio del mes: los tres primeros, con sus puntos (JC, 2026-10-14). */}
+        {!showingSearch && rows.length >= 3 && (
+          <Podium
+            rows={rows.slice(0, 3)}
+            winCounts={winCounts}
+            onOpenPlayer={onOpenPlayer}
+            valueLabel={(r) => t('{n} pts', { n: r.points })}
+          />
+        )}
         <View style={styles.list}>
           <BandedRows
             rows={filteredRows}
@@ -353,6 +369,7 @@ function MonthlyRanking({ refreshKey = 0, onOpenPlayer }) {
             }}
           />
         </View>
+        </>
       )}
     </View>
   );
