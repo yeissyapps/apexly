@@ -19,10 +19,23 @@ const PLAY_STORE_URL = `https://play.google.com/store/apps/details?id=${BUNDLE_I
 
 let cachedAppStoreUrl = null;
 
+// Android: el versionCode de app.json (es el mismo que lleva el AAB).
+//
+// iOS: NO el buildNumber. Codemagic pone el número de build real con
+// agvtool al compilar (ver codemagic.yaml) y app.json se queda fijo en
+// "91" — la app leía 91 en TODAS las builds y el force update de iOS no
+// podía distinguir versiones (descubierto al publicar la 2.4.8). Se usa la
+// versión de marketing, que sí cambia en cada release: "2.4.9" -> 20409.
+// En Supabase, app_version.min_build de 'ios' va en ESA escala (las
+// builds de iOS anteriores a esto dicen ser la 91, así que cualquier
+// mínimo de 5 cifras las bloquea a todas: justo lo que se quiere).
 export function getCurrentBuild() {
   const cfg = Constants.expoConfig || {};
-  const raw = Platform.OS === 'ios' ? cfg.ios?.buildNumber : cfg.android?.versionCode;
-  const n = parseInt(raw, 10);
+  if (Platform.OS === 'ios') {
+    const [maj, min, pat] = String(cfg.version || '').split('.').map((x) => parseInt(x, 10) || 0);
+    return maj * 10000 + min * 100 + pat;
+  }
+  const n = parseInt(cfg.android?.versionCode, 10);
   return Number.isFinite(n) ? n : 0;
 }
 
