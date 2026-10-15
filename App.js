@@ -1704,7 +1704,11 @@ function DiarioTab({
           </View>
         </View>
         <Text style={rd.trackName}>{tParts(daily.label)}</Text>
-        <Text style={rd.trackDesc}>{t('Objetivo: ~{s}s en limpio', { s: Math.round(daily.timeEstimate) })}</Text>
+        <Text style={rd.trackDesc}>
+          {daily.track.laps > 1
+            ? t('{laps} vueltas · objetivo ~{s}s', { laps: daily.track.laps, s: Math.round(daily.timeEstimate) })
+            : t('Objetivo: ~{s}s en limpio', { s: Math.round(daily.timeEstimate) })}
+        </Text>
         <View style={rd.wxRow}>
           <View style={rd.wxDot} />
           <Text style={rd.wxText}>{t(weather.label).toUpperCase()} · {t(weather.hint)}</Text>
@@ -2225,6 +2229,8 @@ const rd = StyleSheet.create({
   },
   sectorSplitsRow: { flexDirection: 'row', justifyContent: 'center', gap: 14 },
   sectorSplitCol: { alignItems: 'center', gap: 2 },
+  sectorLapsBlock: { alignItems: 'center', gap: 10 },
+  sectorLapLabel: { color: RD.textSecondary, fontSize: 14, fontFamily: RD_FONT.monoBold },
   sectorSplitDivider: { width: 1, alignSelf: 'stretch', backgroundColor: RD.panelBorder },
   sectorSplitLabel: { color: RD.textDisabled, fontSize: 10, fontFamily: RD_FONT.mono, letterSpacing: 1 },
   sectorSplitValue: { fontSize: 14, fontFamily: RD_FONT.monoBold, fontVariant: ['tabular-nums'] },
@@ -2608,7 +2614,7 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
       pick(CHASE_LINES).forEach((tpl) => candidates.push(tpl(gapTxt, standing.above.nickname)));
     }
     if (showWorstSectorTip) {
-      pick(LEADER_LINES).forEach((tpl) => candidates.push(tpl(worstSectorIdx + 1)));
+      pick(LEADER_LINES).forEach((tpl) => candidates.push(tpl((worstSectorIdx % 3) + 1))); // sector geográfico (1-3) también con 2 vueltas
     }
     if (candidates.length === 0) return null;
     return candidates[Math.floor(Math.random() * candidates.length)];
@@ -2839,24 +2845,51 @@ function Results({ result, label, track, weather, nickname, attemptsLeft = Infin
         </Animated.Text>
 
         <View style={rd.trackMapBox}>
-          <MiniTrackMap track={track} w={TRACKMAP_W} h={80} worstSector={showWorstSectorTip ? worstSectorIdx : null} />
+          <MiniTrackMap track={track} w={TRACKMAP_W} h={80} worstSector={showWorstSectorTip ? worstSectorIdx % 3 : null} />
         </View>
 
         {result.sectorDeltas && result.sectorDeltas.length > 0 && (() => {
           const allKnown = result.sectorDeltas.every((d) => d != null);
           const total = allKnown ? result.sectorDeltas.reduce((a, b) => a + b, 0) : null;
+          const cell = (delta, i, label) => {
+            const color = SECTOR_RESULT_COLORS[result.sectorColors?.[i]] || RD.cream;
+            const value = delta == null ? '—' : `${delta <= 0 ? '−' : '+'}${(Math.abs(delta) / 1000).toFixed(3)}s`;
+            return (
+              <View key={i} style={rd.sectorSplitCol}>
+                <Text style={rd.sectorSplitLabel}>{label}</Text>
+                <RevealValue shown={step >= i + 1} style={[rd.sectorSplitValue, { color }]}>{value}</RevealValue>
+              </View>
+            );
+          };
+          // Circuito cerrado de 2 vueltas: 6 parciales no caben en una fila.
+          // Una fila por vuelta (V1, V2) con sus S1-S3, y el total al final.
+          const lapsN = Math.ceil(result.sectorDeltas.length / 3);
+          if (lapsN > 1) {
+            return (
+              <View style={rd.sectorLapsBlock}>
+                {Array.from({ length: lapsN }, (_, l) => (
+                  <View key={l} style={rd.sectorSplitsRow}>
+                    <View style={rd.sectorSplitCol}>
+                      <Text style={rd.sectorSplitLabel}> </Text>
+                      <Text style={rd.sectorLapLabel}>{t('V{n}', { n: l + 1 })}</Text>
+                    </View>
+                    {result.sectorDeltas.slice(l * 3, l * 3 + 3).map((delta, j) => cell(delta, l * 3 + j, `S${j + 1}`))}
+                  </View>
+                ))}
+                {total != null && (
+                  <View style={rd.sectorSplitCol}>
+                    <Text style={rd.sectorSplitLabel}>{t('TOTAL')}</Text>
+                    <RevealValue shown={step >= sectorCount + 1} style={[rd.sectorSplitValue, { color: total <= 0 ? RD.successGreen : RD.danger }]}>
+                      {`${total <= 0 ? '−' : '+'}${(Math.abs(total) / 1000).toFixed(3)}s`}
+                    </RevealValue>
+                  </View>
+                )}
+              </View>
+            );
+          }
           return (
             <View style={rd.sectorSplitsRow}>
-              {result.sectorDeltas.map((delta, i) => {
-                const color = SECTOR_RESULT_COLORS[result.sectorColors?.[i]] || RD.cream;
-                const value = delta == null ? '—' : `${delta <= 0 ? '−' : '+'}${(Math.abs(delta) / 1000).toFixed(3)}s`;
-                return (
-                  <View key={i} style={rd.sectorSplitCol}>
-                    <Text style={rd.sectorSplitLabel}>S{i + 1}</Text>
-                    <RevealValue shown={step >= i + 1} style={[rd.sectorSplitValue, { color }]}>{value}</RevealValue>
-                  </View>
-                );
-              })}
+              {result.sectorDeltas.map((delta, i) => cell(delta, i, `S${i + 1}`))}
               {total != null && (
                 <>
                   <View style={rd.sectorSplitDivider} />

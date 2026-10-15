@@ -15,6 +15,7 @@
 
 import { BANK, assemble } from './pieces.js';
 import { buildTrackFromCenterline } from './track.js';
+import { closedDailyCircuit } from './loopGenerator.js';
 import { CONFIG } from './config.js';
 
 const WIDE = 52;
@@ -257,11 +258,34 @@ function generateSpec(dateKey, opts = {}) {
 // Es el MISMO valor que `dailyCircuit(dateKey).timeEstimate` (misma semilla,
 // mismo generateSpec) — verificado sobre 30 días, 0 desviaciones.
 export function dailyTimeEstimate(dateKey) {
+  if (isClosedDay(dateKey)) {
+    const c = closedDailyCircuit(dateKey);
+    if (c) return c.timeEstimate;
+  }
   return generateSpec(dateKey).timeEstimate;
 }
 
+// ---- Circuitos CERRADOS en el diario --------------------------------------
+// Desde CLOSED_FROM el circuito del día es un circuito cerrado de 2 vueltas
+// (src/loopGenerator.js) en vez de una trazada (JC, 2026-10-15: "métele a la
+// 2.4.9 los circuitos cerrados"). Va por FECHA, no por versión: la 2.4.9 se
+// publica antes y nadie corre un cerrado hasta ese día. Para que no convivan
+// las dos pistas en el mismo ranking:
+//   - antes de CLOSED_FROM se sube min_build (force update) en las dos
+//     tiendas, así nadie llega con una versión que generaría la trazada;
+//   - y el servidor rechaza desde ese día las vueltas que no acaban donde
+//     empezaron (supabase/closed_circuits.sql): una trazada nunca lo hace.
+// Día 1 de mes: el ranking mensual arranca limpio con el formato nuevo.
+// Si se cambia esta fecha, cambiarla también en closed_circuits.sql.
+export const CLOSED_FROM = '2026-11-01';
+export const isClosedDay = (dateKey) => dateKey >= CLOSED_FROM;
+
 // Circuito del día listo para el juego: { track, label, half, timeEstimate }.
 export function dailyCircuit(dateKey) {
+  if (isClosedDay(dateKey)) {
+    const c = closedDailyCircuit(dateKey);
+    if (c) return c;
+  }
   const spec = generateSpec(dateKey);
   return {
     track: buildTrackFromCenterline(spec.centerline),

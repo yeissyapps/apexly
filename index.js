@@ -2,10 +2,12 @@ import { registerRootComponent } from 'expo';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Sentry from '@sentry/react-native';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 
 import App from './App';
 import { loadSavedLang, useLang } from './src/i18n';
+import { todayKey } from './src/daily';
 
 // Experimento del volantazo fantasma en iOS (ver historial de src/Game.js y
 // src/config.js): sabemos que el timestamp NATIVO de pulsar/soltar y lo que
@@ -32,9 +34,22 @@ function Root() {
   // tenga que escuchar el cambio por su cuenta.
   const lang = useLang();
   useEffect(() => { loadSavedLang(); }, []);
+  // Día nuevo (JC, 2026-10-15, con los circuitos cerrados): App calcula el
+  // circuito, el fantasma, los intentos... del día UNA vez al montarse. Con
+  // la app abierta (o en segundo plano) pasada la medianoche se seguía
+  // corriendo el circuito de AYER pero mandando el tiempo al ranking de HOY.
+  // Al volver a primer plano en otro día, se vuelve a montar App entera
+  // (como al cambiar de idioma) y todo se recalcula para el día nuevo.
+  const [day, setDay] = useState(todayKey());
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') setDay(todayKey());
+    });
+    return () => sub.remove();
+  }, []);
   return (
     <SafeAreaProvider>
-      <App key={lang} />
+      <App key={lang + '-' + day} />
     </SafeAreaProvider>
   );
 }

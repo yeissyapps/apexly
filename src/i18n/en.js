@@ -420,6 +420,7 @@ export default {
   'IDIOMA': 'LANGUAGE',
   'AJUSTES': 'SETTINGS',
   'CAMBIAR AVATAR': 'CHANGE AVATAR',
+  'V{n}': 'L{n}', // vuelta n en el desglose de sectores del Resultado
   '{pos} DEL MES': '{pos} THIS MONTH',
   'SIN CORRER ESTE MES': 'NO RACES THIS MONTH',
   'VICTORIAS': 'WINS',

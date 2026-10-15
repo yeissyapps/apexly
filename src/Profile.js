@@ -123,6 +123,10 @@ async function loadTargets(days) {
       try {
         cache[day] = dailyTimeEstimate(day) * 1000; // s -> ms
         added = true;
+        // Un día de circuito cerrado cuesta mucho más de generar (cientos
+        // de ms en el móvil): se cede el hilo entre día y día para que el
+        // Perfil no se congele la primera vez que se calculan.
+        await new Promise((r) => setTimeout(r, 0));
       } catch (_) {
         cache[day] = 0;
       }

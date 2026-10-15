@@ -197,7 +197,15 @@ export async function getSectorBests(day = todayKey()) {
 // mejora el mejor de hoy (función submit_sector_best); aquí solo se dispara.
 export async function submitSectorSplits(sectorMs, day = todayKey()) {
   await ensureSession();
-  await Promise.all(sectorMs.map((ms, i) =>
+  // Circuito cerrado de varias vueltas: llegan 3 parciales por vuelta, pero
+  // el sector es GEOGRÁFICO (0-2), el mismo tramo en cada vuelta — se manda
+  // el mejor de cada uno. Con una sola vuelta no cambia nada.
+  const best = [];
+  sectorMs.forEach((ms, i) => {
+    const s = i % 3;
+    if (best[s] == null || ms < best[s]) best[s] = ms;
+  });
+  await Promise.all(best.map((ms, i) =>
     supabase.rpc('submit_sector_best', { p_day: day, p_sector: i, p_ms: Math.round(ms) })
       // Los sectores son accesorios: si uno falla, la vuelta ya está guardada
       // y no hay nada que hacer al respecto. El log se queda solo en modo
