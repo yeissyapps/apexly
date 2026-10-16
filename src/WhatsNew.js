@@ -18,26 +18,18 @@ const KEY = 'whatsnew:lastSeenVersion';
 // La versión que se cuenta aquí — sube esto a mano cuando haya algo que
 // contar de cara al jugador. Un parche sin cambios visibles no necesita
 // tocar esto (y así no le sale el pop-up a nadie por él).
-export const WHATS_NEW_VERSION = '2.4.8';
+export const WHATS_NEW_VERSION = '2.4.9';
 
-export const whatsNewTitle = () => t('Sube al podio');
+export const whatsNewTitle = () => t('Llegan los circuitos cerrados');
 
 export const whatsNewItems = () => [
   {
-    title: t('Tu perfil, en el podio'),
-    body: t('Tu piloto, en lo más alto del podio de tu perfil, con tu puesto del mes al lado. Y en RANKING, los tres primeros del día y del mes, cada uno en su escalón.'),
+    title: t('Desde el 1 de noviembre'),
+    body: t('El circuito del día pasa a ser un circuito cerrado de 2 vueltas: sales y llegas por la misma recta. Uno nuevo cada día, el mismo para todos, y la clasificación del mes arranca de cero con ellos.'),
   },
   {
-    title: t('Vitrina'),
-    body: t('Victorias, podios del mes, sectores morados y tu mejor racha, a la vista de cualquiera que entre en tu perfil.'),
-  },
-  {
-    title: t('Circuitos con más vida'),
-    body: t('Escapatorias, pianos solo en las curvas y muros de neumáticos en las curvas cerradas.'),
-  },
-  {
-    title: t('Minimapa'),
-    body: t('Durante la carrera ves el circuito entero arriba a la derecha: tú en rojo, tu fantasma en blanco y el líder en dorado.'),
+    title: t('Sectores en cada vuelta'),
+    body: t('Ves tus tres sectores en cada vuelta, y el morado es para la mejor pasada del día por ese tramo, sea en la vuelta que sea.'),
   },
 ];
 
