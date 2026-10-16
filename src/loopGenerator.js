@@ -27,6 +27,7 @@
 // ============================================================================
 
 import { buildTrackFromCenterline } from './track.js';
+import { CONFIG } from './config.js';
 
 export const LOOP_HALF = 46;        // medio ancho (el de los cerrados del Grand Prix)
 export const LOOP_LAPS = 2;         // 2 vueltas de ~19 s: con 3 eran óvalos sin gracia
@@ -34,6 +35,12 @@ const MIN_RADIUS = 80;              // la curva más cerrada del juego ronda 70-
 const MIN_GAP = 2 * LOOP_HALF + 40;
 const STEP = 20;                    // separación entre puntos de la línea central
 const FOLD_MIN = 80;                // ver foldMin en generateLap
+
+function cleanTime(len) {
+  const { MAX_SPEED, ACCEL } = CONFIG;
+  const dAccel = (MAX_SPEED * MAX_SPEED) / (2 * ACCEL);
+  return len > dAccel ? MAX_SPEED / ACCEL + (len - dAccel) / MAX_SPEED : Math.sqrt((2 * len) / ACCEL);
+}
 
 function hashSeq(s) {
   let h = 1779033703 ^ s.length;
@@ -244,6 +251,9 @@ export function closedDailyCircuit(dateKey) {
     track,
     label: makeLabel(k),
     half: LOOP_HALF,
-    timeEstimate: Math.round((track.lapLength / 250) * LOOP_LAPS),
+    // Mismo criterio que el diario de trazada (cleanTime en generator.js):
+    // toda la carrera a fondo, contando la arrancada desde parado. Así el
+    // "% del objetivo" del gráfico del Perfil sigue siendo comparable.
+    timeEstimate: cleanTime(track.lapLength * LOOP_LAPS),
   };
 }
