@@ -126,19 +126,13 @@ export default {
     'Here you see your stats and get to the Garage to customise your car, the Shop where coins buy packs, and Career Mode: 30 solo levels of rising difficulty, each with a target time that unlocks the next.',
 
   // ---- Novedades ------------------------------------------------------------
-  'Sube al podio': 'Step onto the podium',
-  'Tu perfil, en el podio': 'Your profile, on the podium',
-  'Tu piloto, en lo más alto del podio de tu perfil, con tu puesto del mes al lado. Y en RANKING, los tres primeros del día y del mes, cada uno en su escalón.':
-    'Your driver, on top of the podium in your profile, with your monthly place beside it. And in RANKINGS, the top three of the day and the month, each on their step.',
-  'Vitrina': 'Trophy case',
-  'Victorias, podios del mes, sectores morados y tu mejor racha, a la vista de cualquiera que entre en tu perfil.':
-    'Wins, podiums this month, purple sectors and your best streak, for anyone who visits your profile to see.',
-  'Circuitos con más vida': 'Livelier circuits',
-  'Escapatorias, pianos solo en las curvas y muros de neumáticos en las curvas cerradas.':
-    'Run-off areas, kerbs only on the corners and tyre walls on the tight ones.',
-  'Minimapa': 'Minimap',
-  'Durante la carrera ves el circuito entero arriba a la derecha: tú en rojo, tu fantasma en blanco y el líder en dorado.':
-    "During the race you see the whole circuit top right: you in red, your ghost in white and the leader in gold.",
+  'Llegan los circuitos cerrados': 'Closed circuits are coming',
+  'Desde el 1 de noviembre': 'From November 1st',
+  'El circuito del día pasa a ser un circuito cerrado de 2 vueltas: sales y llegas por la misma recta. Uno nuevo cada día, el mismo para todos, y la clasificación del mes arranca de cero con ellos.':
+    'The daily circuit becomes a closed circuit, 2 laps: you start and finish on the same straight. A new one every day, the same for everyone, and the monthly standings start from zero with them.',
+  'Sectores en cada vuelta': 'Sectors on every lap',
+  'Ves tus tres sectores en cada vuelta, y el morado es para la mejor pasada del día por ese tramo, sea en la vuelta que sea.':
+    'You see your three sectors on every lap, and purple goes to the best run of the day through that stretch, on whichever lap.',
 
 
   // ---- Resultado ------------------------------------------------------------
@@ -420,6 +414,7 @@ export default {
   'IDIOMA': 'LANGUAGE',
   'AJUSTES': 'SETTINGS',
   'CAMBIAR AVATAR': 'CHANGE AVATAR',
+  'V{n}': 'L{n}', // vuelta n en el desglose de sectores del Resultado
   '{pos} DEL MES': '{pos} THIS MONTH',
   'SIN CORRER ESTE MES': 'NO RACES THIS MONTH',
   'VICTORIAS': 'WINS',

@@ -27,12 +27,20 @@
 // ============================================================================
 
 import { buildTrackFromCenterline } from './track.js';
+import { CONFIG } from './config.js';
 
 export const LOOP_HALF = 46;        // medio ancho (el de los cerrados del Grand Prix)
 export const LOOP_LAPS = 2;         // 2 vueltas de ~19 s: con 3 eran óvalos sin gracia
 const MIN_RADIUS = 80;              // la curva más cerrada del juego ronda 70-120
 const MIN_GAP = 2 * LOOP_HALF + 40;
 const STEP = 20;                    // separación entre puntos de la línea central
+const FOLD_MIN = 80;                // ver foldMin en generateLap
+
+function cleanTime(len) {
+  const { MAX_SPEED, ACCEL } = CONFIG;
+  const dAccel = (MAX_SPEED * MAX_SPEED) / (2 * ACCEL);
+  return len > dAccel ? MAX_SPEED / ACCEL + (len - dAccel) / MAX_SPEED : Math.sqrt((2 * len) / ACCEL);
+}
 
 function hashSeq(s) {
   let h = 1779033703 ^ s.length;
@@ -95,6 +103,19 @@ function curvature(pts) {
     k.push((2 * cross) / (ab * bc * ac || 1));
   }
   return k;
+}
+
+// Distancia en línea recta más corta entre dos puntos separados 2*K por la
+// pista: si es muy pequeña, ahí el trazado se pliega (ver FOLD_MIN).
+function foldMin(pts, K) {
+  const n = pts.length;
+  let m = Infinity;
+  for (let i = 0; i < n; i++) {
+    const a = pts[(i - K + n) % n], b = pts[(i + K) % n];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (d < m) m = d;
+  }
+  return m;
 }
 
 function minGap(pts) {
@@ -163,6 +184,14 @@ function generateLap(dateKey) {
     }
     const targetLap = 4000 + rng() * 900;
     let pts = resample(scaleTo(resample(spline(ctrl), 6), targetLap), STEP);
+    // Descarte barato ANTES de suavizar: si el trazado se dobla sobre sí
+    // mismo (dos puntos a 10 de distancia por la pista quedan a menos de
+    // FOLD_MIN en línea recta), ningún suavizado lo abre hasta el radio
+    // mínimo — se descartaba igual, pero tras 80 vueltas de suavizado (5 ms
+    // por intento, ~50 intentos por día: segundos en el móvil al arrancar).
+    // Medido sobre 60 días: todos los aceptados tienen >= 90, así que con 80
+    // no cambia NINGÚN circuito y se ahorra el 92% de los descartes.
+    if (foldMin(pts, 5) < FOLD_MIN) continue;
     for (let it = 0; it < 80; it++) {
       const k0 = curvature(pts);
       let bad = 0;
@@ -198,7 +227,12 @@ function generateLap(dateKey) {
 // se repite LOOP_LAPS veces seguidas, igual que buildClosedCombo() en
 // pieces.js — el motor ya sabe correr eso (track.laps / track.closed).
 export function closedDailyCircuit(dateKey) {
-  const lap = generateLap(dateKey);
+  // Desde que es el diario de verdad (generator.js, CLOSED_FROM) no puede
+  // haber un día sin circuito: si la semilla del día no da ninguno en 400
+  // intentos (no ha pasado en las pruebas), se prueban semillas derivadas.
+  // Los días que salen a la primera no cambian.
+  let lap = generateLap(dateKey);
+  for (let salt = 1; !lap && salt <= 5; salt++) lap = generateLap(`${dateKey}#${salt}`);
   if (!lap) return null;
   const k = curvature(lap);
   // Cada punto lleva su medio ancho y un `type` (recta/curva), como los de
@@ -217,6 +251,9 @@ export function closedDailyCircuit(dateKey) {
     track,
     label: makeLabel(k),
     half: LOOP_HALF,
-    timeEstimate: Math.round((track.lapLength / 250) * LOOP_LAPS),
+    // Mismo criterio que el diario de trazada (cleanTime en generator.js):
+    // toda la carrera a fondo, contando la arrancada desde parado. Así el
+    // "% del objetivo" del gráfico del Perfil sigue siendo comparable.
+    timeEstimate: cleanTime(track.lapLength * LOOP_LAPS),
   };
 }

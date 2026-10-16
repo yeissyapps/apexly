@@ -26,7 +26,11 @@ const SECTOR_COUNT = 3;
 
 export default function MiniTrackMap({ track, w, h, pad = 10, worstSector = null }) {
   if (!track || !track.center || track.center.length < 2) return null;
-  const pts = track.center;
+  // Circuito cerrado de varias vueltas: la línea central repite la vuelta;
+  // basta con la primera (y el peor sector es un tercio de UNA vuelta).
+  const pts = track.laps > 1
+    ? track.center.slice(0, Math.round((track.center.length - 1) / track.laps) + 1)
+    : track.center;
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const p of pts) {

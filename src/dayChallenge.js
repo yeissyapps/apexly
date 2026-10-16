@@ -184,10 +184,14 @@ export async function checkDayChallenge(day, lap) {
     const deltas = lap.sectorDeltas || [];
     // Sin fantasma (primera vuelta del día) todos los sectores salen verdes
     // porque no hay contra qué comparar: el delta null lo delata.
-    met = cols.length >= 3
-      && deltas.length === cols.length
-      && deltas.every((d) => d != null)
-      && cols.every((c) => c === 'purple' || c === 'green');
+    // Circuito cerrado (2 vueltas = 6 sectores): vale con que UNA vuelta
+    // tenga sus tres sectores buenos — "de la misma vuelta", como dice el reto.
+    met = deltas.length === cols.length
+      && Array.from({ length: Math.floor(cols.length / 3) }, (_, l) => l * 3).some((o) => {
+        const c3 = cols.slice(o, o + 3);
+        const d3 = deltas.slice(o, o + 3);
+        return d3.every((d) => d != null) && c3.every((c) => c === 'purple' || c === 'green');
+      });
   } else if (id === 'medio') {
     met = lap.ms <= st.firstMs - MEDIO_MS;
   }

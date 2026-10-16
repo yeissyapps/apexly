@@ -63,7 +63,7 @@ export default function LoopTest({ offset, onOffset, best, lastResult, onPlay, o
             <>
               <Text style={s.trackName}>{tParts(spec.label)}</Text>
               <Text style={s.meta}>
-                {t('{laps} vueltas · objetivo ~{s}s', { laps: LOOP_LAPS, s: spec.timeEstimate })} · {wx.icon} {t(wx.label)}
+                {t('{laps} vueltas · objetivo ~{s}s', { laps: LOOP_LAPS, s: Math.round(spec.timeEstimate) })} · {wx.icon} {t(wx.label)}
               </Text>
               <MiniTrackMap track={spec.track} w={MAP_W - 28} h={190} />
               {mine && <Text style={s.best}>{t('Tu mejor: {time}', { time: fmtTime(mine.ms) })}</Text>}
